@@ -177,6 +177,51 @@ def validate():
 
 
 @app.command()
+def clean(
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project to clean"),
+):
+    """Reclaim disk space by purging bytecode caches and temporary artifacts."""
+    import shutil
+    console.print("[bold cyan]Reclaiming cache and temporary build artifacts...[/bold cyan]")
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    projects = discover_projects(base_dir)
+
+    total_reclaimed = 0
+    cleaned_count = 0
+
+    target_projects = [p for p in projects if project is None or p.name == project]
+    for p in target_projects:
+        p_path = Path(p.project_dir)
+        for item in p_path.rglob("__pycache__"):
+            if ".venv" in item.parts:
+                continue
+            if item.is_dir():
+                try:
+                    size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
+                    shutil.rmtree(item)
+                    total_reclaimed += size
+                    cleaned_count += 1
+                except Exception:
+                    pass
+
+        for pattern in ["*.pyc", "*.pyo", "*.pyd"]:
+            for item in p_path.rglob(pattern):
+                if ".venv" in item.parts:
+                    continue
+                if item.is_file():
+                    try:
+                        size = item.stat().st_size
+                        item.unlink()
+                        total_reclaimed += size
+                        cleaned_count += 1
+                    except Exception:
+                        pass
+
+    reclaimed_mb = total_reclaimed / (1024 * 1024)
+    console.print(f"[bold green]Reclaimed {cleaned_count} cache artifacts ({reclaimed_mb:.2f} MB freed).[/bold green]")
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface to bind"),
     port: int = typer.Option(8000, "--port", help="Port to bind"),

@@ -1,0 +1,23 @@
+# Default MarkdownLint Configuration for LemGendary Codebases
+default: true
+
+# Disable line length limitations. Scientific papers use explicit LaTeX equations
+# and long embedded tables which routinely violate 80-character limits.
+MD013: false
+
+# Allow inline HTML. Essential for advanced formatting (e.g. centering images)
+MD033: false
+
+# Allow multiple headings with the same content (e.g. "Conclusion" in different scopes)
+# Though we set 'siblings_only: true' to prevent identical headings at the SAME level in the SAME section.
+MD024:
+  siblings_only: true
+
+# Allow bare URLs (sometimes needed in quick READMEs)
+MD034: false
+
+# First line does not strictly need to be a top level heading (e.g. badges or logos first)
+MD041: false
+MD025: false
+MD035: false
+MD019: false

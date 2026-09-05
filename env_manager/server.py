@@ -128,7 +128,110 @@ async def run_pipeline(request: RunPipelineRequest):
     return {"status": "accepted", "message": "Pipeline initiated."}
 
 
+class CleanRequest(BaseModel):
+    project: Optional[str] = None
+
+
+class ValidateRequest(BaseModel):
+    project: Optional[str] = None
+
+
+@app.get("/api/manifests")
+async def get_manifests():
+    """List centralized requirements manifests and their contents."""
+    env_mgr_dir = Path(__file__).resolve().parent.parent
+    manifests_dir = env_mgr_dir / "requirements"
+    manifests = {}
+    if manifests_dir.exists():
+        for mf in manifests_dir.glob("*.txt"):
+            manifests[mf.name] = mf.read_text(encoding="utf-8")
+    return {"manifests": manifests}
+
+
+@app.post("/api/manifests/sync")
+async def sync_manifests():
+    """Trigger synchronization of centralized manifests to all sibling projects."""
+    from env_manager.requirements_manager import sync_all_manifests
+    loop = asyncio.get_running_loop()
+    results = await loop.run_in_executor(None, sync_all_manifests)
+    formatted = {k: {"success": ok, "message": msg} for k, (ok, msg) in results.items()}
+    return {"status": "success", "results": formatted}
+
+
+@app.post("/api/clean")
+async def clean_artifacts(request: Optional[CleanRequest] = None):
+    """Purge bytecode caches and temporary build artifacts."""
+    import shutil
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    projects = discover_projects(base_dir)
+    target_name = request.project if request else None
+
+    total_reclaimed = 0
+    cleaned_count = 0
+
+    target_projects = [p for p in projects if target_name is None or p.name == target_name]
+    for p in target_projects:
+        p_path = Path(p.project_dir)
+        for item in p_path.rglob("__pycache__"):
+            if ".venv" in item.parts:
+                continue
+            if item.is_dir():
+                try:
+                    size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
+                    shutil.rmtree(item)
+                    total_reclaimed += size
+                    cleaned_count += 1
+                except Exception:
+                    pass
+
+        for pattern in ["*.pyc", "*.pyo", "*.pyd"]:
+            for item in p_path.rglob(pattern):
+                if ".venv" in item.parts:
+                    continue
+                if item.is_file():
+                    try:
+                        size = item.stat().st_size
+                        item.unlink()
+                        total_reclaimed += size
+                        cleaned_count += 1
+                    except Exception:
+                        pass
+
+    return {
+        "status": "success",
+        "cleaned_count": cleaned_count,
+        "reclaimed_bytes": total_reclaimed,
+        "reclaimed_mb": round(total_reclaimed / (1024 * 1024), 2),
+    }
+
+
+@app.post("/api/validate")
+async def validate_codebase(request: Optional[ValidateRequest] = None):
+    """Run syntax compilation and zero-emoji compliance checks across projects."""
+    from env_manager.validator import validate_project
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    projects = discover_projects(base_dir)
+    target_name = request.project if request else None
+
+    target_projects = [p for p in projects if target_name is None or p.name == target_name]
+    results = {}
+    all_passed = True
+
+    for p in target_projects:
+        rep = validate_project(Path(p.project_dir))
+        results[p.name] = rep.to_dict()
+        if not rep.passed:
+            all_passed = False
+
+    return {
+        "status": "success" if all_passed else "failed",
+        "all_passed": all_passed,
+        "projects": results,
+    }
+
+
 @app.websocket("/ws/log")
+@app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
     """WebSocket stream for real-time pipeline events and log entries."""
     await manager.connect(websocket)

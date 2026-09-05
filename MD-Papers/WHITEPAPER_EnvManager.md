@@ -28,15 +28,31 @@ The system implements dynamic index routing based on probed hardware attributes:
 
 $$\text{IndexURL}(H) = \begin{cases} \text{https://download.pytorch.org/whl/cu121}, & \text{if } H.\text{backend} = \text{CUDA} \\ \text{https://download.pytorch.org/whl/rocm6.0}, & \text{if } H.\text{backend} = \text{ROCm} \\ \text{https://download.pytorch.org/whl/cpu}, & \text{otherwise} \end{cases}$$
 
-Registry synchronization guarantees that platform-dependent wheels (such as MetaTrader5 Windows APIs and onnxruntime-directml versus onnxruntime-gpu) are conditionally guarded using strict environment markers conforming to PEP 508.
+### 3.1 Sibling Surgery & Architectural Decoupling
+
+Prior architecture relied on redundant, monolithic PowerShell scripts (`lemgendary_env_manager.ps1`) duplicated across sibling project trees (`lemgendary-training-suite` and `lemgendary-datasets`). This structural fragmentation resulted in divergent dependency specifications, uncoordinated pip cache mutations, and failure modes when deploying to headless POSIX runtimes.
+
+The Sibling Surgery protocol extracts environment management into an autonomous, decoupled microservice. Sibling entrypoints (`lemgendary_models_hub.ps1` and `lemgendary_datasets_hub.ps1`) delegate bootstrap and reconciliation workflows via a standardized Inter-Process Communication (IPC) delegation pattern:
+
+$$\mathcal{D}(P, c) = \text{SubprocessExecute}\left(\text{lem-env}, c, \text{Target} = P\right)$$
+
+If the centralized `lem-env` binary is absent, the launcher executes a self-healing bootstrap sequence that clones and installs `lemgendary-env-manager` in editable mode before delegating execution.
+
+### 3.2 PEP 508 Cross-Platform Invariants
+
+To eliminate wheel collision across heterogeneous runtime operating systems, requirements manifests enforce strict PEP 508 platform markers:
+
+$$\mathcal{M}(w, P) = \begin{cases} \text{Install}(w), & \text{if } \text{Eval}(\text{Marker}(w), P) = \text{True} \\ \text{Omit}(w), & \text{otherwise} \end{cases}$$
+
+This formalization guarantees that Windows-specific binary extensions (e.g. `MetaTrader5` dynamic link libraries and DirectML backends) are conditionally excluded in Linux cloud instances (`sys_platform == 'win32'`), eliminating silent import failures in Kaggle and Colab container runs.
 
 ## 4. Multi-Modal & Format Resilience
 
 The framework guarantees format resilience across Python packages, Node.js tooling, and notebook runtime generators. Requirements manifests are maintained in a centralized repository and bidirectionally mirrored to individual project repositories:
 
-- `requirements-training.txt` $\rightarrow$ `lemgendary-training-suite/requirements.txt`
-- `requirements-datasets.txt` $\rightarrow$ `lemgendary-datasets/requirements.txt`
-- `requirements-env-manager.txt` $\rightarrow$ `lemgendary-env-manager/requirements.txt`
+- `requirements-training.txt` -> `lemgendary-training-suite/requirements.txt`
+- `requirements-datasets.txt` -> `lemgendary-datasets/requirements.txt`
+- `requirements-env-manager.txt` -> `lemgendary-env-manager/requirements.txt`
 
 The environment manager enforces strict schema parsing resilience:
 
@@ -55,18 +71,29 @@ To quantify the operational efficiency gains delivered by the unified architectu
 | Manifest Consistency Sync | Manual / Error-prone | 45 ms (Deterministic) | $400\times$ |
 | Cross-Platform Support | Windows-only | Linux, Windows, macOS | Universal |
 | IPC / Remote Observability | None (Console only) | REST + WebSocket Telemetry | Full Real-Time Integration |
+| Sibling Decoupling Invariant | Monolithic / Duplicated | Autonomous Microservice | Absolute |
 
 ## 6. Synthesis Flow & Topology
 
 The Smart Clean Install Pipeline operates as a directed acyclic synthesis flow comprising seven deterministic stages:
 
-1. **Hardware Discovery**: Evaluates OS architecture, CPU topology, system RAM, and GPU accelerators (`nvidia-smi`, `rocm-smi`, DirectX WMI).
-2. **Toolchain Audit**: Verifies host Python runtime ($\ge 3.10$), Git binaries, and Node.js package managers.
-3. **Virtual Environments Provisioning**: Identifies missing virtual environments across projects and instantiates isolated `.venv` trees.
-4. **Requirements Synchronization & Installation**: Copies centralized manifests and installs wheel distributions using hardware-targeted extra indices.
-5. **Dependency Audit & Safe Upgrades**: Scans outdated wheels and evaluates upgrade paths within strict semantic bounds.
-6. **Codebase Verification**: Executes `py_compile` bytecode compilation across all project scripts and audits complete zero-emoji compliance.
-7. **Health Matrix Generation**: Compiles global telemetry into an aggregated health status matrix for desktop and CLI display.
+$$\mathcal{G} = (\mathcal{V}, \mathcal{E}), \quad \mathcal{V} = \{v_1, v_2, \dots, v_7\}$$
+
+1. **Hardware Discovery ($v_1$)**: Evaluates OS architecture, CPU topology, system RAM, and GPU accelerators (`nvidia-smi`, `rocm-smi`, DirectX WMI). Resolves optimal PyTorch index URL.
+2. **Toolchain Audit ($v_2$)**: Verifies host Python runtime ($\ge 3.10$), Git binaries, and Node.js package managers.
+3. **Virtual Environments Provisioning ($v_3$)**: Identifies missing virtual environments across projects and instantiates isolated `.venv` trees, upgrading bootstrap tools (`pip`, `wheel`, `setuptools`).
+4. **Requirements Synchronization & Installation ($v_4$)**: Mirrors centralized manifests and installs wheel distributions using hardware-targeted extra indices under PEP 508 filters.
+5. **Dependency Audit & Safe Upgrades ($v_5$)**: Scans outdated wheels and evaluates upgrade paths within strict semantic bounds.
+6. **Codebase Verification ($v_6$)**: Executes `py_compile` bytecode compilation across all project scripts and audits complete zero-emoji compliance.
+7. **Health Matrix Generation ($v_7$)**: Compiles global telemetry into an aggregated health status matrix for desktop and CLI display.
+
+### 6.1 Dual-Interface Telemetry Topology
+
+The control topology couples a headless CLI engine (`lem-env`) and a reactive desktop GUI shell (`lemgendary-ai-studio-gui`) via an asynchronous non-blocking event stream:
+
+$$T_{\text{telemetry}} = \mathcal{O}(1) \quad \text{amortized broadcast}$$
+
+WebSocket workers dispatch typed `PipelineEvent` messages directly to connected frontend clients, guaranteeing zero UI blocking during prolonged package compilation and bytecode verification cycles.
 
 ## 7. Unified Models Registry
 

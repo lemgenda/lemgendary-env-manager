@@ -6,6 +6,8 @@
     <title>LemGendary Environment Manager: Architectural Whitepaper</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../../lemgendary-docs/style.css">
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
     <div class="container">
@@ -66,7 +68,19 @@
                 <div class="equation">
                     \[\text{IndexURL}(H) = \begin{cases} \text{https://download.pytorch.org/whl/cu121}, &amp; \text{if } H.\text{backend} = \text{CUDA} \\ \text{https://download.pytorch.org/whl/rocm6.0}, &amp; \text{if } H.\text{backend} = \text{ROCm} \\ \text{https://download.pytorch.org/whl/cpu}, &amp; \text{otherwise} \end{cases}\]
                 </div>
-                <p>Registry synchronization guarantees that platform-dependent wheels (such as MetaTrader5 Windows APIs and onnxruntime-directml versus onnxruntime-gpu) are conditionally guarded using strict environment markers conforming to PEP 508.</p>
+                <h3>3.1 Sibling Surgery &amp; Architectural Decoupling</h3>
+                <p>Prior architecture relied on redundant, monolithic PowerShell scripts (<code>lemgendary_env_manager.ps1</code>) duplicated across sibling project trees (<code>lemgendary-training-suite</code> and <code>lemgendary-datasets</code>). This structural fragmentation resulted in divergent dependency specifications, uncoordinated pip cache mutations, and failure modes when deploying to headless POSIX runtimes.</p>
+                <p>The Sibling Surgery protocol extracts environment management into an autonomous, decoupled microservice. Sibling entrypoints (<code>lemgendary_models_hub.ps1</code> and <code>lemgendary_datasets_hub.ps1</code>) delegate bootstrap and reconciliation workflows via a standardized Inter-Process Communication (IPC) delegation pattern:</p>
+                <div class="equation">
+                    \[\mathcal{D}(P, c) = \text{SubprocessExecute}\left(\text{lem-env}, c, \text{Target} = P\right)\]
+                </div>
+                <p>If the centralized <code>lem-env</code> binary is absent, the launcher executes a self-healing bootstrap sequence that clones and installs <code>lemgendary-env-manager</code> in editable mode before delegating execution.</p>
+                <h3>3.2 PEP 508 Cross-Platform Invariants</h3>
+                <p>To eliminate wheel collision across heterogeneous runtime operating systems, requirements manifests enforce strict PEP 508 platform markers:</p>
+                <div class="equation">
+                    \[\mathcal{M}(w, P) = \begin{cases} \text{Install}(w), &amp; \text{if } \text{Eval}(\text{Marker}(w), P) = \text{True} \\ \text{Omit}(w), &amp; \text{otherwise} \end{cases}\]
+                </div>
+                <p>This formalization guarantees that Windows-specific binary extensions (e.g. <code>MetaTrader5</code> dynamic link libraries and DirectML backends) are conditionally excluded in Linux cloud instances (<code>sys_platform == 'win32'</code>), eliminating silent import failures in Kaggle and Colab container runs.</p>
             </section>
 
             <section id="section-4">
@@ -101,19 +115,19 @@
                             <td>System Hardware Probe Latency</td>
                             <td>4,250 ms</td>
                             <td>310 ms</td>
-                            <td>13.7&times;</td>
+                            <td>\(13.7\times\)</td>
                         </tr>
                         <tr>
                             <td>Cross-Project Dependency Audit</td>
                             <td>18,900 ms</td>
                             <td>1,420 ms</td>
-                            <td>13.3&times;</td>
+                            <td>\(13.3\times\)</td>
                         </tr>
                         <tr>
                             <td>Manifest Consistency Sync</td>
                             <td>Manual / Error-prone</td>
                             <td>45 ms (Deterministic)</td>
-                            <td>400&times;</td>
+                            <td>\(400\times\)</td>
                         </tr>
                         <tr>
                             <td>Cross-Platform Support</td>
@@ -127,6 +141,12 @@
                             <td>REST + WebSocket Telemetry</td>
                             <td>Full Real-Time Integration</td>
                         </tr>
+                        <tr>
+                            <td>Sibling Decoupling Invariant</td>
+                            <td>Monolithic / Duplicated</td>
+                            <td>Autonomous Microservice</td>
+                            <td>Absolute</td>
+                        </tr>
                     </tbody>
                 </table>
             </section>
@@ -134,15 +154,24 @@
             <section id="section-6">
                 <h2>6. Synthesis Flow &amp; Topology</h2>
                 <p>The Smart Clean Install Pipeline operates as a directed acyclic synthesis flow comprising seven deterministic stages:</p>
+                <div class="equation">
+                    \[\mathcal{G} = (\mathcal{V}, \mathcal{E}), \quad \mathcal{V} = \{v_1, v_2, \dots, v_7\}\]
+                </div>
                 <ol>
-                    <li><strong>Hardware Discovery</strong>: Evaluates OS architecture, CPU topology, system RAM, and GPU accelerators (<code>nvidia-smi</code>, <code>rocm-smi</code>, DirectX WMI).</li>
-                    <li><strong>Toolchain Audit</strong>: Verifies host Python runtime (&ge; 3.10), Git binaries, and Node.js package managers.</li>
-                    <li><strong>Virtual Environments Provisioning</strong>: Identifies missing virtual environments across projects and instantiates isolated <code>.venv</code> trees.</li>
-                    <li><strong>Requirements Synchronization &amp; Installation</strong>: Copies centralized manifests and installs wheel distributions using hardware-targeted extra indices.</li>
-                    <li><strong>Dependency Audit &amp; Safe Upgrades</strong>: Scans outdated wheels and evaluates upgrade paths within strict semantic bounds.</li>
-                    <li><strong>Codebase Verification</strong>: Executes <code>py_compile</code> bytecode compilation across all project scripts and audits complete zero-emoji compliance.</li>
-                    <li><strong>Health Matrix Generation</strong>: Compiles global telemetry into an aggregated health status matrix for desktop and CLI display.</li>
+                    <li><strong>Hardware Discovery (\(v_1\))</strong>: Evaluates OS architecture, CPU topology, system RAM, and GPU accelerators (<code>nvidia-smi</code>, <code>rocm-smi</code>, DirectX WMI). Resolves optimal PyTorch index URL.</li>
+                    <li><strong>Toolchain Audit (\(v_2\))</strong>: Verifies host Python runtime (\(\ge 3.10\)), Git binaries, and Node.js package managers.</li>
+                    <li><strong>Virtual Environments Provisioning (\(v_3\))</strong>: Identifies missing virtual environments across projects and instantiates isolated <code>.venv</code> trees, upgrading bootstrap tools (<code>pip</code>, <code>wheel</code>, <code>setuptools</code>).</li>
+                    <li><strong>Requirements Synchronization &amp; Installation (\(v_4\))</strong>: Mirrors centralized manifests and installs wheel distributions using hardware-targeted extra indices under PEP 508 filters.</li>
+                    <li><strong>Dependency Audit &amp; Safe Upgrades (\(v_5\))</strong>: Scans outdated wheels and evaluates upgrade paths within strict semantic bounds.</li>
+                    <li><strong>Codebase Verification (\(v_6\))</strong>: Executes <code>py_compile</code> bytecode compilation across all project scripts and audits complete zero-emoji compliance.</li>
+                    <li><strong>Health Matrix Generation (\(v_7\))</strong>: Compiles global telemetry into an aggregated health status matrix for desktop and CLI display.</li>
                 </ol>
+                <h3>6.1 Dual-Interface Telemetry Topology</h3>
+                <p>The control topology couples a headless CLI engine (<code>lem-env</code>) and a reactive desktop GUI shell (<code>lemgendary-ai-studio-gui</code>) via an asynchronous non-blocking event stream:</p>
+                <div class="equation">
+                    \[T_{\text{telemetry}} = \mathcal{O}(1) \quad \text{amortized broadcast}\]
+                </div>
+                <p>WebSocket workers dispatch typed <code>PipelineEvent</code> messages directly to connected frontend clients, guaranteeing zero UI blocking during prolonged package compilation and bytecode verification cycles.</p>
             </section>
 
             <section id="section-7">
@@ -162,7 +191,9 @@
         </main>
 
         <footer>
-            <p>&copy; 2026 LemGendary AI. Authoritative Environment Architecture.</p>
+            <div class="footer-content">
+                <p>&copy; 2026 LemGenda. All rights reserved. LemGendary AI Ecosystem Infrastructure.</p>
+            </div>
         </footer>
     </div>
 </body>

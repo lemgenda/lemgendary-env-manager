@@ -71,9 +71,22 @@ lem-env audit
 # Execute Smart Clean Install Pipeline
 lem-env install
 
+# Synchronize centralized requirement manifests
+lem-env sync
+
 # Validate all files for syntax and zero-emoji compliance
 lem-env validate
+
+# Reclaim disk space by purging bytecode caches and temporary artifacts
+lem-env clean
 
 # Run FastAPI and WebSocket server
 lem-env serve --port 8000
 ```
+
+## Documentation
+
+- [User Manual](USER_MANUAL.md): Complete CLI reference, operational recipes, LemGendary AI Studio Desktop GUI manual, and full REST & WebSocket API specification with integration examples.
+- [Architectural Whitepaper (Markdown)](MD-Papers/WHITEPAPER_EnvManager.md): Scientific architecture, mathematical complexity bounds, and Sibling Surgery migration analysis.
+- [Architectural Whitepaper (HTML)](papers/env_manager.html): Synchronized scientific whitepaper formatted for webview.
+
