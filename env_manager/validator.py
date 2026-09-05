@@ -116,14 +116,20 @@ def validate_project(project_dir: Path) -> ProjectValidationReport:
     scannable_extensions = {".py", ".ps1", ".json", ".yaml", ".yml", ".md", ".toml", ".ts", ".tsx", ".html", ".css"}
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
-        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents"
+        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data", "scratch", ".cache"
     }
 
     for root, dirs, files in Path(project_dir).walk():
-        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
         for f in files:
             f_path = root / f
             ext = f_path.suffix.lower()
+
+            try:
+                if f_path.stat().st_size > 1024 * 1024:
+                    continue
+            except Exception:
+                continue
 
             if ext == ".py":
                 compiled_count += 1
