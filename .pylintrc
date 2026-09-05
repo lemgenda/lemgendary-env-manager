@@ -1,0 +1,65 @@
+[MASTER]
+ignore=CVS
+persistent=yes
+load-plugins=
+jobs=1
+unsafe-load-any-extension=no
+
+[MESSAGES CONTROL]
+disable=
+    too-many-branches,
+    too-many-locals,
+    too-many-statements,
+    too-many-lines,
+    too-many-arguments,
+    too-many-positional-arguments,
+    too-many-instance-attributes,
+    too-many-nested-blocks,
+    missing-docstring,
+    invalid-name,
+    line-too-long,
+    broad-exception-caught,
+    bare-except,
+    subprocess-run-check,
+    attribute-defined-outside-init,
+    reimported,
+    unused-import,
+    unused-argument,
+    unused-variable,
+    wrong-import-order,
+    wrong-import-position,
+    ungrouped-imports,
+    possibly-unused-variable,
+    f-string-without-interpolation,
+    redefined-outer-name,
+    protected-access,
+    simplifiable-if-expression,
+    consider-using-with,
+    too-many-boolean-expressions,
+    global-statement,
+    import-outside-toplevel,
+    multiple-statements,
+    not-callable,
+    no-else-break,
+    consider-using-max-builtin,
+    use-dict-literal,
+    used-before-assignment,
+    self-assigning-variable,
+    trailing-whitespace,
+    unspecified-encoding,
+    multiple-imports,
+    no-else-return,
+    bad-indentation,
+    superfluous-parens,
+    consider-using-from-import,
+    unnecessary-dunder-call,
+    expression-not-assigned,
+    duplicate-except,
+    duplicate-code,
+    import-error,
+    too-few-public-methods
+
+[REPORTS]
+output-format=text
+reports=no
+score=yes

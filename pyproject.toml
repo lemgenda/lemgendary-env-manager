@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lemgendary-env-manager"
+version = "2.0.0"
+description = "Centralized environment and dependency manager for LemGendary projects"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0",
+    "psutil>=5.9.0",
+    "pip-tools>=7.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+    "websockets>=11.0",
+    "packaging>=23.0"
+]
+
+[project.scripts]
+lem-env = "env_manager.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["env_manager*"]
+
+[tool.pyright]
+include = ["env_manager"]
+exclude = ["**/__pycache__", ".venv"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
