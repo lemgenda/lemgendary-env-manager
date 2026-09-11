@@ -147,4 +147,14 @@ def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool,
         else:
             results[proj_name] = (False, f"Project directory does not exist: {proj_dir}")
 
+    # Synchronize GUI NPM package manifest
+    gui_manifest = manifests_dir / "lemgendary-ai-studio-gui.package.json"
+    gui_dir = base_dir / "lemgendary-ai-studio-gui"
+    if gui_manifest.exists() and gui_dir.exists() and gui_dir.is_dir():
+        try:
+            shutil.copy2(gui_manifest, gui_dir / "package.json")
+            results["lemgendary-ai-studio-gui"] = (True, f"Synchronized {gui_manifest.name} to {gui_dir / 'package.json'}.")
+        except Exception as exc:
+            results["lemgendary-ai-studio-gui"] = (False, f"Failed to synchronize GUI manifest: {exc}")
+
     return results

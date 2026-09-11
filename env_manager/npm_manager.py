@@ -80,6 +80,7 @@ def audit_npm_workspaces(base_dir: Optional[Path] = None) -> List[NpmPackageStat
     target_dirs = [
         base_dir,
         base_dir / "lemgendary-docs",
+        base_dir / "lemgendary-ai-studio-gui",
     ]
 
     results: List[NpmPackageStatus] = []
