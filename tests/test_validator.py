@@ -33,6 +33,7 @@ class TestValidator(unittest.TestCase):
         try:
             err = compile_python_file(tmp_path)
             self.assertIsNotNone(err)
+            assert err is not None
             self.assertEqual(err.violation_type, "syntax_error")
         finally:
             if tmp_path.exists():

@@ -86,7 +86,7 @@ lem-env serve --port 8000
 
 ## Documentation
 
-- [User Manual](USER_MANUAL.md): Complete CLI reference, operational recipes, LemGendary AI Studio Desktop GUI manual, and full REST & WebSocket API specification with integration examples.
-- [Architectural Whitepaper (Markdown)](MD-Papers/WHITEPAPER_EnvManager.md): Scientific architecture, mathematical complexity bounds, and Sibling Surgery migration analysis.
-- [Architectural Whitepaper (HTML)](papers/env_manager.html): Synchronized scientific whitepaper formatted for webview.
+For the complete architectural whitepaper, operational recipes, and full API specifications, please consult the authoritative documentation in the `lemgendary-docs` repository:
 
+- [Technical Whitepaper & Operations Manual (Markdown)](../lemgendary-docs/MD-Papers/PAPER_ENV_MANAGER.md): Scientific architecture, mathematical complexity bounds, Sibling Surgery migration analysis, CLI reference, and API specifications.
+- [Technical Whitepaper & Operations Manual (HTML)](../lemgendary-docs/papers/env_manager.html): Synchronized scientific whitepaper and operations manual formatted for webview.

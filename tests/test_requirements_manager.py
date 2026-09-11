@@ -32,6 +32,7 @@ class TestRequirementsManager(unittest.TestCase):
 
             mt5_entry = next(p for p in parsed if p.name == "metatrader5")
             self.assertIsNotNone(mt5_entry.marker)
+            assert mt5_entry.marker is not None
             self.assertIn("win32", mt5_entry.marker)
         finally:
             if tmp_path.exists():

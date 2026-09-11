@@ -30,9 +30,16 @@ ENV/
 env.bak/
 venv.bak/
 
-# IDE
+# Local Tooling & Linters
+pyrightconfig.json
+.markdownlint.json
+typings/
+
+# IDE & Editor Files
 .idea/
 .vscode/
+.gemini/
+.antigravity/
 *.swp
 *.swo
 
@@ -40,10 +47,13 @@ venv.bak/
 .pytest_cache/
 .mypy_cache/
 .pyright/
+.ruff_cache/
 htmlcov/
 .coverage
 .coverage.*
+*.tmp
 
 # Logs
 *.log
 logs/
+scratch/
