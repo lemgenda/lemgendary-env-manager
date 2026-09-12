@@ -4,9 +4,15 @@ Audits virtual environments, identifies missing packages, detects version drift,
 and validates accelerator alignment across the LemGendary ecosystem.
 """
 
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+try:
+    from packaging.markers import Marker
+except ImportError:
+    Marker = None
 
 from env_manager.bootstrap import BootstrapStatus, verify_prerequisites
 from env_manager.requirements_manager import parse_requirements_file
@@ -62,11 +68,17 @@ class HealthAuditReport:
         return asdict(self)
 
 
+def normalize_package_name(name: str) -> str:
+    """Canonicalize package name per PEP 503."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
     """Audit single project virtual environment and requirements."""
     p_dir = Path(project_info.project_dir)
     req_file = p_dir / "requirements.txt"
     installed = get_installed_packages(p_dir) if project_info.is_valid else {}
+    canonical_installed = {normalize_package_name(k): v for k, v in installed.items()}
 
     missing: List[str] = []
     total_required = 0
@@ -76,10 +88,16 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
         for entry in parsed:
             if entry.is_index_url:
                 continue
+            if entry.marker and Marker:
+                try:
+                    if not Marker(entry.marker).evaluate():
+                        continue
+                except Exception:
+                    pass
             total_required += 1
-            pkg_name = entry.name.lower()
-            if pkg_name not in installed:
-                missing.append(pkg_name)
+            pkg_name = normalize_package_name(entry.name)
+            if pkg_name not in canonical_installed:
+                missing.append(entry.name)
 
     is_healthy = project_info.is_valid and len(missing) == 0
 
