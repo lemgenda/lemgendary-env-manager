@@ -54,10 +54,7 @@ disable=
     consider-using-from-import,
     unnecessary-dunder-call,
     expression-not-assigned,
-    duplicate-except,
-    duplicate-code,
-    import-error,
-    too-few-public-methods
+    duplicate-except
 
 [REPORTS]
 output-format=text
