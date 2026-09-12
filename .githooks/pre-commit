@@ -42,6 +42,14 @@ if ! "$VENV_PYTHON" -m pyright $STAGED_FILES; then
     HAS_ERRORS=1
 fi
 
+# 4. Environment Manager Audit Suite
+echo "Running environment manager verification..."
+if ! "$VENV_PYTHON" verify_env_manager.py --staged; then
+    echo "[WARNING/ERROR] Environment manager verification failed."
+    HAS_ERRORS=1
+fi
+
+
 if [ $HAS_ERRORS -ne 0 ]; then
     echo "====================================================="
     echo "COMMIT BLOCKED"

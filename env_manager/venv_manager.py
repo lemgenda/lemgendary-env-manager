@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from env_manager.utils import run_command_simple
+
 
 @dataclass
 class ProjectVenvInfo:
@@ -44,13 +46,7 @@ def is_venv_valid(project_dir: Path) -> bool:
     if not python_path.exists() or not python_path.is_file():
         return False
     try:
-        proc = subprocess.run(
-            [str(python_path), "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        proc = run_command_simple([str(python_path), "--version"])
         return proc.returncode == 0
     except Exception:
         return False
@@ -62,18 +58,13 @@ def get_venv_python_version(project_dir: Path) -> Optional[str]:
     if not is_venv_valid(project_dir):
         return None
     try:
-        proc = subprocess.run(
-            [str(python_path), "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        proc = run_command_simple([str(python_path), "--version"])
         if proc.returncode == 0:
             return proc.stdout.strip()
     except Exception:
         pass
     return None
+
 
 
 def create_venv(project_dir: Path) -> tuple[bool, str]:
@@ -142,16 +133,11 @@ def install_requirements(
         cmd.extend(["--extra-index-url", extra_index_url])
 
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        proc = run_command_simple(cmd, timeout=timeout)
         if proc.returncode == 0:
             return True, proc.stdout
         return False, proc.stderr or proc.stdout or "Pip install failed."
+
     except Exception as exc:
         return False, str(exc)
 

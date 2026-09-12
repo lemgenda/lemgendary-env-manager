@@ -15,7 +15,9 @@ from env_manager.health_checker import run_full_health_audit
 from env_manager.npm_manager import audit_npm_workspaces
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
 from env_manager.system_probe import probe_hardware
+from env_manager.utils import purge_project_cache
 from env_manager.venv_manager import discover_projects
+
 
 app = FastAPI(
     title="LemGendary Environment Manager API",
@@ -171,31 +173,9 @@ async def clean_artifacts(request: Optional[CleanRequest] = None):
 
     target_projects = [p for p in projects if target_name is None or p.name == target_name]
     for p in target_projects:
-        p_path = Path(p.project_dir)
-        for item in p_path.rglob("__pycache__"):
-            if ".venv" in item.parts:
-                continue
-            if item.is_dir():
-                try:
-                    size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
-                    shutil.rmtree(item)
-                    total_reclaimed += size
-                    cleaned_count += 1
-                except Exception:
-                    pass
-
-        for pattern in ["*.pyc", "*.pyo", "*.pyd"]:
-            for item in p_path.rglob(pattern):
-                if ".venv" in item.parts:
-                    continue
-                if item.is_file():
-                    try:
-                        size = item.stat().st_size
-                        item.unlink()
-                        total_reclaimed += size
-                        cleaned_count += 1
-                    except Exception:
-                        pass
+        cnt, reclaimed = purge_project_cache(Path(p.project_dir))
+        cleaned_count += cnt
+        total_reclaimed += reclaimed
 
     return {
         "status": "success",
@@ -203,6 +183,7 @@ async def clean_artifacts(request: Optional[CleanRequest] = None):
         "reclaimed_bytes": total_reclaimed,
         "reclaimed_mb": round(total_reclaimed / (1024 * 1024), 2),
     }
+
 
 
 @app.post("/api/validate")

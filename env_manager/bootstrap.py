@@ -12,6 +12,9 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
 
+from env_manager.utils import run_command_simple
+
+
 @dataclass
 class BootstrapStatus:
     """Status report for host system toolchain prerequisites."""
@@ -63,15 +66,11 @@ def check_npm() -> tuple[bool, Optional[str]]:
 def check_venv() -> bool:
     """Check if python -m venv works."""
     try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "venv", "--help"],
-            capture_output=True,
-            timeout=5,
-            check=False,
-        )
+        proc = run_command_simple([sys.executable, "-m", "venv", "--help"])
         return proc.returncode == 0
     except Exception:
         return False
+
 
 
 def verify_prerequisites() -> BootstrapStatus:

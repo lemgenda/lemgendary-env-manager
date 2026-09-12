@@ -16,6 +16,7 @@ from env_manager.health_checker import run_full_health_audit
 from env_manager.orchestrator import PipelineOrchestrator
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
+from env_manager.utils import purge_project_cache
 from env_manager.validator import validate_project
 from env_manager.venv_manager import discover_projects
 
@@ -191,34 +192,13 @@ def clean(
 
     target_projects = [p for p in projects if project is None or p.name == project]
     for p in target_projects:
-        p_path = Path(p.project_dir)
-        for item in p_path.rglob("__pycache__"):
-            if ".venv" in item.parts:
-                continue
-            if item.is_dir():
-                try:
-                    size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
-                    shutil.rmtree(item)
-                    total_reclaimed += size
-                    cleaned_count += 1
-                except Exception:
-                    pass
-
-        for pattern in ["*.pyc", "*.pyo", "*.pyd"]:
-            for item in p_path.rglob(pattern):
-                if ".venv" in item.parts:
-                    continue
-                if item.is_file():
-                    try:
-                        size = item.stat().st_size
-                        item.unlink()
-                        total_reclaimed += size
-                        cleaned_count += 1
-                    except Exception:
-                        pass
+        cnt, reclaimed = purge_project_cache(Path(p.project_dir))
+        cleaned_count += cnt
+        total_reclaimed += reclaimed
 
     reclaimed_mb = total_reclaimed / (1024 * 1024)
     console.print(f"[bold green]Reclaimed {cleaned_count} cache artifacts ({reclaimed_mb:.2f} MB freed).[/bold green]")
+
 
 
 @app.command()

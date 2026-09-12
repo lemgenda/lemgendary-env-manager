@@ -220,3 +220,20 @@ class PipelineOrchestrator:
             self.last_status = "failed"
             yield emit(0, "Pipeline Error", "error", f"Unhandled pipeline exception: {exc}")
             raise
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return current status and telemetry of the pipeline."""
+        return {
+            "is_running": self.is_running,
+            "current_step": self.current_step,
+            "total_steps": self.total_steps,
+            "last_status": self.last_status,
+            "last_run_timestamp": self.last_run_timestamp,
+            "has_report": self.last_report is not None,
+        }
+
+    def reset(self) -> None:
+        """Reset internal execution state."""
+        self.current_step = 0
+        self.is_running = False
+        self.last_status = "idle"
