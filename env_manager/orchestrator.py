@@ -4,15 +4,17 @@ Executes unified environment lifecycle operations across all LemGendary projects
 and streams real-time telemetry events to CLI, WebSocket, and GUI clients.
 """
 
+import shutil
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Optional
 
 from env_manager.bootstrap import verify_prerequisites
 from env_manager.dependency_resolver import find_outdated_packages
 from env_manager.health_checker import HealthAuditReport, run_full_health_audit
+from env_manager.npm_manager import run_npm_install
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
 from env_manager.validator import validate_project
@@ -60,11 +62,12 @@ class PipelineOrchestrator:
         self,
         event_callback: Optional[Callable[[PipelineEvent], None]] = None,
         target_project: Optional[str] = None,
+        clean: bool = True,
     ) -> Generator[PipelineEvent, None, HealthAuditReport]:
         """Execute the 7-step Smart Clean Install Pipeline."""
         self.is_running = True
         self.last_status = "running"
-        self.last_run_timestamp = datetime.utcnow().isoformat()
+        self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
 
         def emit(
             step_num: int,
@@ -74,7 +77,7 @@ class PipelineOrchestrator:
             data: Optional[Dict[str, Any]] = None,
         ) -> PipelineEvent:
             ev = PipelineEvent(
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 step_number=step_num,
                 total_steps=self.total_steps,
                 step_name=step_name,
@@ -127,15 +130,33 @@ class PipelineOrchestrator:
 
             for p in projects:
                 p_dir = Path(p.project_dir)
-                if not is_venv_valid(p_dir):
-                    yield emit(3, "Virtual Environments", "info", f"Creating virtual environment for {p.name}...")
-                    success, msg = create_venv(p_dir)
-                    if success:
-                        yield emit(3, "Virtual Environments", "success", f"Created .venv for {p.name}.")
+                if p.is_node_project:
+                    if clean:
+                        nm_dir = p_dir / "node_modules"
+                        if nm_dir.exists():
+                            yield emit(3, "Virtual Environments", "info", f"Purging existing node_modules for {p.name} (clean install)...")
+                            shutil.rmtree(nm_dir, ignore_errors=True)
+                    if p.node_modules_present and not clean:
+                        yield emit(3, "Virtual Environments", "info", f"Existing node_modules verified for {p.name}.")
                     else:
-                        yield emit(3, "Virtual Environments", "error", f"Failed to create .venv for {p.name}: {msg}")
+                        yield emit(3, "Virtual Environments", "info", f"node_modules will be installed freshly for {p.name} in Step 4.")
                 else:
-                    yield emit(3, "Virtual Environments", "info", f"Existing .venv verified for {p.name}.")
+                    if clean:
+                        venv_dir = p_dir / ".venv"
+                        if venv_dir.exists():
+                            yield emit(3, "Virtual Environments", "info", f"Purging existing .venv for {p.name} (clean install)...")
+                            shutil.rmtree(venv_dir, ignore_errors=True)
+
+                    if not is_venv_valid(p_dir):
+                        yield emit(3, "Virtual Environments", "info", f"Creating fresh virtual environment for {p.name}...")
+                        success, msg = create_venv(p_dir)
+                        if success:
+                            yield emit(3, "Virtual Environments", "success", f"Created fresh .venv for {p.name}.")
+                        else:
+                            yield emit(3, "Virtual Environments", "error", f"Failed to create .venv for {p.name}: {msg}")
+                    else:
+                        yield emit(3, "Virtual Environments", "info", f"Existing .venv verified for {p.name}.")
+
 
             # Step 4: Requirements Manifest Sync & Installation
             yield emit(4, "Requirements Synchronization", "info", "Synchronizing centralized manifests to projects...")
@@ -151,18 +172,27 @@ class PipelineOrchestrator:
             yield emit(4, "Package Installation", "info", "Installing dependencies into target environments...")
             for p in projects:
                 p_dir = Path(p.project_dir)
-                req_file = p_dir / "requirements.txt"
-                if req_file.exists():
-                    yield emit(4, "Package Installation", "info", f"Installing requirements for {p.name}...")
-                    ok, inst_msg = install_requirements(
-                        p_dir,
-                        req_file,
-                        extra_index_url=hw.recommended_torch_index,
-                    )
+                if p.is_node_project:
+                    # Node.js project — run npm install
+                    yield emit(4, "Package Installation", "info", f"Running npm install for {p.name}...")
+                    ok, inst_msg = run_npm_install(p_dir)
                     if ok:
-                        yield emit(4, "Package Installation", "success", f"Dependencies installed successfully for {p.name}.")
+                        yield emit(4, "Package Installation", "success", f"npm install completed successfully for {p.name}.")
                     else:
-                        yield emit(4, "Package Installation", "error", f"Failed installing dependencies for {p.name}: {inst_msg[:200]}")
+                        yield emit(4, "Package Installation", "error", f"npm install failed for {p.name}: {inst_msg[:200]}")
+                else:
+                    req_file = p_dir / "requirements.txt"
+                    if req_file.exists():
+                        yield emit(4, "Package Installation", "info", f"Installing requirements for {p.name}...")
+                        ok, inst_msg = install_requirements(
+                            p_dir,
+                            req_file,
+                            extra_index_url=hw.recommended_torch_index,
+                        )
+                        if ok:
+                            yield emit(4, "Package Installation", "success", f"Dependencies installed successfully for {p.name}.")
+                        else:
+                            yield emit(4, "Package Installation", "error", f"Failed installing dependencies for {p.name}: {inst_msg[:200]}")
 
             # Step 5: Safe Dependency Upgrades & Outdated Check
             yield emit(5, "Dependency Audit", "info", "Checking for outdated packages across environments...")
@@ -175,20 +205,31 @@ class PipelineOrchestrator:
                 else:
                     yield emit(5, "Dependency Audit", "success", f"{p.name} dependencies are up to date.")
 
-            # Step 6: Bytecode Compilation & Zero-Emoji Validation
-            yield emit(6, "Codebase Verification", "info", "Running py_compile and zero-emoji verification...")
+
+
+            # Step 6: Bytecode Compilation, Zero-Emoji & Full Linting Validation
+            yield emit(6, "Codebase Verification", "info", "Running full validation suite (py_compile, emoji, lint, PS1)...")
+            all_validation_passed = True
             for p in projects:
                 p_dir = Path(p.project_dir)
-                report = validate_project(p_dir)
+                report = validate_project(p_dir, is_node_project=p.is_node_project if hasattr(p, "is_node_project") else False)
                 if report.passed:
                     yield emit(
                         6,
                         "Codebase Verification",
                         "success",
-                        f"{p.name}: Compiled {report.compiled_files_count} files with zero syntax errors and zero emoji violations.",
+                        f"{p.name}: Compiled {report.compiled_files_count} files, 0 syntax errors, 0 emoji violations.",
                     )
                 else:
-                    err_summary = f"Syntax errors: {len(report.compile_errors)}, Emoji violations: {len(report.emoji_violations)}"
+                    all_validation_passed = False
+                    err_summary = (
+                        f"Syntax: {len(report.compile_errors)}, "
+                        f"Emoji: {len(report.emoji_violations)}, "
+                        f"Lint: {len(report.lint_errors)}, "
+                        f"YAML: {len(report.yaml_errors)}, "
+                        f"HTML: {len(report.html_errors)}, "
+                        f"WCAG: {len(report.wcag_violations)}"
+                    )
                     yield emit(
                         6,
                         "Codebase Verification",
@@ -196,6 +237,24 @@ class PipelineOrchestrator:
                         f"{p.name} validation failed: {err_summary}",
                         report.to_dict(),
                     )
+
+            # Manifest sync runs only after validation passes
+            if all_validation_passed:
+                yield emit(6, "Codebase Verification", "info", "All projects passed validation. Syncing manifests...")
+                sync_result = sync_all_manifests(self.base_dir)
+                yield emit(
+                    6,
+                    "Codebase Verification",
+                    "success" if sync_result.get("success") else "warning",
+                    f"Manifest sync completed: {sync_result.get('message', '')}",
+                )
+            else:
+                yield emit(
+                    6,
+                    "Codebase Verification",
+                    "warning",
+                    "Manifest sync skipped due to validation failures. Fix errors and re-run.",
+                )
 
             # Step 7: Final Health Report Generation
             yield emit(7, "Health Matrix", "info", "Generating final ecosystem health report...")
@@ -214,6 +273,7 @@ class PipelineOrchestrator:
 
             self.is_running = False
             return final_report
+
 
         except Exception as exc:
             self.is_running = False

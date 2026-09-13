@@ -1,63 +1,35 @@
-#!/bin/bash
-# Pre-commit hook to block commits with warnings or errors.
-# Project standards enforce 100% compliance with syntax, type safety, and linting.
+#!/bin/sh
+# LemGendary Ecosystem Pre-Commit Hook
+# Standardized hook enforcing full validation via lemgendary-env-manager
 
-# Ensure we use the virtual environment's python
-if [ -f "./.venv/Scripts/python.exe" ]; then
-    VENV_PYTHON="./.venv/Scripts/python.exe"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_NAME="$(basename "$ROOT_DIR")"
+WORKSPACE_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
+
+echo "[PRE-COMMIT] Running LemGendary Ecosystem Validation for $PROJECT_NAME..."
+
+LEM_ENV_EXE="$WORKSPACE_ROOT/lemgendary-env-manager/.venv/Scripts/lem-env.exe"
+LEM_ENV_PY="$WORKSPACE_ROOT/lemgendary-env-manager/.venv/Scripts/python.exe"
+
+if [ -f "$LEM_ENV_EXE" ]; then
+    "$LEM_ENV_EXE" validate --project "$PROJECT_NAME"
+    EXIT_CODE=$?
+elif [ -f "$LEM_ENV_PY" ]; then
+    export PYTHONPATH="$WORKSPACE_ROOT/lemgendary-env-manager:$PYTHONPATH"
+    "$LEM_ENV_PY" -m env_manager.cli validate --project "$PROJECT_NAME"
+    EXIT_CODE=$?
 else
-    VENV_PYTHON="c:/Development/python/model-training/lemgendary-env-manager/.venv/Scripts/python.exe"
-fi
-
-# Get a list of staged Python files
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
-
-if [ -z "$STAGED_FILES" ]; then
-    exit 0
-fi
-
-echo "Running pre-commit checks on staged Python files..."
-HAS_ERRORS=0
-
-# 1. Syntax Check (python -m py_compile)
-for FILE in $STAGED_FILES; do
-    echo "Checking syntax: $FILE"
-    if ! "$VENV_PYTHON" -m py_compile "$FILE"; then
-        echo "[FATAL] Syntax error in $FILE"
-        HAS_ERRORS=1
-    fi
-done
-
-# 2. Pylint (Linting)
-echo "Running pylint..."
-if ! "$VENV_PYTHON" -m pylint $STAGED_FILES; then
-    echo "[WARNING/ERROR] Pylint found issues."
-    HAS_ERRORS=1
-fi
-
-# 3. Pyright (Type Checking)
-echo "Running pyright..."
-if ! "$VENV_PYTHON" -m pyright $STAGED_FILES; then
-    echo "[WARNING/ERROR] Pyright found issues."
-    HAS_ERRORS=1
-fi
-
-# 4. Environment Manager Audit Suite
-echo "Running environment manager verification..."
-if ! "$VENV_PYTHON" verify_env_manager.py --staged; then
-    echo "[WARNING/ERROR] Environment manager verification failed."
-    HAS_ERRORS=1
-fi
-
-
-if [ $HAS_ERRORS -ne 0 ]; then
-    echo "====================================================="
-    echo "COMMIT BLOCKED"
-    echo "Please fix all errors and warnings above before committing."
-    echo "All code must be completely clean."
-    echo "====================================================="
+    echo "[ERROR] lem-env not found at $WORKSPACE_ROOT/lemgendary-env-manager. Cannot validate."
     exit 1
 fi
 
-echo "[SUCCESS] All checks passed! Proceeding with commit."
+if [ $EXIT_CODE -ne 0 ]; then
+    echo "====================================================="
+    echo "COMMIT BLOCKED: Validation failed for $PROJECT_NAME."
+    echo "Run 'lem-env validate --project $PROJECT_NAME' to inspect."
+    echo "====================================================="
+    exit $EXIT_CODE
+fi
+
+echo "[PRE-COMMIT] Validation passed for $PROJECT_NAME."
 exit 0

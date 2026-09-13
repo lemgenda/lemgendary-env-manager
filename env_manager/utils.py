@@ -9,6 +9,10 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
+from env_manager._logging import get_logger
+
+_log = get_logger(__name__)
+
 
 def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
     """Purge __pycache__ and bytecode artifacts from a project directory, ignoring .venv."""
@@ -24,8 +28,8 @@ def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
                 shutil.rmtree(item)
                 total_reclaimed += size
                 cleaned_count += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.debug("Failed to remove __pycache__ dir %s: %s", item, exc)
 
     for pattern in ["*.pyc", "*.pyo", "*.pyd"]:
         for item in project_dir.rglob(pattern):
@@ -37,8 +41,8 @@ def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
                     item.unlink()
                     total_reclaimed += size
                     cleaned_count += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log.debug("Failed to remove bytecode file %s: %s", item, exc)
 
     return cleaned_count, total_reclaimed
 

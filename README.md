@@ -1,92 +1,134 @@
-# LemGendary Environment Manager
+# LemGendary Environment Manager — Changelog
 
-A centralized, cross-platform environment and dependency manager for the LemGendary AI ecosystem.
+All notable changes to LemGendary Environment Manager are documented here.
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
-## Overview
+## [2.2.0] — 2026-09-13
 
-LemGendary Environment Manager (`lem-env`) replaces fragmented environment management logic across individual repositories with a unified, cross-platform Python package, CLI, and REST/WebSocket API sidecar service.
+### Added
 
-### Core Capabilities
+- **Ecosystem Authority Centralization**: Retired legacy per-project `verify_*.py` files and absorbed specialized domain verification logic into `env_manager.validator` (`run_domain_verification`).
+- **Local NPM Toolchain**: Added `package.json` with devDependencies (`eslint`, `html-validate`, `markdownlint-cli`, `pa11y`, `typescript`) installed locally in `node_modules/.bin` so all audits execute with zero external download overhead.
+- **Option [2] NPM Package Dependency Matrix**: Extended `audit` command and API endpoint (`GET /api/v1/npm`) to inspect and display declared vs installed versions for each npm package with health status.
+- **Option [3] Clean Install Pipeline Overhaul**: Added `--clean / --no-clean` flag to completely purge `.venv` and `node_modules` before fresh environment recreation.
+- **Standardized Git Hook Management (`lem-env setup-hooks`)**: Added `env_manager/hooks.py` and `lem-env setup-hooks` command to automatically install and repair pre-commit hooks across all ecosystem projects, delegating pre-commit validation to `lem-env validate` and preventing commits on failures.
+- **Git Hook Integrity Audit Gate**: Proactively audits `.githooks/` and `.git/hooks/` in `validator.py` (`_audit_git_hooks`), catching references to retired or missing scripts before commits run.
+- **Purged Duplicate Manifests**: Cleaned obsolete duplicate requirements manifests in `lemgendary-env-manager/requirements/`, standardizing on canonical `requirements-training.txt`, `requirements-datasets.txt`, and `requirements-env-manager.txt`.
+- **Dynamic System Path Discovery**: Replaced all hardcoded system drive paths (`C:\`) with dynamic environment variables (`ProgramFiles`, `ProgramFiles(x86)`) in `bootstrap.py` and `system_probe.py`.
+- **RFC 8259 JSON Validation Gate**: Added `run_jsonlint()` to `validator.py` ensuring strict JSON syntax across all ecosystem configuration and metadata files.
+- **Dedicated Colab & Kaggle Notebook Copy Exports**: Enhanced `lemgendary-training-suite/training/notebook_generator.py` to automatically save synchronized copies of `*_colab_training.ipynb` to `colab/` and `*_training.ipynb` to `kaggle/`.
+- **Master Ecosystem Manuals**: Created consolidated `MANUAL_CLI.md` (`cli-manual.html`) and `MANUAL_API.md` (`api-manual.html`) in `lemgendary-docs` covering all seven repositories.
 
-- **Automated Hardware Discovery**: Probes host system hardware across NVIDIA CUDA, AMD ROCm, DirectML (Windows), and CPU fallbacks. Automatically resolves matching PyTorch extra-index URLs.
-- **Smart Clean Install Pipeline**: End-to-end multi-step orchestration that verifies global toolchains, provisions isolated `.venv` environments, synchronizes centralized requirement manifests, applies safe dependency upgrades, and performs bytecode compilation.
-- **Ecosystem Health Matrix**: Real-time auditing of installed packages, missing dependencies, and package version drift across sibling projects.
-- **Validation Engine**: Performs bytecode compilation checks (`py_compile`) and strict zero-emoji compliance audits across source files.
-- **Sidecar API & WebSockets**: Built-in FastAPI server offering REST endpoints and real-time WebSocket log streaming for the LemGendary AI Studio desktop application.
+### Changed
 
-## Directory Structure
+- `validator.py`: Binary resolution `_resolve_tool_cmd()` now checks project-local `node_modules/.bin`, global PATH, `lemgendary-env-manager`, and `npx`.
+- Centralized `.markdownlint.json` at root level, enabling sibling header deduplication and purging per-project duplicate configurations.
+- `.gitignore`: Placed `node_modules/`, `package-lock.json`, and `.w3c_cache.json` at the top of the file to guarantee clean git tracking across all tools.
 
-```text
-lemgendary-env-manager/
-├── env_manager/                # Core Python package
-│   ├── bootstrap.py            # Toolchain prerequisites audit
-│   ├── cli.py                  # Typer CLI commands
-│   ├── dependency_resolver.py  # Outdated package detection and safe upgrades
-│   ├── health_checker.py       # Ecosystem health and drift matrix
-│   ├── npm_manager.py          # NPM package and documentation audits
-│   ├── orchestrator.py         # Smart Clean Install Pipeline
-│   ├── requirements_manager.py # Manifest synchronization
-│   ├── server.py               # FastAPI and WebSocket sidecar
-│   ├── system_probe.py         # Hardware and accelerator detection
-│   └── validator.py            # py_compile and zero-emoji verification
-├── requirements/               # Centralized requirements manifests
-│   ├── requirements-datasets.txt
-│   ├── requirements-env-manager.txt
-│   └── requirements-training.txt
-├── tests/                      # Automated test suite
-├── lemgendary_env_manager.ps1  # Authoritative PowerShell launcher
-├── pyproject.toml              # Build system and CLI entrypoint
-└── requirements.txt            # Package dependencies
-```
+---
 
-## Quick Start
+## [2.1.0] — 2026-09-12
 
-### PowerShell Hub
+### Added
 
-Launch the interactive management hub:
+- `env_manager/_logging.py`: Centralized structured logging module (`get_logger()`).
+  All probe and linter functions now emit `WARNING`/`DEBUG` via named loggers instead
+  of silently swallowing exceptions.
+- `env_manager/updater.py`: New Safe Package Update module (`build_upgrade_plan`,
+  `apply_upgrade_plan`). Option [4] in the PS1 menu is now a bottom-up safe upgrader
+  instead of a manifest sync shortcut.
+- `run_psscriptanalyzer()` function in `validator.py`: PSScriptAnalyzer integration
+  for linting all `.ps1` scripts in managed projects. Requires
+  `Install-Module PSScriptAnalyzer -Scope CurrentUser -Force`.
+- Post-install validation gate in `orchestrator.py`: Manifest sync now only runs
+  after `validate_project()` passes for all modified projects in the pipeline.
+- Post-update validation gate in `cli.py` `update` command: After `apply_upgrade_plan`
+  completes, `validate_project()` runs on all modified projects; sync is gated on pass.
+- MetaTrader 5 detection in `system_probe.py` and `bootstrap.py` using
+  `Get-Package -Name '*MetaTrader*'` (primary) with well-known path and registry
+  fallbacks.
+- Software update availability check via `winget upgrade --id` for Python and MT5.
+- `npm_manager.py`: Node.js and NPM workspace audit module. Tracks `package.json`,
+  `node_modules` presence, and dependency counts for `lemgendary-ai-studio-gui`.
+- `venv_manager.py`: `discover_projects()` now returns `lemgendary-ai-studio-gui` as
+  `is_node_project=True`.
+- `health_checker.py`: `audit_npm_workspaces()` call integrated into
+  `run_full_health_audit()`. New **Node.js & NPM Workspace Status** table in CLI output.
+- MetaTrader 5 row added to the **Prerequisites & Toolchain** table in `lem-env audit`.
+- `orchestrator.py`: Step 4 now runs `npm install` for `lemgendary-ai-studio-gui`
+  alongside `pip install` for Python projects.
+- `server.py`: New `POST /api/update` endpoint to trigger safe package upgrades
+  via the REST API.
+- `requirements/requirements-env-manager.txt`: Added `yamllint` dependency so
+  YAML linting works from the env-manager venv across all managed repos.
+- `lemgendary_env_manager.ps1`: Server (Option [6]) now runs as a background
+  PowerShell job — menu remains usable while server is active.
 
-```powershell
-.\lemgendary_env_manager.ps1
-```
+### Changed
 
-Or execute commands directly:
+- `lemgendary_env_manager.ps1`: Rewrote main loop as `do { } while` — all menu
+  options now return to the menu instead of exiting.
+- `validator.py`: Expanded validation suite to cover all 7 repositories:
+  ESLint + TypeScript for GUI, markdownlint via npx for all repos,
+  yamllint via env-manager venv for all YAML files, W3C `html-validate`
+  and WCAG 2.2 AA `pa11y` for `lemgendary-docs` static HTML.
+- Option [4] in PS1 menu renamed from "Synchronize Requirements Manifests" to
+  "Execute Safe Package Update Pipeline".
+- `server.py`: Fixed critical crash — replaced `asyncio.run()` inside thread pool
+  with `asyncio.run_coroutine_threadsafe()` to prevent "Event loop already running"
+  `RuntimeError`.
+- All `except Exception: pass` blocks replaced with structured logging:
+  WARNING for tool/network failures, DEBUG for expected parse misses.
 
-```powershell
-.\lemgendary_env_manager.ps1 probe
-.\lemgendary_env_manager.ps1 audit
-.\lemgendary_env_manager.ps1 install
-.\lemgendary_env_manager.ps1 validate
-.\lemgendary_env_manager.ps1 serve
-```
+### Fixed
 
-### Command Line Interface
+- Silent crash in `asyncio` WebSocket broadcast when pipeline ran in background thread.
+- Silent swallowing of `nvidia-smi`, `rocm-smi`, `winget`, `Get-Package`, `npm`,
+  `yamllint`, `ESLint`, `tsc`, `html-validate`, and `pa11y` failures.
+- PEP 508 marker evaluation failures in `health_checker.py` now logged as DEBUG
+  instead of silently keeping wrong counts.
+- `requirements_manager.py`: `packaging.Requirement` parse failures now logged at
+  DEBUG so unexpected line formats are surfaced.
 
-```bash
-# Probe system hardware and accelerators
-lem-env probe
+---
 
-# Audit health matrix and package version drift
-lem-env audit
+## [2.0.0] — 2026-07-15
 
-# Execute Smart Clean Install Pipeline
-lem-env install
+### Added
 
-# Synchronize centralized requirement manifests
-lem-env sync
+- Full Python package extraction: `env_manager/` package with CLI (`typer`),
+  FastAPI sidecar server, and modular architecture.
+- `lem-env` CLI entrypoint via `pyproject.toml`.
+- 7-stage Smart Clean Install Pipeline in `orchestrator.py`.
+- `system_probe.py`: Hardware discovery (CUDA, ROCm, DirectML, CPU).
+- `health_checker.py`: Cross-project dependency drift matrix.
+- `requirements_manager.py`: Centralized manifest sync.
+- `validator.py`: py_compile + zero-emoji validation.
+- `server.py`: FastAPI + WebSocket telemetry server.
+- Centralized manifests in `requirements/` directory.
 
-# Validate all files for syntax and zero-emoji compliance
-lem-env validate
+### Changed
 
-# Reclaim disk space by purging bytecode caches and temporary artifacts
-lem-env clean
+- Replaced monolithic `lemgendary_env_manager.ps1` with Python-native engine.
+- Sibling projects (`lemgendary-training-suite`, `lemgendary-datasets`) no longer
+  maintain their own environment management scripts.
 
-# Run FastAPI and WebSocket server
-lem-env serve --port 8000
-```
+---
+
+## [1.0.0] — 2026-01-01
+
+### Added
+
+- Initial monolithic PowerShell script-based environment management.
+- Manual pip install and venv creation for training-suite and datasets.
+
+---
 
 ## Documentation
 
-For the complete architectural whitepaper, operational recipes, and full API specifications, please consult the authoritative documentation in the `lemgendary-docs` repository:
-
-- [Technical Whitepaper & Operations Manual (Markdown)](../lemgendary-docs/MD-Papers/PAPER_ENV_MANAGER.md): Scientific architecture, mathematical complexity bounds, Sibling Surgery migration analysis, CLI reference, and API specifications.
-- [Technical Whitepaper & Operations Manual (HTML)](../lemgendary-docs/papers/env_manager.html): Synchronized scientific whitepaper and operations manual formatted for webview.
+- [Technical Whitepaper & Operations Manual (Markdown)](../lemgendary-docs/MD-Papers/PAPER_ENV_MANAGER.md)
+- [Technical Whitepaper & Operations Manual (HTML)](../lemgendary-docs/papers/env_manager.html)
+- [REST API Reference (Markdown)](../lemgendary-docs/MD-Papers/API_ENV_MANAGER.md)
+- [REST API Reference (HTML)](../lemgendary-docs/papers/api_env_manager.html)
+- [CLI Reference (Markdown)](../lemgendary-docs/MD-Papers/CLI_ENV_MANAGER.md)
+- [CLI Reference (HTML)](../lemgendary-docs/papers/cli_env_manager.html)

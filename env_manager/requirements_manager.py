@@ -15,6 +15,10 @@ try:
 except ImportError:
     Requirement = None
 
+from env_manager._logging import get_logger
+
+_log = get_logger(__name__)
+
 
 @dataclass
 class ParsedRequirement:
@@ -80,8 +84,8 @@ def parse_requirements_file(file_path: Path) -> List[ParsedRequirement]:
                     )
                 )
                 continue
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.debug("packaging.Requirement parse failed for line '%s': %s", stripped, exc)
 
         # Fallback regex parser
         match = re.match(r"^([A-Za-z0-9_\-\.\[\]]+)\s*([<>=!~]+[^;]*)?(?:;\s*(.*))?$", stripped)

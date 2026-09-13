@@ -9,11 +9,15 @@ import os
 import platform
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
+from env_manager._logging import get_logger
 from env_manager.utils import run_command_simple
+
+_log = get_logger(__name__)
 
 
 @dataclass
@@ -26,6 +30,8 @@ class ProjectVenvInfo:
     is_valid: bool
     python_version: Optional[str] = None
     installed_packages_count: int = 0
+    is_node_project: bool = False
+    node_modules_present: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert info to dictionary."""
@@ -48,7 +54,8 @@ def is_venv_valid(project_dir: Path) -> bool:
     try:
         proc = run_command_simple([str(python_path), "--version"])
         return proc.returncode == 0
-    except Exception:
+    except Exception as exc:
+        _log.debug("venv python --version check failed for %s: %s", project_dir, exc)
         return False
 
 
@@ -61,8 +68,8 @@ def get_venv_python_version(project_dir: Path) -> Optional[str]:
         proc = run_command_simple([str(python_path), "--version"])
         if proc.returncode == 0:
             return proc.stdout.strip()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("venv python version query failed for %s: %s", project_dir, exc)
     return None
 
 
@@ -112,8 +119,8 @@ def get_installed_packages(project_dir: Path) -> Dict[str, str]:
         if proc.returncode == 0:
             data = json.loads(proc.stdout.strip())
             return {item["name"].lower(): item["version"] for item in data}
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Failed to list installed packages in %s: %s", project_dir, exc)
     return {}
 
 
@@ -143,19 +150,28 @@ def install_requirements(
 
 
 def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
-    """Discover standard LemGendary sibling projects."""
+    """Discover standard LemGendary sibling projects.
+
+    Returns both Python (.venv) projects and the Node.js GUI project.
+    Node projects have is_node_project=True and no Python venv entries.
+    """
     if base_dir is None:
         # Default to parent directory of lemgendary-env-manager
         base_dir = Path(__file__).resolve().parent.parent.parent
 
-    target_projects = [
+    python_projects = [
         "lemgendary-training-suite",
         "lemgendary-datasets",
         "lemgendary-env-manager",
     ]
 
+    node_projects = [
+        "lemgendary-ai-studio-gui",
+    ]
+
     discovered: List[ProjectVenvInfo] = []
-    for proj_name in target_projects:
+
+    for proj_name in python_projects:
         p_dir = base_dir / proj_name
         if p_dir.exists() and p_dir.is_dir():
             v_dir = p_dir / ".venv"
@@ -173,6 +189,27 @@ def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
                     is_valid=valid,
                     python_version=py_ver,
                     installed_packages_count=len(pkgs),
+                    is_node_project=False,
+                    node_modules_present=False,
                 )
             )
+
+    for proj_name in node_projects:
+        p_dir = base_dir / proj_name
+        if p_dir.exists() and p_dir.is_dir():
+            node_modules_present = (p_dir / "node_modules").exists()
+            discovered.append(
+                ProjectVenvInfo(
+                    name=proj_name,
+                    project_dir=str(p_dir),
+                    venv_dir="",
+                    python_path=None,
+                    is_valid=node_modules_present,
+                    python_version=None,
+                    installed_packages_count=0,
+                    is_node_project=True,
+                    node_modules_present=node_modules_present,
+                )
+            )
+
     return discovered

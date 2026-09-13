@@ -1,0 +1,14 @@
+---
+extends: default
+
+rules:
+  document-start:
+    level: warning
+  line-length:
+    max: 200
+    level: warning
+  comments:
+    min-spaces-from-content: 2
+  new-lines: disable
+  indentation:
+    indent-sequences: whatever

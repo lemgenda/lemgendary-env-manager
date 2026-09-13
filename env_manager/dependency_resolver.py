@@ -10,7 +10,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from env_manager._logging import get_logger
 from env_manager.venv_manager import get_venv_python_path, is_venv_valid
+
+_log = get_logger(__name__)
 
 
 @dataclass
@@ -64,8 +67,8 @@ def find_outdated_packages(project_dir: Path) -> List[OutdatedPackage]:
                 )
                 for item in data
             ]
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("pip list --outdated failed for %s: %s", project_dir, exc)
     return []
 
 

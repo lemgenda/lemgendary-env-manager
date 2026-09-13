@@ -1,9 +1,13 @@
 """FastAPI and WebSocket sidecar server module.
 
 Provides REST and WebSocket endpoints for the Tauri desktop interface and external clients.
+
+WebSocket log streaming uses an asyncio.Queue fed from a thread pool worker to avoid
+the 'asyncio.run() called from running event loop' crash.
 """
 
 import asyncio
+import threading
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
@@ -60,6 +64,8 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 recent_events: List[Dict[str, Any]] = []
+# Queue used to pass events from thread workers to the asyncio event loop safely
+_event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
 
 class RunPipelineRequest(BaseModel):
@@ -109,14 +115,30 @@ async def get_pipeline_status():
     }
 
 
-def _run_pipeline_worker(target_project: Optional[str]):
-    """Background worker executing orchestrator pipeline and pushing events to asyncio queue."""
+def _run_pipeline_worker(target_project: Optional[str], loop: asyncio.AbstractEventLoop):
+    """Background thread executing the orchestrator pipeline.
+
+    Events are placed on the asyncio-safe queue instead of calling asyncio.run()
+    directly, which would crash because a running event loop already exists.
+    """
     for event in orchestrator.run_clean_install_pipeline(target_project=target_project):
         ev_dict = event.to_dict()
         recent_events.append(ev_dict)
         if len(recent_events) > 200:
             recent_events.pop(0)
-        asyncio.run(manager.broadcast(ev_dict))
+        # Schedule broadcast on the running event loop from this thread
+        asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
+
+
+async def _drain_event_queue():
+    """Background asyncio task that forwards queued events to WebSocket clients.
+
+    This task is started on app startup as a complementary broadcast mechanism.
+    """
+    while True:
+        ev = await _event_queue.get()
+        await manager.broadcast(ev)
+        _event_queue.task_done()
 
 
 @app.post("/api/pipeline/run")
@@ -126,7 +148,12 @@ async def run_pipeline(request: RunPipelineRequest):
         return {"status": "error", "message": "Pipeline is already running."}
 
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, _run_pipeline_worker, request.target_project)
+    thread = threading.Thread(
+        target=_run_pipeline_worker,
+        args=(request.target_project, loop),
+        daemon=True,
+    )
+    thread.start()
     return {"status": "accepted", "message": "Pipeline initiated."}
 
 
@@ -136,6 +163,56 @@ class CleanRequest(BaseModel):
 
 class ValidateRequest(BaseModel):
     project: Optional[str] = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start the background event drain task on server startup."""
+    asyncio.create_task(_drain_event_queue())
+
+
+class UpdateRequest(BaseModel):
+    project: Optional[str] = None
+    dry_run: bool = False
+
+
+@app.post("/api/update")
+async def run_update(request: Optional[UpdateRequest] = None):
+    """Trigger safe bottom-up package upgrades across all projects and auto-sync manifests."""
+    from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
+    from env_manager.system_probe import probe_hardware
+
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    plan = build_upgrade_plan(base_dir)
+
+    if not plan.has_any_updates:
+        return {"status": "up_to_date", "message": "All packages are up to date.", "events": []}
+
+    if request and request.dry_run:
+        return {
+            "status": "dry_run",
+            "plan": plan.to_dict(),
+        }
+
+    hw = probe_hardware()
+    loop = asyncio.get_running_loop()
+    events = []
+
+    def _run_update():
+        for ev in apply_upgrade_plan(plan, base_dir, extra_index_url=hw.recommended_torch_index):
+            ev_dict = ev.to_dict()
+            events.append(ev_dict)
+            asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
+
+    thread = threading.Thread(target=_run_update, daemon=True)
+    thread.start()
+    thread.join(timeout=1200)  # max 20 min
+
+    all_ok = all(e.get("status") in ("upgraded", "skipped") for e in events)
+    return {
+        "status": "success" if all_ok else "partial",
+        "events": events,
+    }
 
 
 @app.get("/api/manifests")

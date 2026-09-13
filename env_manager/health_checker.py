@@ -15,6 +15,8 @@ except ImportError:
     Marker = None
 
 from env_manager.bootstrap import BootstrapStatus, verify_prerequisites
+from env_manager._logging import get_logger
+from env_manager.npm_manager import NpmPackageStatus, audit_npm_workspaces
 from env_manager.requirements_manager import parse_requirements_file
 from env_manager.system_probe import HardwareProfile, probe_hardware
 from env_manager.venv_manager import (
@@ -22,6 +24,8 @@ from env_manager.venv_manager import (
     discover_projects,
     get_installed_packages,
 )
+
+_log = get_logger(__name__)
 
 
 @dataclass
@@ -61,6 +65,7 @@ class HealthAuditReport:
     hardware: HardwareProfile
     projects: List[ProjectHealth]
     version_drift: List[VersionDriftEntry]
+    npm_packages: List[NpmPackageStatus]
     overall_healthy: bool
 
     def to_dict(self) -> Dict[str, Any]:
@@ -92,8 +97,9 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
                 try:
                     if not Marker(entry.marker).evaluate():
                         continue
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log.debug("PEP 508 marker evaluation failed for '%s': %s", entry.marker, exc)
+                    # Keep the package in the required list when marker evaluation fails
             total_required += 1
             pkg_name = normalize_package_name(entry.name)
             if pkg_name not in canonical_installed:
@@ -159,18 +165,23 @@ def run_full_health_audit(base_dir: Optional[Path] = None) -> HealthAuditReport:
 
     projects_health: List[ProjectHealth] = []
     for d in discovered:
+        if d.is_node_project:
+            continue  # Node projects handled separately via npm_packages
         health = audit_project_health(d)
         projects_health.append(health)
 
     drift = compute_version_drift(projects_health)
+    npm_packages = audit_npm_workspaces(base_dir)
 
     all_proj_healthy = all(p.is_healthy for p in projects_health) if projects_health else False
-    overall_healthy = bootstrap.python_valid and bootstrap.git_installed and all_proj_healthy
+    npm_healthy = all(s.node_modules_present for s in npm_packages) if npm_packages else True
+    overall_healthy = bootstrap.python_valid and bootstrap.git_installed and all_proj_healthy and npm_healthy
 
     return HealthAuditReport(
         bootstrap=bootstrap,
         hardware=hardware,
         projects=projects_health,
         version_drift=drift,
+        npm_packages=npm_packages,
         overall_healthy=overall_healthy,
     )

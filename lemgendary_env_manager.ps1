@@ -1,12 +1,12 @@
 # ==============================================================================
-# LemGendary Environment Manager Hub (v2.0.0)
+# LemGendary Environment Manager Hub (v2.1.0)
 # Authoritative PowerShell orchestrator for cross-platform environments.
 # ==============================================================================
 
 [CmdletBinding()]
 param (
     [Parameter(Position = 0)]
-    [ValidateSet("probe", "audit", "install", "sync", "validate", "serve", "menu")]
+    [ValidateSet("probe", "audit", "install", "update", "sync", "validate", "serve", "menu")]
     [string]$Command = "menu",
 
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -35,46 +35,118 @@ function Ensure-Environment {
 
 Ensure-Environment
 
-switch ($Command) {
-    "probe" {
-        & $VenvPython -m env_manager.cli probe @RemainingArgs
+# ── Non-interactive mode (CLI passthrough) ────────────────────────────────────
+if ($Command -ne "menu") {
+    switch ($Command) {
+        "probe"    { & $VenvPython -m env_manager.cli probe @RemainingArgs }
+        "audit"    { & $VenvPython -m env_manager.cli audit @RemainingArgs }
+        "install"  { & $VenvPython -m env_manager.cli install @RemainingArgs }
+        "update"   { & $VenvPython -m env_manager.cli update @RemainingArgs }
+        "sync"     { & $VenvPython -m env_manager.cli sync @RemainingArgs }
+        "validate" { & $VenvPython -m env_manager.cli validate @RemainingArgs }
+        "serve"    { & $VenvPython -m env_manager.cli serve @RemainingArgs }
     }
-    "audit" {
-        & $VenvPython -m env_manager.cli audit @RemainingArgs
+    exit 0
+}
+
+# ── Interactive menu loop ─────────────────────────────────────────────────────
+# The menu runs in a do/while loop so the user returns here after every action.
+$ServerJob = $null   # Track background server job so we can stop it cleanly
+
+do {
+    Write-Host ""
+    Write-Host "======================================================================" -ForegroundColor Cyan
+    Write-Host " LEMGENDARY ENVIRONMENT MANAGER - SOTA ECOSYSTEM HUB" -ForegroundColor Cyan
+    Write-Host "======================================================================" -ForegroundColor Cyan
+    Write-Host " [1] Probe System & Hardware" -ForegroundColor White
+    Write-Host " [2] Run Full Ecosystem Health Audit" -ForegroundColor White
+    Write-Host " [3] Execute Smart Clean Install Pipeline" -ForegroundColor White
+    Write-Host " [4] Safe Package Update (bottom-up + auto-sync)" -ForegroundColor White
+    Write-Host " [5] Validate Projects (py_compile, ESLint, YAML, W3C, WCAG 2.2 AA)" -ForegroundColor White
+
+    # Show server status in menu
+    if ($null -ne $ServerJob -and (Get-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue)) {
+        $jobState = (Get-Job -Id $ServerJob.Id).State
+        if ($jobState -eq "Running") {
+            Write-Host " [6] Stop API Sidecar Server (currently RUNNING on http://127.0.0.1:8000)" -ForegroundColor Green
+        } else {
+            Write-Host " [6] Launch API Sidecar Server (FastAPI/WebSocket)" -ForegroundColor White
+            $ServerJob = $null
+        }
+    } else {
+        Write-Host " [6] Launch API Sidecar Server (FastAPI/WebSocket)" -ForegroundColor White
+        $ServerJob = $null
     }
-    "install" {
-        & $VenvPython -m env_manager.cli install @RemainingArgs
-    }
-    "sync" {
-        & $VenvPython -m env_manager.cli sync @RemainingArgs
-    }
-    "validate" {
-        & $VenvPython -m env_manager.cli validate @RemainingArgs
-    }
-    "serve" {
-        & $VenvPython -m env_manager.cli serve @RemainingArgs
-    }
-    "menu" {
-        Write-Host "======================================================================" -ForegroundColor Cyan
-        Write-Host " LEMGENDARY ENVIRONMENT MANAGER - SOTA ECOSYSTEM HUB" -ForegroundColor Cyan
-        Write-Host "======================================================================" -ForegroundColor Cyan
-        Write-Host " [1] Probe System & Hardware"
-        Write-Host " [2] Run Full Ecosystem Health Audit"
-        Write-Host " [3] Execute Smart Clean Install Pipeline"
-        Write-Host " [4] Synchronize Requirements Manifests"
-        Write-Host " [5] Validate Projects (py_compile & Zero-Emoji)"
-        Write-Host " [6] Launch API Sidecar Server (FastAPI/WebSocket)"
-        Write-Host " [Q] Quit"
-        Write-Host "======================================================================" -ForegroundColor Cyan
-        $choice = Read-Host "Select an option"
-        switch ($choice) {
-            "1" { & $VenvPython -m env_manager.cli probe }
-            "2" { & $VenvPython -m env_manager.cli audit }
-            "3" { & $VenvPython -m env_manager.cli install }
-            "4" { & $VenvPython -m env_manager.cli sync }
-            "5" { & $VenvPython -m env_manager.cli validate }
-            "6" { & $VenvPython -m env_manager.cli serve }
-            default { Write-Host "Exiting." -ForegroundColor Yellow }
+
+    Write-Host " [Q] Quit" -ForegroundColor White
+    Write-Host "======================================================================" -ForegroundColor Cyan
+    $choice = Read-Host "Select an option"
+
+    switch ($choice.ToUpper()) {
+        "1" {
+            Write-Host ""
+            Write-Host "[Option 1] Probing system hardware and checking software..." -ForegroundColor Cyan
+            & $VenvPython -m env_manager.cli probe
+        }
+        "2" {
+            Write-Host ""
+            Write-Host "[Option 2] Running full ecosystem health audit..." -ForegroundColor Cyan
+            & $VenvPython -m env_manager.cli audit
+        }
+        "3" {
+            Write-Host ""
+            Write-Host "[Option 3] Starting Smart Clean Install Pipeline..." -ForegroundColor Cyan
+            & $VenvPython -m env_manager.cli install
+        }
+        "4" {
+            Write-Host ""
+            Write-Host "[Option 4] Running safe bottom-up package upgrade..." -ForegroundColor Cyan
+            & $VenvPython -m env_manager.cli update
+        }
+        "5" {
+            Write-Host ""
+            Write-Host "[Option 5] Running full validation suite..." -ForegroundColor Cyan
+            & $VenvPython -m env_manager.cli validate
+        }
+        "6" {
+            Write-Host ""
+            if ($null -ne $ServerJob -and (Get-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue) -and (Get-Job -Id $ServerJob.Id).State -eq "Running") {
+                # Stop the running server
+                Write-Host "[Option 6] Stopping API Sidecar Server..." -ForegroundColor Yellow
+                Stop-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue
+                Remove-Job -Id $ServerJob.Id -Force -ErrorAction SilentlyContinue
+                $ServerJob = $null
+                Write-Host "[OK] Server stopped." -ForegroundColor Green
+            } else {
+                # Start server as a background job so the menu remains accessible
+                Write-Host "[Option 6] Launching API Sidecar Server in background..." -ForegroundColor Cyan
+                Write-Host "  REST API:  http://127.0.0.1:8000/docs" -ForegroundColor Gray
+                Write-Host "  WebSocket: ws://127.0.0.1:8000/ws/log" -ForegroundColor Gray
+                $VenvPythonLocal = $VenvPython
+                $ServerJob = Start-Job -ScriptBlock {
+                    param($py)
+                    & $py -m env_manager.cli serve
+                } -ArgumentList $VenvPythonLocal
+                Start-Sleep -Seconds 2
+                Write-Host "[OK] Server started (Job ID: $($ServerJob.Id)). Select [6] again to stop it." -ForegroundColor Green
+            }
+        }
+        { $_ -in "Q", "QUIT", "EXIT" } {
+            # Clean up server job if running before exit
+            if ($null -ne $ServerJob) {
+                $jobId = $ServerJob.Id
+                if (Get-Job -Id $jobId -ErrorAction SilentlyContinue) {
+                    Write-Host "Stopping background API server..." -ForegroundColor Yellow
+                    Stop-Job -Id $jobId -ErrorAction SilentlyContinue
+                    Remove-Job -Id $jobId -Force -ErrorAction SilentlyContinue
+                }
+            }
+            Write-Host "Goodbye!" -ForegroundColor Yellow
+            break
+        }
+        default {
+            Write-Host "Unknown option '$choice'. Please select 1-6 or Q." -ForegroundColor Red
         }
     }
-}
+
+} while ($choice.ToUpper() -notin @("Q", "QUIT", "EXIT"))
