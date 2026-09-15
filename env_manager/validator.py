@@ -28,11 +28,13 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from env_manager._logging import get_logger
+from env_manager.utils import pip_env
 
 _log = get_logger(__name__)
 
@@ -46,7 +48,6 @@ class FileValidationViolation:
     message: str
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert violation to dictionary."""
         return asdict(self)
 
 
@@ -66,9 +67,16 @@ class ProjectValidationReport:
     passed: bool
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert report to dictionary."""
         return asdict(self)
 
+
+# ─── Shell selection ────────────────────────────────────────────────────────
+
+def _preferred_shell() -> str:
+    """Return 'pwsh' when PowerShell 7 is available, else 'powershell'."""
+    if shutil.which("pwsh"):
+        return "pwsh"
+    return "powershell"
 
 
 # Comprehensive emoji regex range (Unicode 15.0 ranges)
@@ -89,6 +97,8 @@ EMOJI_PATTERN = re.compile(
     flags=re.UNICODE,
 )
 
+
+# ─── Python compilation & emoji scan ────────────────────────────────────────
 
 def scan_file_for_emojis(file_path: Path) -> List[FileValidationViolation]:
     """Audit single file for emoji presence."""
@@ -140,6 +150,8 @@ def compile_python_file(file_path: Path) -> Optional[FileValidationViolation]:
         )
 
 
+# ─── Python-y tooling (yamllint) ────────────────────────────────────────────
+
 def _get_env_manager_python() -> Optional[str]:
     """Return the path to the env-manager .venv Python executable."""
     import platform
@@ -160,7 +172,11 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
     if not python_path:
         return violations
 
-    skip_dirs = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target", ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data", "scratch", ".cache"}
+    skip_dirs = {
+        ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
+        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
+        "scratch", ".cache",
+    }
     yaml_files = [
         f for f in project_dir.rglob("*.yaml")
         if not any(part in skip_dirs for part in f.parts)
@@ -198,8 +214,9 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=60,
+            timeout=120,
             check=False,
+            env=pip_env(),
         )
         if proc.stdout.strip():
             for line in proc.stdout.strip().splitlines():
@@ -214,8 +231,16 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
                             message=m.group(4),
                         )
                     )
+        # yamllint exit codes:
+        #   0 = no problems
+        #   1 = problems found (expected; parsed above)
+        #   2 = config / tooling error (unexpected; log but do not emit)
         if proc.returncode not in (0, 1):
-            _log.warning("yamllint returned unexpected exit code %d for %s", proc.returncode, project_dir)
+            _log.debug(
+                "yamllint returned exit code %d for %s (stderr: %s)",
+                proc.returncode, project_dir,
+                (proc.stderr or "").strip()[:200],
+            )
     except FileNotFoundError:
         _log.warning("yamllint not found — install it in the env-manager venv: pip install yamllint")
     except Exception as exc:
@@ -223,410 +248,15 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def run_jsonlint(project_dir: Path) -> List[FileValidationViolation]:
-    """Validate RFC 8259 syntax across all JSON files in the project."""
-    violations: List[FileValidationViolation] = []
-    skip_dirs = {
-        ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
-        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data", "scratch", ".cache",
-        "images", "targets", "labels", "train", "val", "test", "lr", "hr"
-    }
-    json_files = [
-        f for f in project_dir.rglob("*.json")
-        if not any(part in skip_dirs for part in f.parts)
-    ]
-
-    for jf in json_files:
-        try:
-            with open(jf, "r", encoding="utf-8") as f:
-                json.load(f)
-        except json.JSONDecodeError as exc:
-            violations.append(
-                FileValidationViolation(
-                    file_path=str(jf),
-                    line_number=exc.lineno,
-                    violation_type="json_syntax_error",
-                    message=f"JSON syntax error: {exc.msg} (col {exc.colno})",
-                )
-            )
-        except Exception as exc:
-            violations.append(
-                FileValidationViolation(
-                    file_path=str(jf),
-                    line_number=0,
-                    violation_type="json_read_error",
-                    message=str(exc),
-                )
-            )
-
-    return violations
-
-
-def _resolve_tool_cmd(tool_name: str, npx_pkg: str, project_dir: Optional[Path] = None) -> List[str]:
-    """Resolve local binary from project or lemgendary-env-manager node_modules/.bin or fallback to npx."""
-    mgr_dir = Path(__file__).resolve().parent.parent
-    candidate_dirs = []
-    if project_dir and (project_dir / "node_modules" / ".bin").exists():
-        candidate_dirs.append(project_dir / "node_modules" / ".bin")
-    candidate_dirs.append(mgr_dir / "node_modules" / ".bin")
-
-    for bin_dir in candidate_dirs:
-        candidates = [
-            bin_dir / f"{tool_name}.cmd",
-            bin_dir / f"{tool_name}.exe",
-            bin_dir / tool_name,
-        ]
-        for c in candidates:
-            if c.exists():
-                return [str(c)]
-
-    # Check global PATH (e.g., globally installed npm binaries)
-    global_bin = (
-        shutil.which(f"{tool_name}.cmd")
-        or shutil.which(f"{tool_name}.exe")
-        or shutil.which(tool_name)
-    )
-    if global_bin:
-        return [global_bin]
-
-    npx = shutil.which("npx") or ("npx.cmd" if sys.platform == "win32" else "npx")
-    return [npx, "--yes", npx_pkg]
-
-
-def run_markdownlint(project_dir: Path) -> List[FileValidationViolation]:
-    """Run markdownlint-cli on Markdown files using local binary or npx."""
-    violations: List[FileValidationViolation] = []
-
-    skip_dirs = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target", ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data", "scratch", ".cache"}
-    md_files = [
-        f for f in project_dir.rglob("*.md")
-        if not any(part in skip_dirs for part in f.parts)
-    ]
-    if not md_files:
-        return violations
-
-    mgr_dir = Path(__file__).resolve().parent.parent
-    cfg = None
-    for candidate in [
-        project_dir / ".markdownlint.json",
-        mgr_dir / ".markdownlint.json",
-        project_dir.parent / ".markdownlint.json",
-        project_dir.parent / "lemgendary-docs" / ".markdownlint.json",
-    ]:
-        if candidate.exists():
-            cfg = str(candidate)
-            break
-
-    cmd = _resolve_tool_cmd("markdownlint", "markdownlint-cli")
-    if cfg:
-        cmd.extend(["-c", cfg])
-    cmd.extend([str(f) for f in md_files])
-
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-        )
-        combined = proc.stdout + proc.stderr
-        for line in combined.splitlines():
-            m = re.match(r"^(.+?):(\d+)(?::\d+)?\s+(MD\d+/\S+)\s+(.+)$", line.strip())
-            if m:
-                violations.append(
-                    FileValidationViolation(
-                        file_path=m.group(1),
-                        line_number=int(m.group(2)),
-                        violation_type=f"markdownlint/{m.group(3)}",
-                        message=m.group(4),
-                    )
-                )
-    except Exception as exc:
-        _log.warning("markdownlint-cli failed for %s: %s", project_dir, exc)
-    return violations
-
-
-def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
-    """Run ESLint on JS/TS source files for a Node.js project."""
-    violations: List[FileValidationViolation] = []
-    npx = shutil.which("npx")
-    if not npx:
-        return violations
-
-    eslint_cfg = (
-        project_dir / ".eslintrc.json",
-        project_dir / ".eslintrc.js",
-        project_dir / ".eslintrc.cjs",
-        project_dir / "eslint.config.js",
-        project_dir / "eslint.config.mjs",
-    )
-    has_eslint_config = any(f.exists() for f in eslint_cfg)
-    if not has_eslint_config:
-        return violations
-
-    src_dir = project_dir / "src"
-    lint_target = str(src_dir) if src_dir.exists() else str(project_dir)
-
-    try:
-        cmd = _resolve_tool_cmd("eslint", "eslint", project_dir=project_dir) + [
-            lint_target, "--ext", ".js,.jsx,.ts,.tsx",
-            "--format", "compact", "--max-warnings", "0"
-        ]
-        proc = subprocess.run(
-            cmd,
-            cwd=str(project_dir),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=120,
-            check=False,
-        )
-        combined = proc.stdout + proc.stderr
-        for line in combined.splitlines():
-            # ESLint compact format: path: line col: severity message  (rule)
-            m = re.match(r"^(.+?):\s+line (\d+),.*?Error\s+(.+)$", line.strip())
-            if m:
-                violations.append(
-                    FileValidationViolation(
-                        file_path=m.group(1),
-                        line_number=int(m.group(2)),
-                        violation_type="eslint_error",
-                        message=m.group(3).strip(),
-                    )
-                )
-            else:
-                # Fallback: any line with " error " is worth capturing
-                if " error " in line.lower() and line.strip() and not line.startswith("Browserslist"):
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=str(project_dir),
-                            line_number=0,
-                            violation_type="eslint_error",
-                            message=line.strip(),
-                        )
-                    )
-    except Exception as exc:
-        _log.warning("ESLint failed for %s: %s", project_dir, exc)
-    return violations
-
-
-def run_typescript_check(project_dir: Path) -> List[FileValidationViolation]:
-    """Run tsc --noEmit for TypeScript projects."""
-    violations: List[FileValidationViolation] = []
-
-    tsconfig = project_dir / "tsconfig.json"
-    if not tsconfig.exists():
-        return violations
-
-    try:
-        cmd = _resolve_tool_cmd("tsc", "typescript", project_dir=project_dir) + ["--noEmit"]
-        proc = subprocess.run(
-            cmd,
-            cwd=str(project_dir),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=120,
-            check=False,
-        )
-        if proc.returncode != 0:
-            for line in (proc.stdout + proc.stderr).splitlines():
-                m = re.match(r"^(.+?)\((\d+),\d+\):\s+error\s+TS\d+:\s+(.+)$", line.strip())
-                if m:
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=m.group(1),
-                            line_number=int(m.group(2)),
-                            violation_type="typescript_error",
-                            message=m.group(3).strip(),
-                        )
-                    )
-    except Exception as exc:
-        _log.warning("tsc --noEmit failed for %s: %s", project_dir, exc)
-    return violations
-
-
-def run_html_validate(project_dir: Path) -> List[FileValidationViolation]:
-    """Run html-validate (W3C HTML validator) on static HTML files."""
-    violations: List[FileValidationViolation] = []
-
-    html_files = [
-        f for f in project_dir.rglob("*.html")
-        if not any(skip in f.parts for skip in (".venv", "node_modules", ".git"))
-    ]
-    if not html_files:
-        return violations
-
-    try:
-        cmd = _resolve_tool_cmd("html-validate", "html-validate") + ["--formatter", "text"] + [str(f) for f in html_files]
-        proc = subprocess.run(
-            cmd,
-            cwd=str(project_dir),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-        )
-        combined = proc.stdout + proc.stderr
-        for line in combined.splitlines():
-            m = re.match(r"^\s*(\d+):(\d+)\s+(error|warning)\s+(.+?)\s+(.+)$", line.strip())
-            if m:
-                violations.append(
-                    FileValidationViolation(
-                        file_path=str(project_dir),
-                        line_number=int(m.group(1)),
-                        violation_type=f"html_{m.group(3)}",
-                        message=f"{m.group(4)} — {m.group(5)}",
-                    )
-                )
-    except Exception as exc:
-        _log.warning("html-validate failed for %s: %s", project_dir, exc)
-    return violations
-
-
-
-def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
-    """Run pa11y WCAG 2.2 AA accessibility audit against static HTML files.
-
-    For the lemgendary-docs project this runs directly against the static HTML.
-    For the React GUI (lemgendary-ai-studio-gui) WCAG requires a running server
-    and is therefore skipped here — report notes this limitation.
-    """
-    violations: List[FileValidationViolation] = []
-
-    html_files = [
-        f for f in project_dir.rglob("*.html")
-        if not any(skip in f.parts for skip in (".venv", "node_modules", ".git", "dist"))
-        and f.stat().st_size < 512 * 1024  # Skip very large generated HTML
-    ]
-    if not html_files:
-        return violations
-
-    audit_targets = [f for f in html_files if f.name == "index.html"] or html_files[:1]
-    for html_file in audit_targets:
-        try:
-            cmd = _resolve_tool_cmd("pa11y", "pa11y") + [
-                "--standard", "WCAG2AA",
-                "--reporter", "cli",
-                f"file:///{html_file.as_posix()}",
-            ]
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-                check=False,
-            )
-            combined = proc.stdout + proc.stderr
-            current_issue: Optional[str] = None
-            for line in combined.splitlines():
-                line = line.strip()
-                if line.startswith("Error:") or line.startswith("Warning:") or line.startswith("Notice:"):
-                    current_issue = line
-                elif current_issue and line.startswith("("):
-                    # Line with WCAG code e.g. (WCAG2AA.Principle1.Guideline1_1.1_1_1.H37)
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=str(html_file),
-                            line_number=0,
-                            violation_type="wcag_aa_violation",
-                            message=f"{current_issue} {line}",
-                        )
-                    )
-                    current_issue = None
-        except Exception as exc:
-            _log.warning("pa11y WCAG audit failed for %s: %s", html_file, exc)
-
-    return violations
-
-
-def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
-    """Run PSScriptAnalyzer on all PowerShell scripts in the project.
-
-    PSScriptAnalyzer is the official Microsoft PowerShell linter.
-    Install via: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-
-    Reports errors and warnings on all .ps1 files excluding .venv and node_modules.
-    """
-    import platform
-    violations: List[FileValidationViolation] = []
-    if platform.system().lower() != "windows":
-        return violations
-
-    ps1_files = [
-        f for f in project_dir.rglob("*.ps1")
-        if not any(skip in f.parts for skip in (".venv", "node_modules", ".git"))
-    ]
-    if not ps1_files:
-        return violations
-
-    # Build a comma-separated list of paths for the PS1 command
-    paths_ps = ", ".join(f'"{str(f)}"' for f in ps1_files)
-    ps_cmd = (
-        f"$results = @({paths_ps}) | ForEach-Object {{ "
-        "Invoke-ScriptAnalyzer -Path $_ -Severity Warning,Error "
-        "}}; $results | ForEach-Object {{ "
-        "\"$($_.ScriptPath):$($_.Line):$($_.Severity):$($_.Message)\" }}"
-    )
-
-    try:
-        proc = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-        )
-        combined = proc.stdout + proc.stderr
-        if "CommandNotFoundException" in combined or "is not recognized" in combined.lower():
-            _log.warning(
-                "PSScriptAnalyzer not installed. Install via: "
-                "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force"
-            )
-            return violations
-        for line in combined.splitlines():
-            # Format: path:line:severity:message
-            parts = line.strip().split(":", 3)
-            if len(parts) >= 4:
-                try:
-                    file_path = parts[0]
-                    line_num = int(parts[1])
-                    severity = parts[2].strip().lower()
-                    message = parts[3].strip()
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=file_path,
-                            line_number=line_num,
-                            violation_type=f"pssa_{severity}",
-                            message=message,
-                        )
-                    )
-                except (ValueError, IndexError):
-                    continue
-    except Exception as exc:
-        _log.warning("PSScriptAnalyzer execution failed: %s", exc)
-    return violations
-
-
+# ─── JSON lint ──────────────────────────────────────────────────────────────
 
 def run_jsonlint(project_dir: Path) -> List[FileValidationViolation]:
     """Audit all JSON configuration and manifest files for syntax and structure errors."""
     violations: List[FileValidationViolation] = []
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
-        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data", "scratch", ".cache", ".antigravity"
+        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
+        "scratch", ".cache", ".antigravity",
     }
     for root, dirs, files in Path(project_dir).walk():
         dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
@@ -657,8 +287,438 @@ def run_jsonlint(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
+# ─── Tool resolution ────────────────────────────────────────────────────────
+
+def _resolve_tool_cmd(
+    tool_name: str, npx_pkg: str, project_dir: Optional[Path] = None,
+) -> List[str]:
+    """Resolve local binary from project or env-manager node_modules/.bin, else npx."""
+    mgr_dir = Path(__file__).resolve().parent.parent
+    candidate_dirs: List[Path] = []
+    if project_dir and (project_dir / "node_modules" / ".bin").exists():
+        candidate_dirs.append(project_dir / "node_modules" / ".bin")
+    candidate_dirs.append(mgr_dir / "node_modules" / ".bin")
+
+    for bin_dir in candidate_dirs:
+        candidates = [
+            bin_dir / f"{tool_name}.cmd",
+            bin_dir / f"{tool_name}.exe",
+            bin_dir / tool_name,
+        ]
+        for c in candidates:
+            if c.exists():
+                return [str(c)]
+
+    global_bin = (
+        shutil.which(f"{tool_name}.cmd")
+        or shutil.which(f"{tool_name}.exe")
+        or shutil.which(tool_name)
+    )
+    if global_bin:
+        return [global_bin]
+
+    npx = shutil.which("npx") or ("npx.cmd" if sys.platform == "win32" else "npx")
+    return [npx, "--yes", npx_pkg]
+
+
+# ─── Markdown / ESLint / TypeScript ─────────────────────────────────────────
+
+def run_markdownlint(project_dir: Path) -> List[FileValidationViolation]:
+    """Run markdownlint-cli on Markdown files using local binary or npx."""
+    violations: List[FileValidationViolation] = []
+
+    skip_dirs = {
+        ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
+        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
+        "scratch", ".cache",
+    }
+    md_files = [
+        f for f in project_dir.rglob("*.md")
+        if not any(part in skip_dirs for part in f.parts)
+    ]
+    if not md_files:
+        return violations
+
+    mgr_dir = Path(__file__).resolve().parent.parent
+    cfg = None
+    for candidate in [
+        project_dir / ".markdownlint.json",
+        mgr_dir / ".markdownlint.json",
+        project_dir.parent / ".markdownlint.json",
+        project_dir.parent / "lemgendary-docs" / ".markdownlint.json",
+    ]:
+        if candidate.exists():
+            cfg = str(candidate)
+            break
+
+    cmd = _resolve_tool_cmd("markdownlint", "markdownlint-cli")
+    if cfg:
+        cmd.extend(["-c", cfg])
+    cmd.extend([str(f) for f in md_files])
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            check=False,
+        )
+        combined = proc.stdout + proc.stderr
+        for line in combined.splitlines():
+            m = re.match(r"^(.+?):(\d+)(?::\d+)?\s+(MD\d+/\S+)\s+(.+)$", line.strip())
+            if m:
+                violations.append(
+                    FileValidationViolation(
+                        file_path=m.group(1),
+                        line_number=int(m.group(2)),
+                        violation_type=f"markdownlint/{m.group(3)}",
+                        message=m.group(4),
+                    )
+                )
+    except Exception as exc:
+        _log.warning("markdownlint-cli failed for %s: %s", project_dir, exc)
+    return violations
+
+
+def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
+    """Run ESLint on JS/TS source files for a Node.js project.
+
+    Uses ``--format json`` so parsing is exact. The previous compact-format
+    regex + broad "any line with ' error '" fallback produced false positives
+    from unrelated tool output (Browserslist warnings, deprecation notices).
+    """
+    violations: List[FileValidationViolation] = []
+
+    eslint_cfg = (
+        project_dir / ".eslintrc.json",
+        project_dir / ".eslintrc.js",
+        project_dir / ".eslintrc.cjs",
+        project_dir / "eslint.config.js",
+        project_dir / "eslint.config.mjs",
+    )
+    has_eslint_config = any(f.exists() for f in eslint_cfg)
+    if not has_eslint_config:
+        return violations
+
+    src_dir = project_dir / "src"
+    lint_target = str(src_dir) if src_dir.exists() else str(project_dir)
+
+    try:
+        cmd = _resolve_tool_cmd("eslint", "eslint", project_dir=project_dir) + [
+            lint_target,
+            "--ext", ".js,.jsx,.ts,.tsx",
+            "--format", "json",
+        ]
+        proc = subprocess.run(
+            cmd,
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+
+        # ESLint may emit non-JSON noise before the JSON block (Browserslist,
+        # deprecation notices, etc.). Find the first '[' and parse from there.
+        stdout = proc.stdout or ""
+        idx = stdout.find("[")
+        if idx < 0:
+            # Nothing parseable; ESLint likely failed to start.
+            if proc.stderr:
+                _log.debug("ESLint for %s produced no JSON output: %s",
+                           project_dir, proc.stderr.strip()[:200])
+            return violations
+
+        try:
+            data = json.loads(stdout[idx:])
+        except json.JSONDecodeError as exc:
+            _log.warning("ESLint JSON parse failed for %s: %s", project_dir, exc)
+            return violations
+
+        for entry in data:
+            file_path = entry.get("filePath", str(project_dir))
+            for msg in entry.get("messages", []):
+                # severity: 1 = warning, 2 = error
+                if msg.get("severity") == 2:
+                    violations.append(
+                        FileValidationViolation(
+                            file_path=file_path,
+                            line_number=msg.get("line", 0),
+                            violation_type="eslint_error",
+                            message=msg.get("message", "").strip(),
+                        )
+                    )
+    except Exception as exc:
+        _log.warning("ESLint failed for %s: %s", project_dir, exc)
+    return violations
+
+
+def run_typescript_check(project_dir: Path) -> List[FileValidationViolation]:
+    """Run tsc --noEmit for TypeScript projects."""
+    violations: List[FileValidationViolation] = []
+
+    tsconfig = project_dir / "tsconfig.json"
+    if not tsconfig.exists():
+        return violations
+
+    try:
+        cmd = _resolve_tool_cmd("tsc", "typescript", project_dir=project_dir) + ["--noEmit"]
+        proc = subprocess.run(
+            cmd,
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+            check=False,
+        )
+        if proc.returncode != 0:
+            for line in (proc.stdout + proc.stderr).splitlines():
+                m = re.match(r"^(.+?)\((\d+),\d+\):\s+error\s+TS\d+:\s+(.+)$", line.strip())
+                if m:
+                    violations.append(
+                        FileValidationViolation(
+                            file_path=m.group(1),
+                            line_number=int(m.group(2)),
+                            violation_type="typescript_error",
+                            message=m.group(3).strip(),
+                        )
+                    )
+    except Exception as exc:
+        _log.warning("tsc --noEmit failed for %s: %s", project_dir, exc)
+    return violations
+
+
+# ─── HTML / CSS / WCAG ──────────────────────────────────────────────────────
+
+def run_html_validate(project_dir: Path) -> List[FileValidationViolation]:
+    """Run html-validate (W3C HTML validator) on static HTML files."""
+    violations: List[FileValidationViolation] = []
+
+    html_files = [
+        f for f in project_dir.rglob("*.html")
+        if not any(skip in f.parts for skip in (".venv", "node_modules", ".git"))
+    ]
+    if not html_files:
+        return violations
+
+    try:
+        cmd = (
+            _resolve_tool_cmd("html-validate", "html-validate")
+            + ["--formatter", "text"]
+            + [str(f) for f in html_files]
+        )
+        proc = subprocess.run(
+            cmd,
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            check=False,
+        )
+        combined = proc.stdout + proc.stderr
+        for line in combined.splitlines():
+            m = re.match(r"^\s*(\d+):(\d+)\s+(error|warning)\s+(.+?)\s+(.+)$", line.strip())
+            if m:
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(project_dir),
+                        line_number=int(m.group(1)),
+                        violation_type=f"html_{m.group(3)}",
+                        message=f"{m.group(4)} — {m.group(5)}",
+                    )
+                )
+    except Exception as exc:
+        _log.warning("html-validate failed for %s: %s", project_dir, exc)
+    return violations
+
+
+def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
+    """Run pa11y WCAG 2.2 AA accessibility audit against static HTML files."""
+    violations: List[FileValidationViolation] = []
+
+    html_files = [
+        f for f in project_dir.rglob("*.html")
+        if not any(skip in f.parts for skip in (".venv", "node_modules", ".git", "dist"))
+        and f.stat().st_size < 512 * 1024
+    ]
+    if not html_files:
+        return violations
+
+    audit_targets = [f for f in html_files if f.name == "index.html"] or html_files[:1]
+    for html_file in audit_targets:
+        try:
+            cmd = _resolve_tool_cmd("pa11y", "pa11y") + [
+                "--standard", "WCAG2AA",
+                "--reporter", "cli",
+                f"file:///{html_file.as_posix()}",
+            ]
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+                check=False,
+            )
+            combined = proc.stdout + proc.stderr
+            current_issue: Optional[str] = None
+            for line in combined.splitlines():
+                line = line.strip()
+                if (
+                    line.startswith("Error:")
+                    or line.startswith("Warning:")
+                    or line.startswith("Notice:")
+                ):
+                    current_issue = line
+                elif current_issue and line.startswith("("):
+                    violations.append(
+                        FileValidationViolation(
+                            file_path=str(html_file),
+                            line_number=0,
+                            violation_type="wcag_aa_violation",
+                            message=f"{current_issue} {line}",
+                        )
+                    )
+                    current_issue = None
+        except Exception as exc:
+            _log.warning("pa11y WCAG audit failed for %s: %s", html_file, exc)
+
+    return violations
+
+
+# ─── PowerShell (PSScriptAnalyzer) ──────────────────────────────────────────
+
+def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
+    """Run PSScriptAnalyzer on all PowerShell scripts in the project.
+
+    Prefers ``pwsh`` (PowerShell 7) when available. Writes the file list to a
+    temp file rather than concatenating every path into a single command line,
+    which was prone to hitting the Windows ``CreateProcess`` 32K-character
+    limit on projects with many scripts.
+    """
+    import platform
+    violations: List[FileValidationViolation] = []
+    if platform.system().lower() != "windows":
+        return violations
+
+    ps1_files = [
+        f for f in project_dir.rglob("*.ps1")
+        if not any(skip in f.parts for skip in (".venv", "node_modules", ".git"))
+    ]
+    if not ps1_files:
+        return violations
+
+    shell = _preferred_shell()
+
+    # Write file list to a temp file with one absolute path per line.
+    fd, list_file = tempfile.mkstemp(prefix="pssa_files_", suffix=".txt")
+    try:
+        with open(fd, "w", encoding="utf-8", closefd=True) as fh:
+            for p in ps1_files:
+                fh.write(str(p) + "\n")
+
+        # Single-quoted path is safe because we control the temp filename.
+        ps_cmd = (
+            f"$files = Get-Content -Path '{list_file}' -Encoding UTF8; "
+            "foreach ($file in $files) { "
+            "    if (Test-Path -LiteralPath $file) { "
+            "        Invoke-ScriptAnalyzer -Path $file -Severity Warning,Error "
+            "    } "
+            "} | ForEach-Object { "
+            "    \"$($_.ScriptPath):$($_.Line):$($_.Severity):$($_.Message)\" "
+            "}"
+        )
+
+        try:
+            proc = subprocess.run(
+                [shell, "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=180,
+                check=False,
+            )
+        except FileNotFoundError:
+            # pwsh not on PATH despite shutil.which finding it earlier; fall
+            # back to Windows PowerShell.
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=180,
+                check=False,
+            )
+
+        combined = proc.stdout + proc.stderr
+        if (
+            "CommandNotFoundException" in combined
+            or "Invoke-ScriptAnalyzer" in combined and "is not recognized" in combined.lower()
+        ):
+            _log.debug(
+                "PSScriptAnalyzer not installed. Install via: "
+                "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force"
+            )
+            return violations
+
+        for line in combined.splitlines():
+            # Format: path:line:severity:message
+            parts = line.strip().split(":", 3)
+            if len(parts) >= 4:
+                try:
+                    file_path = parts[0]
+                    # Windows paths contain 'C:' so the first split is off by
+                    # one. Re-join the first two parts before parsing the rest.
+                    if len(parts[0]) == 1 and parts[1].startswith(("\\", "/")):
+                        file_path = f"{parts[0]}:{parts[1]}"
+                        rest = line.strip()[len(file_path) + 1:].split(":", 2)
+                        if len(rest) < 3:
+                            continue
+                        line_num = int(rest[0])
+                        severity = rest[1].strip().lower()
+                        message = rest[2].strip()
+                    else:
+                        line_num = int(parts[1])
+                        severity = parts[2].strip().lower()
+                        message = parts[3].strip()
+
+                    violations.append(
+                        FileValidationViolation(
+                            file_path=file_path,
+                            line_number=line_num,
+                            violation_type=f"pssa_{severity}",
+                            message=message,
+                        )
+                    )
+                except (ValueError, IndexError):
+                    continue
+    except Exception as exc:
+        _log.warning("PSScriptAnalyzer execution failed: %s", exc)
+    finally:
+        try:
+            import os
+            os.unlink(list_file)
+        except Exception:
+            pass
+
+    return violations
+
+
+# ─── Domain verification ────────────────────────────────────────────────────
+
 def _tokenize_text(text: str) -> List[str]:
-    """Extract normalized word tokens for similarity comparison."""
     text = re.sub(r"https?://\S+", "", text)
     text = re.sub(r"\$\$[\s\S]*?\$\$", " ", text)
     text = re.sub(r"\$[^\$]+?\$", " ", text)
@@ -753,7 +813,11 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
                 matched_md = None
                 h_num = html_title.split(".")[0].strip() if "." in html_title else ""
                 for md_title, md_content in md_secs.items():
-                    if (html_title.lower() == md_title.lower()) or (html_title.lower() in md_title.lower()) or (md_title.lower() in html_title.lower()):
+                    if (
+                        (html_title.lower() == md_title.lower())
+                        or (html_title.lower() in md_title.lower())
+                        or (md_title.lower() in html_title.lower())
+                    ):
                         matched_md = md_content
                         break
                 if not matched_md:
@@ -796,7 +860,10 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
                         file_path=str(html_file),
                         line_number=1,
                         violation_type="doc_sync_drift",
-                        message=f"Sync similarity with {md_name} is {overall_ratio*100:.1f}% (below mandatory 85% threshold)",
+                        message=(
+                            f"Sync similarity with {md_name} is "
+                            f"{overall_ratio*100:.1f}% (below mandatory 85% threshold)"
+                        ),
                     )
                 )
         except Exception as exc:
@@ -880,7 +947,10 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
                 )
             )
 
-    info_files = list(project_dir.glob("*/dataset_info.yaml")) + list(project_dir.glob("*/*/dataset_info.yaml"))
+    info_files = (
+        list(project_dir.glob("*/dataset_info.yaml"))
+        + list(project_dir.glob("*/*/dataset_info.yaml"))
+    )
     for d_info in info_files:
         try:
             import yaml
@@ -914,8 +984,12 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
                     message=str(exc),
                 )
             )
-    # ── Manifold Directory Integrity ───────────────────────────────────────────
-    manifold_dirs = [d for d in project_dir.iterdir() if d.is_dir() and d.name.startswith("LemGendized")]
+
+    # ── Manifold Directory Integrity ─────────────────────────────────────────
+    manifold_dirs = [
+        d for d in project_dir.iterdir()
+        if d.is_dir() and d.name.startswith("LemGendized")
+    ]
     for manifold in manifold_dirs:
         for req_f in ["README.md", "dataset_info.yaml", "category.txt", "classes.txt"]:
             if not (manifold / req_f).exists():
@@ -1111,7 +1185,6 @@ def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
                         line_clean = line.strip()
                         if line_clean.startswith("#"):
                             continue
-                        # 1. Check for retired verify_*.py scripts
                         for retired in retired_scripts:
                             if retired in line:
                                 violations.append(
@@ -1121,11 +1194,11 @@ def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
                                         violation_type="retired_git_hook_script",
                                         message=(
                                             f"Hook invokes retired verification script '{retired}'. "
-                                            f"Pre-commit hooks must delegate to 'lem-env validate --project {project_dir.name}'."
+                                            f"Pre-commit hooks must delegate to "
+                                            f"'lem-env validate --project {project_dir.name}'."
                                         ),
                                     )
                                 )
-                        # 2. Check for python <script>.py where <script>.py does not exist on disk
                         py_matches = re.findall(
                             r'(?:python(?:\.exe)?|"\$VENV_PYTHON"|\$VENV_PYTHON)\s+([a-zA-Z0-9_\-\./\\]+\.py)',
                             line,
@@ -1167,26 +1240,12 @@ def run_domain_verification(project_dir: Path) -> List[FileValidationViolation]:
     elif p_name in ("lemgendary-models", "LemGendaryModels"):
         violations.extend(_audit_models_hub(project_dir))
 
-    # ── Git Hook Integrity Gate (all repositories) ───────────────────────────
     violations.extend(_audit_git_hooks(project_dir))
-
     return violations
 
 
 def validate_project(project_dir: Path, is_node_project: bool = False) -> ProjectValidationReport:
-    """Execute complete validation suite across all files in a project.
-
-    Performs:
-    - py_compile bytecode compilation (Python projects)
-    - Zero-emoji compliance (all scannable files)
-    - yamllint (YAML files across all projects)
-    - jsonlint (JSON files across all projects)
-    - markdownlint (Markdown documentation across all projects)
-    - PSScriptAnalyzer (PowerShell scripts across all projects)
-    - ESLint and TypeScript tsc (Node.js projects)
-    - W3C HTML and WCAG 2.2 AA (documentation projects)
-    - Tailored domain verification gates (whitepaper sync, manifests, registries)
-    """
+    """Execute complete validation suite across all files in a project."""
     compile_errors: List[FileValidationViolation] = []
     emoji_violations: List[FileValidationViolation] = []
     lint_errors: List[FileValidationViolation] = []
@@ -1197,11 +1256,15 @@ def validate_project(project_dir: Path, is_node_project: bool = False) -> Projec
     domain_errors: List[FileValidationViolation] = []
     compiled_count = 0
 
-    scannable_extensions = {".py", ".ps1", ".json", ".yaml", ".yml", ".md", ".toml", ".ts", ".tsx", ".html", ".css"}
+    scannable_extensions = {
+        ".py", ".ps1", ".json", ".yaml", ".yml", ".md", ".toml",
+        ".ts", ".tsx", ".html", ".css",
+    }
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
-        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data", "scratch", ".cache",
-        "images", "targets", "labels", "train", "val", "test", "lr", "hr"
+        ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
+        "scratch", ".cache", "images", "targets", "labels", "train", "val", "test",
+        "lr", "hr",
     }
 
     # ── Emoji & Python compilation scan ──────────────────────────────────────
@@ -1287,4 +1350,3 @@ def validate_project(project_dir: Path, is_node_project: bool = False) -> Projec
         domain_errors=domain_errors,
         passed=passed,
     )
-

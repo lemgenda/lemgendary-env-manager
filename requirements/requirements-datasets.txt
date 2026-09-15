@@ -1,7 +1,6 @@
-# LemGendary Datasets Compiler - Centralized Requirements Manifest
 --extra-index-url https://download.pytorch.org/whl/cu121
-torch==2.14.0+cpu
-torchvision==0.29.0+cpu
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
 transformers==5.17.0
 pillow==12.3.0
 numpy==2.5.3
@@ -9,13 +8,13 @@ scikit-learn==1.9.1
 webdataset==1.0.2
 safetensors==0.8.0
 pyyaml==6.0.3
-opencv-python==5.0.0.93
 tqdm==4.70.1
 huggingface-hub>=0.26.0
 tokenizers==0.23.2
 typer==0.27.2
 click==8.5.0
 mediapipe==1.0.1
+opencv-contrib-python==5.0.0.93
 regex==2026.9.10
 kaggle==2.2.4
 kagglehub==1.0.2
@@ -24,9 +23,19 @@ pandas==3.0.5
 pyarrow==25.0.1
 requests==2.34.2
 scipy==1.18.1
-ultralytics==8.4.150
+ultralytics==8.4.153
 MetaTrader5==5.0.6180; sys_platform == 'win32'
-pandas-ta==0.4.71b0
+pandas-ta-classic==0.8.32
 pylint==4.0.8
 pyright==1.1.414
 
+# ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
+# pyyaml, requests, psutil, beautifulsoup4, and setuptools ship without
+# inline type hints. These stub packages provide .pyi files so the type
+# checker can resolve imports without emitting missing-import warnings.
+# They are dev-time only and have no runtime footprint.
+types-PyYAML==6.0.12.20260906
+types-requests==2.33.0.20260906
+types-psutil==7.2.2.20260906
+types-beautifulsoup4==4.12.0.20250516
+types-setuptools==84.0.0.20260812

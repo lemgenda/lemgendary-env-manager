@@ -15,25 +15,45 @@ param (
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$VenvPython = Join-Path $ScriptDir ".venv\Scripts\python.exe"
+$VenvDir = Join-Path $ScriptDir ".venv"
+$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+$VenvCfg = Join-Path $VenvDir "pyvenv.cfg"
 
-function Ensure-Environment {
-    if (-not (Test-Path $VenvPython)) {
-        Write-Host "[INIT] Setting up virtual environment for LemGendary Environment Manager..." -ForegroundColor Cyan
-        $GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
-        if (-not $GlobalPy) {
-            Write-Error "Global Python was not found in PATH. Please install Python 3.10+."
-        }
-        & $GlobalPy -m venv (Join-Path $ScriptDir ".venv")
-        & $VenvPython -m pip install --upgrade pip wheel setuptools
-        $ReqPath = Join-Path $ScriptDir "requirements.txt"
-        if (Test-Path $ReqPath) {
-            & $VenvPython -m pip install -r $ReqPath
-        }
+function Initialize-Environment {
+    # Check if the baseline filesystem structural locks exist
+    $HasPython = Test-Path $VenvPython
+    $HasCfg = Test-Path $VenvCfg
+
+    # Core Fix: If the structural anchors are present, skip initialization completely
+    # to avoid file locking loops inside the active orchestrator.
+    if ($HasPython -and $HasCfg) {
+        return
+    }
+
+    Write-Host "[INIT] Setting up virtual environment for LemGendary Environment Manager..." -ForegroundColor Cyan
+
+    if (Test-Path $VenvDir) {
+        Write-Host "[INIT] Purging broken or incomplete environment folder..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 1
+        Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue
+    }
+
+    $GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $GlobalPy) {
+        Write-Error "Global Python was not found in PATH. Please install Python 3.10+."
+    }
+
+    & $GlobalPy -m venv $VenvDir
+    & $VenvPython -m pip install --upgrade pip wheel setuptools
+
+    $ReqPath = Join-Path $ScriptDir "requirements.txt"
+    if (Test-Path $ReqPath) {
+        & $VenvPython -m pip install -r $ReqPath
     }
 }
 
-Ensure-Environment
+# Run safe bootstrap pass
+Initialize-Environment
 
 # ── Non-interactive mode (CLI passthrough) ────────────────────────────────────
 if ($Command -ne "menu") {
@@ -50,8 +70,7 @@ if ($Command -ne "menu") {
 }
 
 # ── Interactive menu loop ─────────────────────────────────────────────────────
-# The menu runs in a do/while loop so the user returns here after every action.
-$ServerJob = $null   # Track background server job so we can stop it cleanly
+$ServerJob = $null
 
 do {
     Write-Host ""
@@ -64,7 +83,6 @@ do {
     Write-Host " [4] Safe Package Update (bottom-up + auto-sync)" -ForegroundColor White
     Write-Host " [5] Validate Projects (py_compile, ESLint, YAML, W3C, WCAG 2.2 AA)" -ForegroundColor White
 
-    # Show server status in menu
     if ($null -ne $ServerJob -and (Get-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue)) {
         $jobState = (Get-Job -Id $ServerJob.Id).State
         if ($jobState -eq "Running") {
@@ -111,16 +129,14 @@ do {
         "6" {
             Write-Host ""
             if ($null -ne $ServerJob -and (Get-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue) -and (Get-Job -Id $ServerJob.Id).State -eq "Running") {
-                # Stop the running server
                 Write-Host "[Option 6] Stopping API Sidecar Server..." -ForegroundColor Yellow
                 Stop-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue
                 Remove-Job -Id $ServerJob.Id -Force -ErrorAction SilentlyContinue
                 $ServerJob = $null
                 Write-Host "[OK] Server stopped." -ForegroundColor Green
             } else {
-                # Start server as a background job so the menu remains accessible
                 Write-Host "[Option 6] Launching API Sidecar Server in background..." -ForegroundColor Cyan
-                Write-Host "  REST API:  http://127.0.0.1:8000/docs" -ForegroundColor Gray
+                Write-Host "  REST API:  http://127.0.0" -ForegroundColor Gray
                 Write-Host "  WebSocket: ws://127.0.0.1:8000/ws/log" -ForegroundColor Gray
                 $VenvPythonLocal = $VenvPython
                 $ServerJob = Start-Job -ScriptBlock {
@@ -132,7 +148,6 @@ do {
             }
         }
         { $_ -in "Q", "QUIT", "EXIT" } {
-            # Clean up server job if running before exit
             if ($null -ne $ServerJob) {
                 $jobId = $ServerJob.Id
                 if (Get-Job -Id $jobId -ErrorAction SilentlyContinue) {

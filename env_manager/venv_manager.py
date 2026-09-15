@@ -1,23 +1,30 @@
-"""Virtual environment lifecycle management module.
-
-Handles creation, validation, package querying, and pip execution
-across Windows, Linux, and macOS platforms.
-"""
+"""Virtual environment lifecycle management module."""
 
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from env_manager._logging import get_logger
-from env_manager.utils import run_command_simple
+from env_manager.utils import pip_env, run_command_simple, run_pip_with_recovery
 
 _log = get_logger(__name__)
+
+
+OPENCV_VARIANTS: Tuple[str, ...] = (
+    "opencv-python",
+    "opencv-python-headless",
+    "opencv-contrib-python",
+    "opencv-contrib-python-headless",
+)
 
 
 @dataclass
@@ -34,22 +41,23 @@ class ProjectVenvInfo:
     node_modules_present: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert info to dictionary."""
         return asdict(self)
 
 
 def get_venv_python_path(project_dir: Path) -> Path:
-    """Resolve OS-specific path to virtual environment python executable."""
     venv_dir = project_dir / ".venv"
-    if platform.system().lower() == "windows":
-        return venv_dir / "Scripts" / "python.exe"
-    return venv_dir / "bin" / "python"
+    is_windows = platform.system().lower() == "windows"
+    python_exe_name = "python.exe" if is_windows else "python"
+    python_subfolder = "Scripts" if is_windows else "bin"
+    return venv_dir / python_subfolder / python_exe_name
 
 
 def is_venv_valid(project_dir: Path) -> bool:
-    """Check if project virtual environment exists and is operational."""
+    venv_dir = project_dir / ".venv"
     python_path = get_venv_python_path(project_dir)
-    if not python_path.exists() or not python_path.is_file():
+
+    cfg_path = venv_dir / "pyvenv.cfg"
+    if not cfg_path.exists() or not python_path.exists() or not python_path.is_file():
         return False
     try:
         proc = run_command_simple([str(python_path), "--version"])
@@ -60,10 +68,9 @@ def is_venv_valid(project_dir: Path) -> bool:
 
 
 def get_venv_python_version(project_dir: Path) -> Optional[str]:
-    """Retrieve Python version of the project virtual environment."""
-    python_path = get_venv_python_path(project_dir)
     if not is_venv_valid(project_dir):
         return None
+    python_path = get_venv_python_path(project_dir)
     try:
         proc = run_command_simple([str(python_path), "--version"])
         if proc.returncode == 0:
@@ -73,48 +80,86 @@ def get_venv_python_version(project_dir: Path) -> Optional[str]:
     return None
 
 
-
-def create_venv(project_dir: Path) -> tuple[bool, str]:
-    """Create a virtual environment in project_dir/.venv."""
-    venv_dir = project_dir / ".venv"
+def _handle_remove_readonly(func, path, exc):
+    import stat
     try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception as error:
+        _log.debug("Failed to clear read-only file lock for %s: %s", path, error)
+
+
+def _is_inside_active_venv(venv_dir: Path) -> bool:
+    try:
+        current_exe = Path(sys.executable).resolve()
+    except Exception:
+        return False
+    try:
+        if current_exe.is_relative_to(venv_dir.resolve()):
+            return True
+    except AttributeError:
+        try:
+            current_exe.relative_to(venv_dir.resolve())
+            return True
+        except ValueError:
+            pass
+    except Exception:
+        pass
+    return False
+
+
+def create_venv(project_dir: Path) -> Tuple[bool, str]:
+    venv_dir = project_dir / ".venv"
+
+    if _is_inside_active_venv(venv_dir):
+        if is_venv_valid(project_dir):
+            _log.info("Refusing to recreate active orchestrator venv at '%s'.", venv_dir)
+            return True, "Active execution environment preserved intact."
+        return False, (
+            "Refusing to recreate the currently executing venv, and it is "
+            "not valid. Run this command from outside the target venv."
+        )
+
+    try:
+        if venv_dir.exists():
+            shutil.rmtree(venv_dir, onexc=_handle_remove_readonly)
+
+        base_python = getattr(sys, "_base_executable", sys.executable)
+
         proc = subprocess.run(
-            [sys.executable, "-m", "venv", str(venv_dir)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
+            [str(base_python), "-m", "venv", str(venv_dir)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120, check=False,
         )
         if proc.returncode != 0:
-            return False, proc.stderr or "Failed to create virtual environment."
+            return False, proc.stderr or f"Failed to execute venv module via {base_python}."
 
-        # Upgrade pip and wheel in new environment
+        cfg_path = venv_dir / "pyvenv.cfg"
+        if not cfg_path.exists():
+            return False, "Failed to create virtual environment: no pyvenv.cfg file created."
+
         python_path = get_venv_python_path(project_dir)
-        upgrade_proc = subprocess.run(
-            [str(python_path), "-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
+        upgrade_proc = run_pip_with_recovery(
+            python_path,
+            ["install", "--upgrade", "pip", "wheel", "setuptools"],
+            timeout=300,
         )
+        if upgrade_proc.returncode != 0:
+            return False, f"Venv spawned, but core upgrade failed: {upgrade_proc.stderr}"
+
         return True, "Virtual environment created and upgraded successfully."
     except Exception as exc:
         return False, str(exc)
 
 
 def get_installed_packages(project_dir: Path) -> Dict[str, str]:
-    """Query list of installed packages as {name: version} mapping."""
-    python_path = get_venv_python_path(project_dir)
     if not is_venv_valid(project_dir):
         return {}
+    python_path = get_venv_python_path(project_dir)
 
     try:
-        proc = subprocess.run(
-            [str(python_path), "-m", "pip", "list", "--format=json"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+        proc = run_pip_with_recovery(
+            python_path, ["list", "--format=json"], timeout=30,
         )
         if proc.returncode == 0:
             data = json.loads(proc.stdout.strip())
@@ -128,46 +173,92 @@ def install_requirements(
     project_dir: Path,
     requirements_file: Path,
     extra_index_url: Optional[str] = None,
-    timeout: int = 600,
-) -> tuple[bool, str]:
-    """Install requirements file into project virtual environment."""
-    python_path = get_venv_python_path(project_dir)
+    timeout: int = 1800,
+) -> Tuple[bool, str]:
+    """Install a requirements file into the project venv.
+
+    Uses :func:`run_pip_with_recovery` so a corrupted download or stale
+    cache entry triggers an automatic purge-and-retry rather than a
+    hard failure.
+    """
     if not is_venv_valid(project_dir):
         return False, f"Virtual environment at {project_dir} is invalid or missing."
 
-    cmd = [str(python_path), "-m", "pip", "install", "-r", str(requirements_file)]
+    python_path = get_venv_python_path(project_dir)
+    args = ["install", "-r", str(requirements_file)]
     if extra_index_url:
-        cmd.extend(["--extra-index-url", extra_index_url])
+        args.extend(["--extra-index-url", extra_index_url])
 
-    try:
-        proc = run_command_simple(cmd, timeout=timeout)
-        if proc.returncode == 0:
-            return True, proc.stdout
-        return False, proc.stderr or proc.stdout or "Pip install failed."
+    proc = run_pip_with_recovery(python_path, args, timeout=timeout)
+    if proc.returncode == 0:
+        return True, proc.stdout or "ok"
+    return False, proc.stderr or proc.stdout or "Pip install failed."
 
-    except Exception as exc:
-        return False, str(exc)
+
+def normalize_opencv_variant(
+    project_dir: Path,
+    desired_variant: str,
+    timeout: int = 900,
+) -> Tuple[bool, str]:
+    """Force a single OpenCV provider inside a project venv.
+
+    The uninstall + force-reinstall cycle on Windows is slow because each
+    file is deleted and rewritten one at a time, with real-time antivirus
+    scanning every operation. The ``opencv-contrib-python`` wheel is ~54 MB
+    with thousands of files, so the default timeout is 900s rather than the
+    smaller default used elsewhere. If this still times out, the bottleneck
+    is almost certainly antivirus; add the project tree to your AV
+    exclusion list.
+    """
+    if desired_variant not in OPENCV_VARIANTS:
+        return False, f"Unknown OpenCV variant: {desired_variant}"
+    if not is_venv_valid(project_dir):
+        return False, "Invalid or missing venv"
+
+    installed = get_installed_packages(project_dir)
+    installed_norm = {k.lower().replace("_", "-"): v for k, v in installed.items()}
+
+    undesired = [
+        variant for variant in OPENCV_VARIANTS
+        if variant != desired_variant and variant in installed_norm
+    ]
+
+    python_path = get_venv_python_path(project_dir)
+
+    if undesired:
+        proc = run_pip_with_recovery(
+            python_path, ["uninstall", "-y", *undesired], timeout=timeout,
+        )
+        if proc.returncode != 0:
+            return False, (
+                f"Failed to uninstall {undesired}: "
+                f"{(proc.stderr or proc.stdout)[:200]}"
+            )
+
+    proc = run_pip_with_recovery(
+        python_path,
+        ["install", "--force-reinstall", "--no-deps", desired_variant],
+        timeout=timeout,
+    )
+    if proc.returncode == 0:
+        removed = ", ".join(undesired) if undesired else "none"
+        return True, f"OpenCV normalized to {desired_variant} (removed: {removed})"
+    return False, (
+        f"Failed to install {desired_variant}: "
+        f"{(proc.stderr or proc.stdout)[:200]}"
+    )
 
 
 def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
-    """Discover standard LemGendary sibling projects.
-
-    Returns both Python (.venv) projects and the Node.js GUI project.
-    Node projects have is_node_project=True and no Python venv entries.
-    """
     if base_dir is None:
-        # Default to parent directory of lemgendary-env-manager
         base_dir = Path(__file__).resolve().parent.parent.parent
 
     python_projects = [
-        "lemgendary-training-suite",
-        "lemgendary-datasets",
         "lemgendary-env-manager",
+        "lemgendary-datasets",
+        "lemgendary-training-suite",
     ]
-
-    node_projects = [
-        "lemgendary-ai-studio-gui",
-    ]
+    node_projects = ["lemgendary-ai-studio-gui"]
 
     discovered: List[ProjectVenvInfo] = []
 
@@ -182,15 +273,10 @@ def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
 
             discovered.append(
                 ProjectVenvInfo(
-                    name=proj_name,
-                    project_dir=str(p_dir),
-                    venv_dir=str(v_dir),
-                    python_path=py_path,
-                    is_valid=valid,
-                    python_version=py_ver,
+                    name=proj_name, project_dir=str(p_dir), venv_dir=str(v_dir),
+                    python_path=py_path, is_valid=valid, python_version=py_ver,
                     installed_packages_count=len(pkgs),
-                    is_node_project=False,
-                    node_modules_present=False,
+                    is_node_project=False, node_modules_present=False,
                 )
             )
 
@@ -200,15 +286,10 @@ def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
             node_modules_present = (p_dir / "node_modules").exists()
             discovered.append(
                 ProjectVenvInfo(
-                    name=proj_name,
-                    project_dir=str(p_dir),
-                    venv_dir="",
-                    python_path=None,
-                    is_valid=node_modules_present,
-                    python_version=None,
-                    installed_packages_count=0,
-                    is_node_project=True,
-                    node_modules_present=node_modules_present,
+                    name=proj_name, project_dir=str(p_dir), venv_dir="",
+                    python_path=None, is_valid=node_modules_present,
+                    python_version=None, installed_packages_count=0,
+                    is_node_project=True, node_modules_present=node_modules_present,
                 )
             )
 

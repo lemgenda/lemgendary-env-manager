@@ -1,8 +1,7 @@
-# LemGendary AI Training Suite - Centralized Requirements Manifest
 --extra-index-url https://download.pytorch.org/whl/cu121
-torch==2.14.0+cpu
-torchvision==0.29.0+cpu
-torchaudio==2.11.0+cpu
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+torchaudio==2.5.1+cu121
 torchmetrics==1.9.0
 pillow==12.3.0
 numpy==2.5.3
@@ -20,11 +19,11 @@ requests==2.34.2
 diffusers==0.40.0
 transformers==5.17.0
 accelerate==1.15.0
-peft==0.20.0
+peft==0.21.0
 bitsandbytes==0.50.2
 sentencepiece==0.2.2
 huggingface-hub>=0.24.0
-ultralytics==8.4.150
+ultralytics==8.4.153
 pycocotools==2.0.11
 torch-fidelity>=0.3.0
 onnxruntime-gpu>=1.19.0; sys_platform == 'linux' or sys_platform == 'linux2'
@@ -39,7 +38,13 @@ gdown==6.2.0
 albumentations==2.0.8
 websockets==17.1
 MetaTrader5==5.0.6180; sys_platform == 'win32'
-pandas-ta==0.4.71b0
+pandas-ta-classic==0.8.32
 pylint==4.0.8
 pyright==1.1.414
 
+# ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
+# Dev-time only; no runtime footprint. Match the runtime libraries listed
+# above so the type checker can resolve their imports cleanly.
+types-PyYAML==6.0.12.20260906
+types-psutil==7.2.2.20260906
+types-requests==2.33.0.20260906

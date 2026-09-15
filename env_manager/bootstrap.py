@@ -8,27 +8,37 @@ availability via winget for Python and MetaTrader 5.
 """
 
 import platform
+import re
 import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from env_manager._logging import get_logger
+from env_manager.system_probe import probe_metatrader5
+from env_manager.utils import run_command_simple
 
 _log = get_logger(__name__)
-
-from env_manager.utils import run_command_simple
 
 
 @dataclass
 class SoftwareUpdateInfo:
-    """Tracks available update for a software package."""
+    """Tracks available update for a software package.
+
+    ``source_tracked`` is False when winget has no record of the package
+    (typically because it was installed outside winget's package database,
+    or because the package ID has been delisted from the winget source).
+    In that case ``latest_version`` will normally be None and callers
+    should display the package as "installed, not tracked by winget"
+    rather than "unknown".
+    """
     name: str
     current_version: Optional[str]
     latest_version: Optional[str]
     update_available: bool
     install_command: Optional[str] = None
+    source_tracked: bool = True
 
 
 @dataclass
@@ -51,17 +61,22 @@ class BootstrapStatus:
     software_updates: List[SoftwareUpdateInfo]
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert status to dictionary."""
         return asdict(self)
 
 
-def check_git() -> tuple[bool, Optional[str]]:
+# ─── Toolchain probes ───────────────────────────────────────────────────────
+
+def check_git() -> Tuple[bool, Optional[str]]:
     """Check if git is installed and return version."""
     git_path = shutil.which("git")
     if not git_path:
         return False, None
     try:
-        proc = subprocess.run([git_path, "--version"], capture_output=True, text=True, timeout=5, check=False)
+        proc = subprocess.run(
+            [git_path, "--version"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=5, check=False,
+        )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
     except Exception as exc:
@@ -69,13 +84,17 @@ def check_git() -> tuple[bool, Optional[str]]:
     return False, None
 
 
-def check_npm() -> tuple[bool, Optional[str]]:
+def check_npm() -> Tuple[bool, Optional[str]]:
     """Check if npm is installed and return version."""
     npm_path = shutil.which("npm")
     if not npm_path:
         return False, None
     try:
-        proc = subprocess.run([npm_path, "--version"], capture_output=True, text=True, timeout=5, check=False)
+        proc = subprocess.run(
+            [npm_path, "--version"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=5, check=False,
+        )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
     except Exception as exc:
@@ -92,144 +111,249 @@ def check_venv() -> bool:
         return False
 
 
-def check_metatrader5() -> tuple[bool, Optional[str], Optional[str]]:
-    """Detect MetaTrader 5 using Get-Package (returns: installed, version, path)."""
-    import os
-    if platform.system().lower() != "windows":
-        return False, None, None
+def check_metatrader5() -> Tuple[bool, Optional[str], Optional[str]]:
+    """Detect MetaTrader 5 (returns: installed, version, path).
 
-    # Primary: PowerShell Get-Package (preferred detection method)
+    Delegates to :func:`env_manager.system_probe.probe_metatrader5`, which
+    uses a registry-first strategy and extracts the file version from
+    terminal64.exe when an install path is known. This makes the version
+    authoritative even when winget doesn't track the install.
+    """
+    info = probe_metatrader5()
+    return info.installed, info.version, info.install_path
+
+
+# ─── winget invocation ─────────────────────────────────────────────────────
+
+def _winget_command_prefix() -> Optional[List[str]]:
+    """Return the command prefix for invoking winget, or None if unavailable.
+
+    On Windows, ``shutil.which("winget")`` returns the App Execution Alias
+    stub in ``%LOCALAPPDATA%\\Microsoft\\WindowsApps\\``. Passing that stub
+    path directly to ``subprocess.run`` triggers ``WinError 1920``
+    (``ERROR_CANT_ACCESS_FILE``) because ``CreateProcess`` cannot resolve
+    the reparse point to the real ``winget.exe`` inside the ACL-protected
+    ``WindowsApps`` directory.
+
+    Routing through ``cmd.exe`` fixes this. cmd uses different file
+    resolution semantics that correctly follow the alias.
+    """
+    winget_path = shutil.which("winget")
+    if not winget_path:
+        return None
+
+    if "windowsapps" in winget_path.lower():
+        return ["cmd", "/c", "winget"]
+
+    return [winget_path]
+
+
+def _run_winget(
+    args: List[str],
+    timeout: int = 30,
+) -> Optional[subprocess.CompletedProcess]:
+    """Invoke winget with the correct prefix and encoding.
+
+    Returns the CompletedProcess on success, or None if winget could not
+    be invoked at all.
+    """
+    prefix = _winget_command_prefix()
+    if prefix is None:
+        return None
+
     try:
-        ps_cmd = [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            (
-                "Get-Package -Name '*MetaTrader*' -ErrorAction SilentlyContinue "
-                "| Select-Object -Property Name, Version "
-                "| ConvertTo-Json"
-            ),
-        ]
-        proc = subprocess.run(ps_cmd, capture_output=True, text=True, timeout=10, check=False)
-        if proc.returncode == 0 and proc.stdout.strip():
-            import json
-            try:
-                data = json.loads(proc.stdout.strip())
-                if isinstance(data, dict):
-                    data = [data]
-                if data:
-                    entry = data[0]
-                    version = str(entry.get("Version") or "Unknown")
-                    return True, version, None
-            except (json.JSONDecodeError, KeyError, IndexError) as exc:
-                _log.debug("Get-Package MT5 JSON parse failed: %s", exc)
-    except Exception as exc:
-        _log.warning("Get-Package MT5 check failed: %s", exc)
-
-
-
-    prog_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-    prog_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    known_paths = [
-        os.path.join(prog_files, "MetaTrader 5", "terminal64.exe"),
-        os.path.join(prog_files_x86, "MetaTrader 5", "terminal64.exe"),
-    ]
-    appdata = os.environ.get("APPDATA", "")
-    if appdata:
-        known_paths.append(
-            os.path.join(os.path.dirname(appdata), "Local", "Programs", "MetaTrader 5", "terminal64.exe")
+        return subprocess.run(
+            prefix + args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
         )
+    except OSError as exc:
+        winerror = getattr(exc, "winerror", None)
+        if winerror == 1920:
+            _log.debug(
+                "winget subprocess returned WinError 1920 (alias resolution "
+                "failure) for args=%s.",
+                args,
+            )
+        else:
+            _log.warning("winget subprocess failed (winerror=%s): %s", winerror, exc)
+    except subprocess.TimeoutExpired:
+        _log.debug("winget subprocess timed out after %ss: args=%s", timeout, args)
+    except Exception as exc:
+        _log.warning("winget subprocess crashed: %s", exc)
 
-    for path in known_paths:
-        if os.path.isfile(path):
-            return True, None, path
+    return None
 
-    return False, None, None
 
+# ─── winget output parsers ─────────────────────────────────────────────────
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from winget output."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text or "")
+
+
+def _parse_winget_list_version(stdout: str, pkg_id: str) -> Optional[str]:
+    """Extract the installed version of ``pkg_id`` from ``winget list`` output."""
+    text = _strip_ansi(stdout)
+    pkg_lower = pkg_id.lower()
+
+    for line in text.splitlines():
+        if pkg_lower not in line.lower():
+            continue
+
+        if re.match(r"^\s*Name\s+Id\s+", line, flags=re.IGNORECASE):
+            continue
+        stripped = line.strip()
+        if stripped and set(stripped) <= set("- "):
+            continue
+
+        cells = [c.strip() for c in re.split(r"\s{2,}", stripped) if c.strip()]
+        for i, cell in enumerate(cells):
+            if cell.lower() == pkg_lower:
+                if i + 1 < len(cells):
+                    candidate = cells[i + 1]
+                    if re.match(r"^\d", candidate):
+                        return candidate
+                break
+
+        for token in stripped.split():
+            if re.match(r"^\d+(\.\d+){1,}", token):
+                return token
+
+    return None
+
+
+def _parse_winget_show_version(stdout: str) -> Optional[str]:
+    """Extract the ``Version: X.Y.Z`` line from ``winget show`` output."""
+    text = _strip_ansi(stdout)
+    for line in text.splitlines():
+        m = re.match(r"^\s*Version:\s*(\S+)", line)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _winget_query_versions(pkg_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """Return (installed_version, available_version) for a winget package."""
+    installed: Optional[str] = None
+    available: Optional[str] = None
+
+    list_proc = _run_winget(
+        ["list", "--id", pkg_id, "--exact", "--accept-source-agreements"],
+        timeout=60,
+    )
+    if list_proc is not None and list_proc.returncode == 0:
+        installed = _parse_winget_list_version(list_proc.stdout, pkg_id)
+
+    show_proc = _run_winget(
+        ["show", "--id", pkg_id, "--exact", "--accept-source-agreements"],
+        timeout=60,
+    )
+    if show_proc is not None and show_proc.returncode == 0:
+        available = _parse_winget_show_version(show_proc.stdout)
+
+    return installed, available
+
+
+# ─── winget update check ───────────────────────────────────────────────────
 
 def check_winget_updates() -> List[SoftwareUpdateInfo]:
     """Check for available software updates via winget for Python and MetaTrader 5.
 
-    Uses 'winget upgrade --id <id>' to check if updates are available.
+    For each target package:
+
+    - Installed version comes from ``winget list`` when winget tracks the
+      package. For MetaTrader 5, when winget has no record, the pipeline's
+      own registry/filesystem probe is used as a fallback so the version
+      is still reported.
+    - Latest version comes from ``winget show``. ``None`` when the package
+      is not in the winget source.
+    - ``source_tracked`` is True if either winget list or winget show
+      returned data for the package. When False, callers should display
+      the package as "installed, not tracked by winget" rather than
+      collapsing it to "unknown".
     """
     updates: List[SoftwareUpdateInfo] = []
     if platform.system().lower() != "windows":
         return updates
 
-    winget_path = shutil.which("winget")
-    if not winget_path:
+    if _winget_command_prefix() is None:
+        _log.debug("winget not found on PATH; skipping software update check.")
         return updates
 
-    # Packages to check: (winget_id, display_name, install_command)
     targets = [
         (
             "Python.Python.3.12",
             "Python 3.12",
-            "winget install --id Python.Python.3.12 --silent --accept-source-agreements --accept-package-agreements",
+            "winget install --id Python.Python.3.12 --silent "
+            "--accept-source-agreements --accept-package-agreements",
         ),
         (
             "MetaQuotes.MetaTrader5",
             "MetaTrader 5",
-            "winget install --id MetaQuotes.MetaTrader5 --silent --accept-source-agreements --accept-package-agreements",
+            "winget install --id MetaQuotes.MetaTrader5 --silent "
+            "--accept-source-agreements --accept-package-agreements",
         ),
     ]
 
     for pkg_id, display_name, install_cmd in targets:
-        try:
-            proc = subprocess.run(
-                [winget_path, "upgrade", "--id", pkg_id, "--accept-source-agreements"],
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
-            )
-            output = proc.stdout + proc.stderr
-            # winget returns 0 and lists the package if an upgrade is available
-            # If no upgrade is available it typically says "No applicable update found"
-            update_available = (
-                proc.returncode == 0
-                and "no applicable" not in output.lower()
-                and pkg_id.lower() in output.lower()
-            )
-            current_ver: Optional[str] = None
-            latest_ver: Optional[str] = None
-            for line in output.splitlines():
-                lower = line.lower()
-                if pkg_id.lower() in lower and len(line.split()) >= 3:
-                    parts = line.split()
-                    # winget upgrade output: Name  Id  Version  Available  Source
-                    if len(parts) >= 4:
-                        current_ver = parts[2]
-                        latest_ver = parts[3]
-                    break
+        installed_ver, available_ver = _winget_query_versions(pkg_id)
 
-            updates.append(
-                SoftwareUpdateInfo(
-                    name=display_name,
-                    current_version=current_ver,
-                    latest_version=latest_ver,
-                    update_available=update_available,
-                    install_command=install_cmd if update_available else None,
-                )
+        # Fallback: for MT5, when winget doesn't know about the install,
+        # try the pipeline's own detection (registry + terminal64.exe
+        # file version). Keeps the display honest when the package was
+        # installed manually.
+        if installed_ver is None and pkg_id == "MetaQuotes.MetaTrader5":
+            mt5_info = probe_metatrader5()
+            if mt5_info.installed:
+                installed_ver = mt5_info.version
+
+        source_tracked = installed_ver is not None or available_ver is not None
+
+        update_available = False
+        if installed_ver and available_ver:
+            update_available = installed_ver != available_ver
+        elif source_tracked:
+            upgrade_proc = _run_winget(
+                ["upgrade", "--id", pkg_id, "--accept-source-agreements"],
+                timeout=30,
             )
-        except Exception as exc:
-            _log.warning("winget update check for '%s' failed: %s", pkg_id, exc)
+            if upgrade_proc is not None:
+                output = (upgrade_proc.stdout or "") + (upgrade_proc.stderr or "")
+                update_available = (
+                    upgrade_proc.returncode == 0
+                    and "no applicable" not in output.lower()
+                    and pkg_id.lower() in output.lower()
+                )
+
+        updates.append(
+            SoftwareUpdateInfo(
+                name=display_name,
+                current_version=installed_ver,
+                latest_version=available_ver,
+                update_available=update_available,
+                install_command=install_cmd if update_available else None,
+                source_tracked=source_tracked,
+            )
+        )
 
     return updates
 
 
-def install_software(name: str) -> tuple[bool, str]:
-    """Download and silently install a software package.
+# ─── winget install ────────────────────────────────────────────────────────
 
-    Supported names: 'python', 'metatrader5'
-    Uses winget for all installations on Windows.
-    """
+def install_software(name: str) -> Tuple[bool, str]:
+    """Download and silently install a software package via winget."""
     if platform.system().lower() != "windows":
         return False, "Automated software installation is only supported on Windows."
 
-    winget_path = shutil.which("winget")
-    if not winget_path:
-        return False, "winget is not available. Please install from the Microsoft Store."
+    prefix = _winget_command_prefix()
+    if prefix is None:
+        return False, "winget is not available. Install it from the Microsoft Store."
 
     name_lower = name.lower().replace(" ", "").replace("-", "").replace("_", "")
     pkg_map = {
@@ -247,25 +371,27 @@ def install_software(name: str) -> tuple[bool, str]:
 
     try:
         proc = subprocess.run(
-            [
-                winget_path,
+            prefix + [
                 "install",
                 "--id", pkg_id,
                 "--silent",
                 "--accept-source-agreements",
                 "--accept-package-agreements",
             ],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            check=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=900, check=False,
         )
         if proc.returncode == 0:
             return True, f"Successfully installed {name} (winget id: {pkg_id})."
-        return False, proc.stderr or proc.stdout or f"winget install failed (exit {proc.returncode})."
+        return False, (
+            proc.stderr or proc.stdout
+            or f"winget install failed (exit {proc.returncode})."
+        )
     except Exception as exc:
         return False, str(exc)
 
+
+# ─── Full verification ─────────────────────────────────────────────────────
 
 def verify_prerequisites() -> BootstrapStatus:
     """Verify all host toolchain prerequisites."""

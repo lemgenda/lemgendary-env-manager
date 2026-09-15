@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from env_manager._logging import get_logger
+from env_manager.utils import pip_env
 
 _log = get_logger(__name__)
 
@@ -26,7 +27,6 @@ class NpmDependencyDetail:
     is_installed: bool
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert detail to dictionary."""
         return asdict(self)
 
 
@@ -42,7 +42,6 @@ class NpmPackageStatus:
     audit_summary: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert status to dictionary."""
         return asdict(self)
 
 
@@ -63,7 +62,16 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
 
         def _inspect_pkg(name: str, decl_ver: str, is_dev: bool):
             inst_ver = None
-            pkg_nm_json = nm_dir / name / "package.json"
+            # Scoped packages live under node_modules/@scope/name.
+            if name.startswith("@"):
+                parts = name.split("/", 1)
+                if len(parts) == 2:
+                    pkg_nm_json = nm_dir / parts[0] / parts[1] / "package.json"
+                else:
+                    pkg_nm_json = nm_dir / name / "package.json"
+            else:
+                pkg_nm_json = nm_dir / name / "package.json"
+
             if pkg_nm_json.exists():
                 try:
                     p_data = json.loads(pkg_nm_json.read_text(encoding="utf-8"))
@@ -99,7 +107,13 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
 
 
 def run_npm_install(package_dir: Path) -> tuple[bool, str]:
-    """Execute npm install in the given directory."""
+    """Execute npm install in the given directory.
+
+    Uses ``pip_env()`` so the subprocess inherits UTF-8 encoding and colour
+    disabling. npm ignores the ``PIP_*`` variables, but the ``PYTHONIOENCODING``
+    and ``NO_COLOR`` settings apply to any tool's output and prevent the
+    cp1252 crash that pip had.
+    """
     npm_path = shutil.which("npm")
     if not npm_path:
         return False, "NPM executable not found on system PATH."
@@ -110,12 +124,17 @@ def run_npm_install(package_dir: Path) -> tuple[bool, str]:
             cwd=str(package_dir),
             capture_output=True,
             text=True,
-            timeout=180,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
             check=False,
+            env=pip_env(),
         )
         if proc.returncode == 0:
             return True, proc.stdout
         return False, proc.stderr or proc.stdout or "NPM install failed."
+    except subprocess.TimeoutExpired as exc:
+        return False, f"npm install timed out after 600s: {exc}"
     except Exception as exc:
         return False, str(exc)
 

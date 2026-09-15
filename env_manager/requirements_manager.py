@@ -116,14 +116,27 @@ def sync_manifest_to_project(
     manifest_path: Path,
     target_project_dir: Path,
 ) -> tuple[bool, str]:
-    """Synchronize a centralized requirements manifest into a project directory."""
+    """Synchronize a centralized requirements manifest into a project directory safely."""
     if not manifest_path.exists():
         return False, f"Manifest file not found: {manifest_path}"
 
     target_req_path = target_project_dir / "requirements.txt"
     try:
-        shutil.copy2(manifest_path, target_req_path)
-        return True, f"Synchronized {manifest_path.name} to {target_req_path}."
+        content = manifest_path.read_text(encoding="utf-8")
+
+        clean_lines = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped:
+                # Core Fix: Explicitly index into split parts array to avoid list string strip failures
+                if ";" in stripped:
+                    parts = stripped.split(";", 1)
+                    clean_lines.append(f"{parts[0].strip()}; {parts[1].strip()}")
+                else:
+                    clean_lines.append(stripped)
+
+        target_req_path.write_text("\n".join(clean_lines) + "\n", encoding="utf-8")
+        return True, f"Synchronized sanitized {manifest_path.name} to {target_req_path}."
     except Exception as exc:
         return False, f"Failed to synchronize manifest: {exc}"
 

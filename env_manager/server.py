@@ -1,17 +1,28 @@
 """FastAPI and WebSocket sidecar server module.
 
-Provides REST and WebSocket endpoints for the Tauri desktop interface and external clients.
+Runs as a Windows service or background executable, exposing endpoints for:
+- Health checks
+- Hardware probing (Torch/TensorRT/CUDA detection)
+- Project discovery
+- Dependency drift detection (Python, NPM)
+- Manifest coverage analysis
+- Smart clean installs (system + env)
+- Update dry-runs and executions
+- Pipeline orchestration
+- Validation (py_compile, ESLint, Pylint, YAML, HTML, W3C)
+- WebSocket log streaming
 
-WebSocket log streaming uses an asyncio.Queue fed from a thread pool worker to avoid
-the 'asyncio.run() called from running event loop' crash.
+Start-Process "http://127.0.0.1:8000/docs" opens Swagger UI, which lets you click through every endpoint manually.
 """
 
 import asyncio
 import threading
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -23,26 +34,9 @@ from env_manager.utils import purge_project_cache
 from env_manager.venv_manager import discover_projects
 
 
-app = FastAPI(
-    title="LemGendary Environment Manager API",
-    version="2.0.0",
-    description="REST and WebSocket sidecar service for LemGendary AI Studio.",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-orchestrator = PipelineOrchestrator()
-
+# ─── WebSocket connection manager ──────────────────────────────────────────
 
 class ConnectionManager:
-    """Manages active WebSocket connections."""
-
     def __init__(self):
         self.active_connections: List[WebSocket] = []
 
@@ -64,25 +58,163 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 recent_events: List[Dict[str, Any]] = []
-# Queue used to pass events from thread workers to the asyncio event loop safely
 _event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
+orchestrator = PipelineOrchestrator()
+
+
+async def _drain_event_queue():
+    try:
+        while True:
+            ev = await _event_queue.get()
+            await manager.broadcast(ev)
+            _event_queue.task_done()
+    except asyncio.CancelledError:
+        raise
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    drain_task = asyncio.create_task(_drain_event_queue())
+    try:
+        yield
+    finally:
+        drain_task.cancel()
+        try:
+            await drain_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(
+    title="LemGendary Environment Manager API",
+    version="2.0.0",
+    description="REST and WebSocket sidecar service for LemGendary AI Studio.",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class RunPipelineRequest(BaseModel):
     target_project: Optional[str] = None
 
 
+class CleanRequest(BaseModel):
+    project: Optional[str] = None
+
+
+class ValidateRequest(BaseModel):
+    project: Optional[str] = None
+
+
+class UpdateRequest(BaseModel):
+    project: Optional[str] = None
+    dry_run: bool = False
+
+
 @app.get("/api/health")
-async def get_health():
+async def get_health(
+    include_safety: bool = Query(
+        False,
+        description=(
+            "If true, run per-project pip dry-runs to classify which outdated "
+            "packages can be safely upgraded. Adds 15-40s of latency per "
+            "Python project. Default false for fast polling."
+        ),
+    ),
+):
     """Retrieve complete ecosystem health audit."""
     loop = asyncio.get_running_loop()
-    report = await loop.run_in_executor(None, run_full_health_audit)
+    report = await loop.run_in_executor(
+        None,
+        lambda: run_full_health_audit(include_safety=include_safety),
+    )
     return report.to_dict()
+
+
+@app.get("/api/drift")
+async def get_drift(
+    include_safety: bool = Query(
+        False,
+        description="Same semantics as /api/health?include_safety.",
+    ),
+):
+    """Retrieve Python and NPM package drift data, manifest coverage, and
+    single-manifest inventory.
+
+    Returns:
+
+    - ``python``: cross-project drift entries (packages in >= 2 manifests).
+    - ``coverage``: per-project declared-vs-installed reconciliation.
+    - ``single_manifest``: packages declared in exactly one manifest.
+    - ``npm``: npm workspace drift entries.
+    """
+    loop = asyncio.get_running_loop()
+    report = await loop.run_in_executor(
+        None,
+        lambda: run_full_health_audit(include_safety=include_safety),
+    )
+
+    python_drift: List[Dict[str, Any]] = []
+    for entry in report.version_drift:
+        python_drift.append({
+            "package_name": entry.package_name,
+            "versions": entry.versions,
+            "pins": {
+                proj: {
+                    "pin_type": pin.pin_type,
+                    "specifier": pin.specifier,
+                    "installed": pin.installed,
+                }
+                for proj, pin in entry.pins.items()
+            },
+            "upgrades": {
+                proj: {
+                    "current": status.current,
+                    "latest": status.latest,
+                    "safe": status.safe,
+                    "reason": status.reason,
+                    "is_outdated": status.is_outdated,
+                }
+                for proj, status in entry.upgrades.items()
+            },
+            "has_drift": entry.has_drift,
+            "has_pin_mismatch": entry.has_pin_mismatch,
+            "projects_declared": entry.projects_declared,
+        })
+
+    coverage: List[Dict[str, Any]] = [c.to_dict() for c in report.manifest_coverage]
+    single_manifest: List[Dict[str, Any]] = [
+        s.to_dict() for s in report.single_manifest_packages
+    ]
+
+    npm_drift: List[Dict[str, Any]] = []
+    for entry in report.npm_drift:
+        npm_drift.append({
+            "package_name": entry.package_name,
+            "versions": entry.versions,
+            "specifiers": entry.specifiers,
+            "has_drift": entry.has_drift,
+            "is_dev_dependency": entry.is_dev_dependency,
+        })
+
+    return {
+        "python": python_drift,
+        "coverage": coverage,
+        "single_manifest": single_manifest,
+        "npm": npm_drift,
+        "include_safety": include_safety,
+    }
 
 
 @app.get("/api/hardware")
 async def get_hardware():
-    """Retrieve system hardware and accelerator discovery."""
     loop = asyncio.get_running_loop()
     profile = await loop.run_in_executor(None, probe_hardware)
     return profile.to_dict()
@@ -90,7 +222,6 @@ async def get_hardware():
 
 @app.get("/api/projects")
 async def get_projects():
-    """Retrieve status of all managed projects."""
     loop = asyncio.get_running_loop()
     projects = await loop.run_in_executor(None, discover_projects)
     return [p.to_dict() for p in projects]
@@ -98,7 +229,6 @@ async def get_projects():
 
 @app.get("/api/npm")
 async def get_npm():
-    """Retrieve NPM packages status."""
     loop = asyncio.get_running_loop()
     npm_statuses = await loop.run_in_executor(None, audit_npm_workspaces)
     return [s.to_dict() for s in npm_statuses]
@@ -106,7 +236,6 @@ async def get_npm():
 
 @app.get("/api/pipeline/status")
 async def get_pipeline_status():
-    """Retrieve current orchestrator execution status and recent events."""
     return {
         "is_running": orchestrator.is_running,
         "last_status": orchestrator.last_status,
@@ -116,34 +245,16 @@ async def get_pipeline_status():
 
 
 def _run_pipeline_worker(target_project: Optional[str], loop: asyncio.AbstractEventLoop):
-    """Background thread executing the orchestrator pipeline.
-
-    Events are placed on the asyncio-safe queue instead of calling asyncio.run()
-    directly, which would crash because a running event loop already exists.
-    """
     for event in orchestrator.run_clean_install_pipeline(target_project=target_project):
         ev_dict = event.to_dict()
         recent_events.append(ev_dict)
         if len(recent_events) > 200:
             recent_events.pop(0)
-        # Schedule broadcast on the running event loop from this thread
         asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
-
-
-async def _drain_event_queue():
-    """Background asyncio task that forwards queued events to WebSocket clients.
-
-    This task is started on app startup as a complementary broadcast mechanism.
-    """
-    while True:
-        ev = await _event_queue.get()
-        await manager.broadcast(ev)
-        _event_queue.task_done()
 
 
 @app.post("/api/pipeline/run")
 async def run_pipeline(request: RunPipelineRequest):
-    """Trigger the Smart Clean Install Pipeline."""
     if orchestrator.is_running:
         return {"status": "error", "message": "Pipeline is already running."}
 
@@ -157,28 +268,9 @@ async def run_pipeline(request: RunPipelineRequest):
     return {"status": "accepted", "message": "Pipeline initiated."}
 
 
-class CleanRequest(BaseModel):
-    project: Optional[str] = None
-
-
-class ValidateRequest(BaseModel):
-    project: Optional[str] = None
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Start the background event drain task on server startup."""
-    asyncio.create_task(_drain_event_queue())
-
-
-class UpdateRequest(BaseModel):
-    project: Optional[str] = None
-    dry_run: bool = False
-
-
 @app.post("/api/update")
 async def run_update(request: Optional[UpdateRequest] = None):
-    """Trigger safe bottom-up package upgrades across all projects and auto-sync manifests."""
+    """Trigger safe bottom-up package upgrades across all projects."""
     from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
     from env_manager.system_probe import probe_hardware
 
@@ -196,7 +288,7 @@ async def run_update(request: Optional[UpdateRequest] = None):
 
     hw = probe_hardware()
     loop = asyncio.get_running_loop()
-    events = []
+    events: List[Dict[str, Any]] = []
 
     def _run_update():
         for ev in apply_upgrade_plan(plan, base_dir, extra_index_url=hw.recommended_torch_index):
@@ -206,7 +298,7 @@ async def run_update(request: Optional[UpdateRequest] = None):
 
     thread = threading.Thread(target=_run_update, daemon=True)
     thread.start()
-    thread.join(timeout=1200)  # max 20 min
+    thread.join(timeout=1200)
 
     all_ok = all(e.get("status") in ("upgraded", "skipped") for e in events)
     return {
@@ -217,7 +309,6 @@ async def run_update(request: Optional[UpdateRequest] = None):
 
 @app.get("/api/manifests")
 async def get_manifests():
-    """List centralized requirements manifests and their contents."""
     env_mgr_dir = Path(__file__).resolve().parent.parent
     manifests_dir = env_mgr_dir / "requirements"
     manifests = {}
@@ -229,7 +320,6 @@ async def get_manifests():
 
 @app.post("/api/manifests/sync")
 async def sync_manifests():
-    """Trigger synchronization of centralized manifests to all sibling projects."""
     from env_manager.requirements_manager import sync_all_manifests
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, sync_all_manifests)
@@ -239,8 +329,6 @@ async def sync_manifests():
 
 @app.post("/api/clean")
 async def clean_artifacts(request: Optional[CleanRequest] = None):
-    """Purge bytecode caches and temporary build artifacts."""
-    import shutil
     base_dir = Path(__file__).resolve().parent.parent.parent
     projects = discover_projects(base_dir)
     target_name = request.project if request else None
@@ -262,10 +350,8 @@ async def clean_artifacts(request: Optional[CleanRequest] = None):
     }
 
 
-
 @app.post("/api/validate")
 async def validate_codebase(request: Optional[ValidateRequest] = None):
-    """Run syntax compilation and zero-emoji compliance checks across projects."""
     from env_manager.validator import validate_project
     base_dir = Path(__file__).resolve().parent.parent.parent
     projects = discover_projects(base_dir)
@@ -291,9 +377,7 @@ async def validate_codebase(request: Optional[ValidateRequest] = None):
 @app.websocket("/ws/log")
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
-    """WebSocket stream for real-time pipeline events and log entries."""
     await manager.connect(websocket)
-    # Send recent events upon connection
     for ev in recent_events[-20:]:
         try:
             await websocket.send_json(ev)
@@ -302,7 +386,6 @@ async def websocket_logs(websocket: WebSocket):
 
     try:
         while True:
-            # Keep-alive loop
             await websocket.receive_text()
     except (WebSocketDisconnect, Exception):
         manager.disconnect(websocket)

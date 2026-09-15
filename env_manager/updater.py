@@ -1,30 +1,47 @@
-"""Safe dependency upgrade module for LemGendary Environment Manager.
+"""Safe dependency upgrade module with CUDA-aware torch handling.
 
 Implements a bottom-up, conflict-aware package upgrade strategy across all
 managed Python virtual environments and the Node.js GUI workspace.
 
-Upgrade order (bottom-up to prevent upstream breakage):
-  1. lemgendary-env-manager  (tooling, fewest cross-deps)
-  2. lemgendary-datasets      (data layer)
-  3. lemgendary-training-suite (top-level, most deps)
-  4. lemgendary-ai-studio-gui  (npm, independent)
+Safety model
+------------
+1. Candidates are vetted by :func:`classify_safe_upgrades`, which combines
+   reverse-dependency analysis (via ``pip inspect``) with constraint-
+   preserving pip dry-runs.
+2. Every batch is snapshotted via ``pip freeze`` before being applied.
+3. After applying, ``pip check`` is run. If it fails, the batch is rolled
+   back from the snapshot and reported as a failure with a reason.
 
-After all upgrades are applied, centralized manifests in
-``lemgendary-env-manager/requirements/`` are re-written to reflect the
-actual installed versions so the canonical manifests stay in sync.
+CUDA handling
+-------------
+The PyTorch CUDA index URL is the single source of truth for CUDA
+availability. When present, torch-family packages are always resolved
+against it using ``--index-url`` (not ``--extra-index-url``). After
+upgrade, ``torch.cuda.is_available()`` is verified.
+
+Only torch-family packages that are *already installed* in a project are
+considered for upgrade. This prevents the CUDA index dry-run from
+silently adding packages the project never declared (e.g. torchaudio
+into a project that only uses torch/torchvision).
 """
 
 import json
+import os
+import re
 import shutil
 import subprocess
-from dataclasses import asdict, dataclass
+import tempfile
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from env_manager._logging import get_logger
-from env_manager.dependency_resolver import OutdatedPackage, find_outdated_packages
-from env_manager.npm_manager import run_npm_install
-from env_manager.requirements_manager import sync_all_manifests
+from env_manager.dependency_resolver import (
+    OutdatedPackage,
+    classify_safe_upgrades,
+    find_outdated_packages,
+)
+from env_manager.utils import pip_env, run_pip_with_recovery
 from env_manager.venv_manager import (
     discover_projects,
     get_installed_packages,
@@ -33,6 +50,27 @@ from env_manager.venv_manager import (
 )
 
 _log = get_logger(__name__)
+
+
+# ─── Constants ──────────────────────────────────────────────────────────────
+
+TORCH_FAMILY: Tuple[str, ...] = ("torch", "torchvision", "torchaudio")
+
+UPGRADE_ORDER: List[str] = [
+    "lemgendary-env-manager",
+    "lemgendary-datasets",
+    "lemgendary-training-suite",
+    "lemgendary-ai-studio-gui",
+]
+
+# Paired packages where manual curation matters more than "latest wins".
+PROTECTED_FROM_SYNC: set = {
+    "astroid",
+    "pylint",
+    "pydantic",
+    "pydantic-core",
+    "pydantic_core",
+}
 
 
 # ─── Data structures ────────────────────────────────────────────────────────
@@ -44,11 +82,21 @@ class ProjectUpgradePlan:
     project_dir: str
     is_node_project: bool
     outdated_packages: List[OutdatedPackage]
-    has_updates: bool
+    safe_packages: List[OutdatedPackage] = field(default_factory=list)
+    blocked_packages: List[Tuple[OutdatedPackage, str]] = field(default_factory=list)
+    torch_cuda_packages: List[OutdatedPackage] = field(default_factory=list)
+    has_updates: bool = False
+    has_safe_updates: bool = False
+    cuda_available: bool = False
+    cuda_index_url: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert plan to dictionary."""
-        return asdict(self)
+        d = asdict(self)
+        d["blocked_packages"] = [
+            {"package": asdict(pkg), "reason": reason}
+            for pkg, reason in self.blocked_packages
+        ]
+        return d
 
 
 @dataclass
@@ -56,10 +104,14 @@ class EcosystemUpgradePlan:
     """Full ecosystem upgrade plan across all managed projects."""
     projects: List[ProjectUpgradePlan]
     total_outdated: int
+    total_safe: int
+    total_blocked: int
     has_any_updates: bool
+    has_any_safe_updates: bool
+    cuda_detected: bool = False
+    cuda_index_url: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert plan to dictionary."""
         return asdict(self)
 
 
@@ -70,65 +122,218 @@ class UpgradeEvent:
     package: str
     old_version: str
     new_version: str
-    status: str  # "upgraded", "failed", "skipped"
+    status: str
     message: str
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert event to dictionary."""
         return asdict(self)
 
 
-# ─── Upgrade order ──────────────────────────────────────────────────────────
+# ─── Normalization ──────────────────────────────────────────────────────────
 
-# Bottom-up ordering: stable base layers first to avoid upstream breakage
-UPGRADE_ORDER = [
-    "lemgendary-env-manager",
-    "lemgendary-datasets",
-    "lemgendary-training-suite",
-    "lemgendary-ai-studio-gui",
-]
+def _normalize(name: str) -> str:
+    return name.lower().replace("-", "_").replace(".", "_")
 
 
-# ─── npm outdated helper ────────────────────────────────────────────────────
+def _is_torch_family(name: str) -> bool:
+    return _normalize(name) in {_normalize(t) for t in TORCH_FAMILY}
+
+
+def _venv_package_map(project_dir: Path) -> Dict[str, str]:
+    return {_normalize(k): v for k, v in get_installed_packages(project_dir).items()}
+
+
+# ─── CUDA detection & verification ──────────────────────────────────────────
+
+def _detect_cuda() -> Tuple[Optional[str], str]:
+    """Return (torch_index_url_or_None, human_description).
+
+    The index URL is the single source of truth for CUDA availability.
+    """
+    try:
+        from env_manager.system_probe import probe_hardware
+        hw = probe_hardware()
+        backend = (getattr(hw, "primary_backend", "") or "").lower()
+        index_url = getattr(hw, "recommended_torch_index", None)
+        accel = ", ".join(a.name for a in getattr(hw, "accelerators", [])) or "none"
+        if backend in ("cuda", "rocm") and index_url:
+            return str(index_url), f"{backend.upper()} via {accel}"
+        return None, f"no CUDA backend ({accel})"
+    except Exception as exc:
+        _log.debug("CUDA detection failed: %s", exc)
+        return None, "detection error"
+
+
+def _torch_installed(project_dir: Path) -> bool:
+    return "torch" in _venv_package_map(project_dir)
+
+
+def _verify_torch_cuda_runtime(project_dir: Path) -> Tuple[bool, str]:
+    if not is_venv_valid(project_dir):
+        return False, "invalid venv"
+    python_path = get_venv_python_path(project_dir)
+    try:
+        proc = subprocess.run(
+            [str(python_path), "-c",
+             "import torch; print(torch.__version__); print(int(torch.cuda.is_available()))"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60, check=False,
+        )
+        if proc.returncode != 0:
+            return False, (proc.stderr or "torch import failed").strip()[:200]
+        lines = (proc.stdout or "").strip().splitlines()
+        version = lines[-2] if len(lines) >= 2 else "?"
+        cuda_flag = lines[-1] if lines else "0"
+        if cuda_flag == "1":
+            return True, f"torch {version} CUDA runtime verified"
+        return False, f"torch {version} reports cuda.is_available() == False"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _pip_check(project_dir: Path) -> Tuple[bool, str]:
+    if not is_venv_valid(project_dir):
+        return True, "no venv"
+    python_path = get_venv_python_path(project_dir)
+    try:
+        proc = run_pip_with_recovery(python_path, ["check"], timeout=60)
+        if proc.returncode == 0:
+            return True, "all dependency constraints satisfied"
+        return False, (proc.stdout or proc.stderr or "").strip()[:400] or "pip check failed"
+    except Exception as exc:
+        return False, str(exc)
+
+
+# ─── Snapshot / rollback ────────────────────────────────────────────────────
+
+def _snapshot_freeze(project_dir: Path) -> Optional[str]:
+    if not is_venv_valid(project_dir):
+        return None
+    python_path = get_venv_python_path(project_dir)
+    try:
+        proc = run_pip_with_recovery(python_path, ["freeze"], timeout=60)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout
+    except Exception as exc:
+        _log.debug("pip freeze failed for %s: %s", project_dir, exc)
+    return None
+
+
+def _restore_freeze(project_dir: Path, freeze_text: str) -> Tuple[bool, str]:
+    if not is_venv_valid(project_dir):
+        return False, "invalid venv"
+
+    fd, path = tempfile.mkstemp(prefix="pip_restore_", suffix=".txt")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(freeze_text)
+
+        python_path = get_venv_python_path(project_dir)
+        proc = run_pip_with_recovery(
+            python_path,
+            ["install", "--force-reinstall", "--no-deps", "-r", path],
+            timeout=1800,
+        )
+        if proc.returncode == 0:
+            return True, "restored from snapshot"
+        return False, (proc.stderr or proc.stdout)[:300]
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+
+
+# ─── CUDA-aware torch-family dry-run ────────────────────────────────────────
+
+def _check_torch_cuda_upgrades(
+    project_dir: Path,
+    cuda_index_url: str,
+    current: Dict[str, str],
+) -> Tuple[List[OutdatedPackage], str]:
+    """Return (candidates, reason) for torch-family CUDA upgrades.
+
+    Only considers torch-family packages that are *already installed* in the
+    project. Running the CUDA-index dry-run against all three names would
+    cause pip to install packages the project never asked for (e.g.
+    torchaudio into a project that only uses torch/torchvision).
+
+    The returned candidates only include packages whose version would
+    actually change. Packages already at the newest CUDA build are omitted.
+    """
+    from env_manager.dependency_resolver import constraint_preserving_dry_run
+
+    installed_torch = [
+        name for name in TORCH_FAMILY if _normalize(name) in current
+    ]
+    if not installed_torch:
+        return [], "no torch-family packages installed"
+
+    ok, changed, msg = constraint_preserving_dry_run(
+        project_dir,
+        installed_torch,
+        current_state=current,
+        index_url=cuda_index_url,
+    )
+    if not ok:
+        return [], f"CUDA dry-run failed: {msg}"
+
+    candidates: List[OutdatedPackage] = []
+    for pkg_name in installed_torch:
+        key = _normalize(pkg_name)
+        new_ver = changed.get(key)
+        if new_ver is None:
+            continue
+        old_ver = current.get(key, "")
+        if not old_ver or old_ver == new_ver:
+            # Not an upgrade: either not previously installed, or already
+            # at the newest available CUDA build. Skip.
+            continue
+        candidates.append(OutdatedPackage(
+            name=pkg_name,
+            current_version=old_ver,
+            latest_version=new_ver,
+            package_type="wheel-cuda",
+        ))
+
+    reason = f"CUDA index checked ({len(installed_torch)} installed)"
+    return candidates, reason
+
+
+# ─── npm helpers ────────────────────────────────────────────────────────────
 
 def _find_npm_outdated(project_dir: Path) -> List[OutdatedPackage]:
-    """Query outdated npm packages in a given directory."""
     npm_path = shutil.which("npm")
     if not npm_path:
         return []
-    pkg_json = project_dir / "package.json"
-    if not pkg_json.exists():
+    if not (project_dir / "package.json").exists():
         return []
     try:
         proc = subprocess.run(
             [npm_path, "outdated", "--json"],
             cwd=str(project_dir),
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=90, check=False,
         )
-        # npm outdated exits 1 when there are outdated packages — that is normal
         if proc.stdout.strip():
-            data: Dict[str, Any] = json.loads(proc.stdout.strip())
-            results: List[OutdatedPackage] = []
-            for pkg_name, info in data.items():
-                results.append(
-                    OutdatedPackage(
-                        name=pkg_name,
-                        current_version=str(info.get("current", "")),
-                        latest_version=str(info.get("latest", "")),
-                        package_type="npm",
-                    )
+            data = json.loads(proc.stdout.strip())
+            return [
+                OutdatedPackage(
+                    name=name,
+                    current_version=str(info.get("current", "")),
+                    latest_version=str(info.get("latest", "")),
+                    package_type="npm",
                 )
-            return results
+                for name, info in data.items()
+            ]
     except Exception as exc:
         _log.warning("npm outdated query failed for %s: %s", project_dir, exc)
     return []
 
 
 def _apply_npm_update(project_dir: Path) -> Tuple[bool, str]:
-    """Run 'npm update' in the given directory."""
     npm_path = shutil.which("npm")
     if not npm_path:
         return False, "npm not found on PATH."
@@ -136,10 +341,8 @@ def _apply_npm_update(project_dir: Path) -> Tuple[bool, str]:
         proc = subprocess.run(
             [npm_path, "update"],
             cwd=str(project_dir),
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=300, check=False,
         )
         if proc.returncode == 0:
             return True, proc.stdout
@@ -148,61 +351,170 @@ def _apply_npm_update(project_dir: Path) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-def _apply_pip_upgrade(project_dir: Path, packages: List[str], extra_index_url: Optional[str] = None) -> Tuple[bool, str]:
-    """Upgrade a list of packages inside the project venv."""
+# ─── pip apply ──────────────────────────────────────────────────────────────
+
+def _apply_pip_upgrade(
+    project_dir: Path,
+    packages: List[str],
+    extra_index_url: Optional[str] = None,
+) -> Tuple[bool, str]:
     if not is_venv_valid(project_dir) or not packages:
         return True, "No packages to upgrade."
     python_path = get_venv_python_path(project_dir)
-    cmd = [str(python_path), "-m", "pip", "install", "--upgrade"] + packages
+    args = ["install", "--upgrade"] + packages
     if extra_index_url:
-        cmd.extend(["--extra-index-url", extra_index_url])
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
-        if proc.returncode == 0:
-            return True, proc.stdout
-        return False, proc.stderr or proc.stdout or "pip upgrade failed."
-    except Exception as exc:
-        return False, str(exc)
+        args.extend(["--extra-index-url", extra_index_url])
+    proc = run_pip_with_recovery(python_path, args, timeout=1800)
+    if proc.returncode == 0:
+        return True, proc.stdout or "ok"
+    return False, (proc.stderr or proc.stdout or "pip upgrade failed.")[:500]
 
 
-# ─── Public API ─────────────────────────────────────────────────────────────
+def _apply_torch_cuda_upgrade(
+    project_dir: Path,
+    cuda_index_url: str,
+    installed_names: Optional[List[str]] = None,
+) -> Tuple[bool, str]:
+    """Reinstall the installed subset of torch-family from the CUDA index.
+
+    ``installed_names`` limits the upgrade to packages already present in
+    the venv. If None, all of TORCH_FAMILY is passed to pip (only safe
+    when the caller has already verified which ones are installed).
+    """
+    if not is_venv_valid(project_dir):
+        return False, "invalid venv"
+
+    targets = installed_names or list(TORCH_FAMILY)
+    if not targets:
+        return True, "no torch-family packages to upgrade"
+
+    python_path = get_venv_python_path(project_dir)
+    args = [
+        "install",
+        "--upgrade",
+        "--index-url", cuda_index_url,
+        *targets,
+    ]
+    proc = run_pip_with_recovery(python_path, args, timeout=2400)
+    if proc.returncode == 0:
+        return True, proc.stdout or "ok"
+    return False, (proc.stderr or proc.stdout or "torch CUDA upgrade failed.")[:500]
+
+
+# ─── Plan builder ───────────────────────────────────────────────────────────
 
 def build_upgrade_plan(base_dir: Optional[Path] = None) -> EcosystemUpgradePlan:
-    """Build a full bottom-up upgrade plan for every managed project."""
+    """Build a safety-checked, CUDA-aware upgrade plan for every project."""
     if base_dir is None:
         base_dir = Path(__file__).resolve().parent.parent.parent
 
+    cuda_index_url, cuda_desc = _detect_cuda()
+    cuda_ok = cuda_index_url is not None
+    _log.info("CUDA detection: %s (index=%s)", cuda_desc, cuda_index_url)
+
     projects = discover_projects(base_dir)
-    # Sort by upgrade order; unknown projects go last
     order_map = {name: i for i, name in enumerate(UPGRADE_ORDER)}
     projects_sorted = sorted(projects, key=lambda p: order_map.get(p.name, 999))
 
     plan_items: List[ProjectUpgradePlan] = []
     total_outdated = 0
+    total_safe = 0
+    total_blocked = 0
 
     for p in projects_sorted:
         p_dir = Path(p.project_dir)
+
         if p.is_node_project:
             outdated = _find_npm_outdated(p_dir)
-        else:
-            outdated = find_outdated_packages(p_dir)
+            plan_items.append(ProjectUpgradePlan(
+                name=p.name, project_dir=str(p_dir), is_node_project=True,
+                outdated_packages=outdated, safe_packages=list(outdated),
+                blocked_packages=[], has_updates=len(outdated) > 0,
+                has_safe_updates=len(outdated) > 0,
+            ))
+            total_outdated += len(outdated)
+            total_safe += len(outdated)
+            continue
 
-        plan_items.append(
-            ProjectUpgradePlan(
-                name=p.name,
-                project_dir=str(p_dir),
-                is_node_project=p.is_node_project,
-                outdated_packages=outdated,
-                has_updates=len(outdated) > 0,
-            )
+        current = _venv_package_map(p_dir)
+        raw = find_outdated_packages(p_dir)
+
+        torch_raw: List[OutdatedPackage] = []
+        non_torch_raw: List[OutdatedPackage] = []
+        for pkg in raw:
+            if _is_torch_family(pkg.name):
+                torch_raw.append(pkg)
+            else:
+                non_torch_raw.append(pkg)
+
+        safe_pkgs, blocked = classify_safe_upgrades(
+            p_dir, non_torch_raw, cuda_index_url=cuda_index_url,
         )
-        total_outdated += len(outdated)
+
+        torch_cuda_candidates: List[OutdatedPackage] = []
+        if cuda_index_url is not None and _torch_installed(p_dir):
+            torch_cuda_candidates, _reason = _check_torch_cuda_upgrades(
+                p_dir, cuda_index_url, current,
+            )
+            safe_pkgs.extend(torch_cuda_candidates)
+        elif torch_raw:
+            torch_safe, torch_blocked = classify_safe_upgrades(p_dir, torch_raw)
+            safe_pkgs.extend(torch_safe)
+            blocked.extend(torch_blocked)
+
+        outdated_all = list(safe_pkgs) + [pkg for pkg, _ in blocked]
+        seen: set = set()
+        deduped: List[OutdatedPackage] = []
+        for pkg in outdated_all:
+            key = _normalize(pkg.name)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(pkg)
+
+        plan_items.append(ProjectUpgradePlan(
+            name=p.name, project_dir=str(p_dir), is_node_project=False,
+            outdated_packages=deduped, safe_packages=safe_pkgs,
+            blocked_packages=blocked, torch_cuda_packages=torch_cuda_candidates,
+            has_updates=len(deduped) > 0, has_safe_updates=len(safe_pkgs) > 0,
+            cuda_available=cuda_ok, cuda_index_url=cuda_index_url,
+        ))
+        total_outdated += len(deduped)
+        total_safe += len(safe_pkgs)
+        total_blocked += len(blocked)
 
     return EcosystemUpgradePlan(
-        projects=plan_items,
-        total_outdated=total_outdated,
-        has_any_updates=total_outdated > 0,
+        projects=plan_items, total_outdated=total_outdated,
+        total_safe=total_safe, total_blocked=total_blocked,
+        has_any_updates=total_outdated > 0, has_any_safe_updates=total_safe > 0,
+        cuda_detected=cuda_ok, cuda_index_url=cuda_index_url,
     )
+
+
+# ─── Applier ────────────────────────────────────────────────────────────────
+
+def _apply_batch_with_rollback(
+    project_dir: Path,
+    packages: List[str],
+    extra_index_url: Optional[str] = None,
+) -> Tuple[bool, str, bool]:
+    freeze = _snapshot_freeze(project_dir)
+
+    ok, apply_msg = _apply_pip_upgrade(project_dir, packages, extra_index_url)
+    if not ok:
+        return False, apply_msg, False
+
+    check_ok, check_msg = _pip_check(project_dir)
+    if check_ok:
+        return True, apply_msg, False
+
+    if freeze is None:
+        return False, f"pip check failed ({check_msg}); no snapshot available for rollback", False
+
+    restore_ok, restore_msg = _restore_freeze(project_dir, freeze)
+    if restore_ok:
+        return False, f"pip check failed ({check_msg}); rolled back successfully", True
+    return False, f"pip check failed ({check_msg}); rollback also failed: {restore_msg}", False
 
 
 def apply_upgrade_plan(
@@ -210,86 +522,166 @@ def apply_upgrade_plan(
     base_dir: Optional[Path] = None,
     extra_index_url: Optional[str] = None,
 ) -> Generator[UpgradeEvent, None, None]:
-    """Apply the upgrade plan bottom-up and yield telemetry events.
-
-    After all pip upgrades are complete the centralized manifests are
-    re-written to capture newly installed versions.
-
-    Yields UpgradeEvent for each package attempted.
-    """
+    """Apply the plan bottom-up and yield telemetry events."""
     if base_dir is None:
         base_dir = Path(__file__).resolve().parent.parent.parent
+
+    cuda_index_url, _ = _detect_cuda()
 
     for proj_plan in plan.projects:
         p_dir = Path(proj_plan.project_dir)
 
-        if not proj_plan.has_updates:
+        for pkg, reason in proj_plan.blocked_packages:
             yield UpgradeEvent(
-                project=proj_plan.name,
-                package="(all)",
-                old_version="",
-                new_version="",
-                status="skipped",
-                message="All packages are up to date.",
+                project=proj_plan.name, package=pkg.name,
+                old_version=pkg.current_version, new_version=pkg.latest_version,
+                status="blocked", message=reason,
+            )
+
+        if proj_plan.is_node_project:
+            if not proj_plan.safe_packages:
+                yield UpgradeEvent(
+                    project=proj_plan.name, package="(all)", old_version="",
+                    new_version="", status="skipped",
+                    message="All npm packages are up to date.",
+                )
+                continue
+            ok, msg = _apply_npm_update(p_dir)
+            yield UpgradeEvent(
+                project=proj_plan.name, package="(npm packages)",
+                old_version="", new_version="",
+                status="upgraded" if ok else "failed",
+                message=(msg or "")[:300],
             )
             continue
 
-        if proj_plan.is_node_project:
-            # npm update
-            ok, msg = _apply_npm_update(p_dir)
-            status = "upgraded" if ok else "failed"
-            yield UpgradeEvent(
-                project=proj_plan.name,
-                package="(npm packages)",
-                old_version="",
-                new_version="",
-                status=status,
-                message=msg[:300] if msg else "",
+        non_torch = [p for p in proj_plan.safe_packages if not _is_torch_family(p.name)]
+        torch_safe = [p for p in proj_plan.safe_packages if _is_torch_family(p.name)]
+
+        if non_torch:
+            names = [p.name for p in non_torch]
+            ok, msg, rolled_back = _apply_batch_with_rollback(
+                p_dir, names, extra_index_url=extra_index_url,
             )
-        else:
-            # Pip upgrade all outdated at once (faster, single solver pass)
-            pkg_names = [pkg.name for pkg in proj_plan.outdated_packages]
-            ok, msg = _apply_pip_upgrade(p_dir, pkg_names, extra_index_url)
             if ok:
-                for pkg in proj_plan.outdated_packages:
+                for pkg in non_torch:
                     yield UpgradeEvent(
-                        project=proj_plan.name,
-                        package=pkg.name,
-                        old_version=pkg.current_version,
-                        new_version=pkg.latest_version,
+                        project=proj_plan.name, package=pkg.name,
+                        old_version=pkg.current_version, new_version=pkg.latest_version,
                         status="upgraded",
-                        message=f"Upgraded from {pkg.current_version} to {pkg.latest_version}.",
+                        message=f"Upgraded {pkg.current_version} -> {pkg.latest_version}.",
                     )
             else:
                 yield UpgradeEvent(
-                    project=proj_plan.name,
-                    package="(batch)",
-                    old_version="",
-                    new_version="",
-                    status="failed",
-                    message=msg[:300] if msg else "Upgrade failed.",
+                    project=proj_plan.name, package="(batch)",
+                    old_version="", new_version="", status="failed",
+                    message=msg[:400],
+                )
+                if rolled_back:
+                    continue
+        elif not torch_safe and not proj_plan.has_updates:
+            yield UpgradeEvent(
+                project=proj_plan.name, package="(all)", old_version="",
+                new_version="", status="skipped",
+                message="All packages are up to date.",
+            )
+
+        # ── Torch-family CUDA refresh ──
+        # Only upgrade the subset actually installed in this project. Never
+        # install a torch-family package the project never declared, and
+        # never emit a spurious "upgraded" event when nothing changed.
+        project_map = _venv_package_map(p_dir)
+        installed_torch = [
+            name for name in TORCH_FAMILY if _normalize(name) in project_map
+        ]
+
+        if cuda_index_url is not None and installed_torch:
+            freeze = _snapshot_freeze(p_dir)
+            ok, msg = _apply_torch_cuda_upgrade(
+                p_dir, cuda_index_url, installed_names=installed_torch,
+            )
+            if ok:
+                check_ok, check_msg = _pip_check(p_dir)
+                if not check_ok and freeze is not None:
+                    restore_ok, _restore_msg = _restore_freeze(p_dir, freeze)
+                    yield UpgradeEvent(
+                        project=proj_plan.name, package="torch-family",
+                        old_version="", new_version="", status="failed",
+                        message=f"torch CUDA upgrade broke pip check: {check_msg}; "
+                                f"rollback {'ok' if restore_ok else 'FAILED'}",
+                    )
+                else:
+                    emitted_any = False
+                    for pkg in torch_safe:
+                        emitted_any = True
+                        yield UpgradeEvent(
+                            project=proj_plan.name, package=pkg.name,
+                            old_version=pkg.current_version,
+                            new_version=pkg.latest_version,
+                            status="upgraded",
+                            message=(
+                                f"CUDA upgrade {pkg.current_version} -> "
+                                f"{pkg.latest_version}."
+                            ),
+                        )
+                    if not emitted_any:
+                        versions = ", ".join(
+                            f"{name}={project_map.get(_normalize(name), '?')}"
+                            for name in installed_torch
+                        )
+                        yield UpgradeEvent(
+                            project=proj_plan.name, package="torch-family",
+                            old_version="", new_version="",
+                            status="verified",
+                            message=(
+                                f"torch-family already at newest CUDA builds "
+                                f"({versions})."
+                            ),
+                        )
+            else:
+                yield UpgradeEvent(
+                    project=proj_plan.name, package="torch-family",
+                    old_version="", new_version="", status="failed",
+                    message=f"CUDA upgrade failed: {msg[:300]}",
                 )
 
-    # Auto-sync: write installed versions back to centralized manifests
+        check_ok, check_msg = _pip_check(p_dir)
+        yield UpgradeEvent(
+            project=proj_plan.name, package="(pip check)",
+            old_version="", new_version="",
+            status="verified" if check_ok else "failed",
+            message=check_msg[:300],
+        )
+
+        if cuda_index_url is not None and _torch_installed(p_dir):
+            torch_ok, torch_msg = _verify_torch_cuda_runtime(p_dir)
+            yield UpgradeEvent(
+                project=proj_plan.name, package="torch-cuda-verify",
+                old_version="", new_version="",
+                status="verified" if torch_ok else "failed",
+                message=torch_msg,
+            )
+
     sync_results = sync_manifests_from_venvs(base_dir)
     for proj_name, (ok, sync_msg) in sync_results.items():
         yield UpgradeEvent(
-            project=proj_name,
-            package="(manifest sync)",
-            old_version="",
-            new_version="",
+            project=proj_name, package="(manifest sync)",
+            old_version="", new_version="",
             status="upgraded" if ok else "failed",
             message=sync_msg,
         )
 
 
-def sync_manifests_from_venvs(base_dir: Optional[Path] = None) -> Dict[str, Tuple[bool, str]]:
-    """Read installed versions from each venv and write back to centralized manifests.
+# ─── Manifest sync ──────────────────────────────────────────────────────────
 
-    For Python projects this re-pins every installed package.
-    For the GUI project it triggers an npm install to update package-lock.json.
-    The canonical manifests in lemgendary-env-manager/requirements/ are updated
-    so they always reflect the actual production state.
+def sync_manifests_from_venvs(
+    base_dir: Optional[Path] = None,
+) -> Dict[str, Tuple[bool, str]]:
+    """Read installed versions from each venv and write back to manifests.
+
+    Packages in :data:`PROTECTED_FROM_SYNC` are passed through untouched,
+    regardless of the venv's current state. This prevents a transient
+    install-time drift from permanently corrupting a manifest.
     """
     if base_dir is None:
         base_dir = Path(__file__).resolve().parent.parent.parent
@@ -311,17 +703,15 @@ def sync_manifests_from_venvs(base_dir: Optional[Path] = None) -> Dict[str, Tupl
         if not p_dir.exists():
             results[proj_name] = (False, f"Project directory not found: {p_dir}")
             continue
-
         if not is_venv_valid(p_dir):
-            results[proj_name] = (False, "No valid venv found, cannot read installed packages.")
+            results[proj_name] = (False, "No valid venv found.")
             continue
 
         installed = get_installed_packages(p_dir)
         if not installed:
-            results[proj_name] = (False, "No installed packages found in venv.")
+            results[proj_name] = (False, "No installed packages.")
             continue
 
-        # Read existing manifest to preserve comments, index URLs, and markers
         manifest_path = manifests_dir / manifest_name
         existing_lines: List[str] = []
         if manifest_path.exists():
@@ -330,30 +720,44 @@ def sync_manifests_from_venvs(base_dir: Optional[Path] = None) -> Dict[str, Tupl
         new_lines: List[str] = []
         for line in existing_lines:
             stripped = line.strip()
-            # Keep blank lines, comments, and index URL directives unchanged
-            if not stripped or stripped.startswith("#") or stripped.startswith("--") or stripped.startswith("-i "):
+            if (
+                not stripped
+                or stripped.startswith("#")
+                or stripped.startswith("--extra-index-url")
+                or stripped.startswith("--index-url")
+                or stripped.startswith("-i ")
+            ):
                 new_lines.append(line)
                 continue
-            # Try to extract package name from the line
-            import re
+
             match = re.match(r"^([A-Za-z0-9_\-\.]+)", stripped)
-            if match:
-                pkg_name = match.group(1).lower().replace("_", "-").replace(".", "-")
-                installed_ver = installed.get(pkg_name) or installed.get(match.group(1).lower())
-                if installed_ver:
-                    # Preserve any environment markers that were on the original line
-                    marker_match = re.search(r";(.+)$", stripped)
-                    marker = f"; {marker_match.group(1).strip()}" if marker_match else ""
-                    new_lines.append(f"{match.group(1)}=={installed_ver}{marker}")
-                    continue
+            if not match:
+                new_lines.append(line)
+                continue
+
+            raw_name = match.group(1)
+            pkg_name = raw_name.lower().replace("_", "-").replace(".", "-")
+
+            if pkg_name in PROTECTED_FROM_SYNC:
+                new_lines.append(line)
+                continue
+
+            installed_ver = (
+                installed.get(pkg_name)
+                or installed.get(raw_name.lower())
+            )
+            if installed_ver:
+                marker_match = re.search(r";(.+)$", stripped)
+                marker = f"; {marker_match.group(1).strip()}" if marker_match else ""
+                new_lines.append(f"{raw_name}=={installed_ver}{marker}")
+                continue
+
             new_lines.append(line)
 
         try:
             manifest_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-            # Also copy back to the project directory
-            import shutil as _shutil
-            _shutil.copy2(manifest_path, p_dir / "requirements.txt")
-            results[proj_name] = (True, f"Manifest {manifest_name} updated and synced to project.")
+            shutil.copy2(manifest_path, p_dir / "requirements.txt")
+            results[proj_name] = (True, f"Manifest {manifest_name} updated and synced.")
         except Exception as exc:
             results[proj_name] = (False, str(exc))
 
