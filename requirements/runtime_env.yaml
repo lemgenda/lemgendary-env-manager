@@ -1,0 +1,67 @@
+# LemGendary Runtime Environment Contract
+#
+# Single source of truth for environment variables that must be set BEFORE
+# a Python process imports torch, PIL, or any other heavy dependency.
+#
+# Consumers (all read from this file):
+#   - lem-gendary_datasets_hub.ps1     (Windows interactive launcher)
+#   - runtime/environment.py            (Python fallback for direct invocations)
+#   - notebook_generator.py             (embeds values in cell 0 of generated notebooks)
+#   - lem-env                           (may inject via process env)
+#
+# Format:
+#   <VAR_NAME>:
+#     value: <string>
+#     scope: [all | windows | posix | torch]
+#     comment: <description>
+#
+# Scope semantics:
+#   all      set on every platform
+#   windows  set only when running on Windows
+#   posix    set only when running on POSIX (Linux/macOS)
+#   torch    set on every platform; conceptually tied to torch import
+#            (currently treated identically to 'all' — see runtime/environment.py)
+
+version: "1.0"
+last_updated: "2026-09-16"
+
+variables:
+  PYTHONUTF8:
+    value: "1"
+    scope: [all]
+    comment: Force UTF-8 mode globally. Prevents Windows console mojibake.
+
+  PYTHONUNBUFFERED:
+    value: "1"
+    scope: [all]
+    comment: Unbuffered stdout/stderr. Required for real-time progress in PS1 jobs.
+
+  PYTHONIOENCODING:
+    value: "utf-8"
+    scope: [all]
+    comment: Belt-and-braces UTF-8 for stdio streams.
+
+  FOR_DISABLE_CONSOLE_CTRL_HANDLER:
+    value: "1"
+    scope: [windows]
+    comment: Prevent Intel Fortran runtime from installing its own Ctrl+C handler.
+
+  FOR_IGNORE_EXCEPTIONS:
+    value: "1"
+    scope: [windows]
+    comment: Intel Fortran runtime silently ignores floating-point signals.
+
+  PYTORCH_CUDA_ALLOC_CONF:
+    value: "expandable_segments:True"
+    scope: [torch]
+    comment: Reduce PyTorch CUDA allocator fragmentation.
+
+  CUDA_FORCE_PTX_JIT:
+    value: "1"
+    scope: [torch]
+    comment: Force PyTorch to JIT-compile PTX for GPUs without native SASS kernels (Tesla P100).
+
+  TORCH_CUDA_ARCH_LIST:
+    value: "6.0;7.0;7.5;8.0;8.6;9.0"
+    scope: [torch]
+    comment: Target arch list including sm_60 for Tesla P100 compatibility.
