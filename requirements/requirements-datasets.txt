@@ -30,7 +30,7 @@ pylint==4.0.8
 pyright==1.1.414
 
 # ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
-# pyyaml, requests, psutil, beautifulsoup4, and setuptools ship without
+# pyyaml, requests, psutil, beautifulsoup4, tqdm, and setuptools ship without
 # inline type hints. These stub packages provide .pyi files so the type
 # checker can resolve imports without emitting missing-import warnings.
 # They are dev-time only and have no runtime footprint.
@@ -38,4 +38,5 @@ types-PyYAML==6.0.12.20260906
 types-requests==2.33.0.20260906
 types-psutil==7.2.2.20260906
 types-beautifulsoup4==4.12.0.20250516
+types-tqdm==4.70.0.20260906
 types-setuptools==84.0.0.20260812
