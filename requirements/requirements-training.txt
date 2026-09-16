@@ -1,79 +1,110 @@
 # ==============================================================================
-# LemGendary Training Suite — Kaggle / Colab Runtime Requirements
+# LemGendary Training Suite — Unified Requirements (v16.4)
 # ==============================================================================
-# Strip-down of requirements.txt: identical runtime deps, NO dev tooling
-# (pylint / pyright / type stubs), NO GUI OpenCV, NO MT5.
+# Single source of truth for BOTH local dev AND cloud runtime
+# (Kaggle / Colab). This file must be byte-identical to
+# `lemgendary-env-manager/requirements/requirements-training.txt`.
 #
-# Install with the CUDA wheel index. The notebook generator writes a
-# --constraint file to force +cu118 on P100 nodes; that constraint wins over
-# the range pins below.
+# Design notes:
+#   * `--extra-index-url` below lets pip resolve torch/torchvision/torchaudio
+#     CUDA wheels from PyTorch's index while everything else comes from PyPI.
+#   * Do NOT add `+cu121` suffixes to torch pins — that breaks CPU-only hosts.
+#     The notebook generator writes a `--constraint` file to force +cu118 on
+#     P100 nodes; that constraint overrides the torch version range below.
+#   * numpy<2.0 is intentional: torchmetrics[image] and pyarrow still have
+#     intermittent incompatibilities with numpy 2.x on Kaggle's Python 3.10.
+#   * Platform-specific wheels use environment markers so the same file works
+#     on Linux (Kaggle/Colab/CI) and Windows (local dev).
 # ==============================================================================
 
 --extra-index-url https://download.pytorch.org/whl/cu121
 
 # ── Core Deep Learning ──────────────────────────────────────────────────────
-torch>=2.4.0,<2.6.0
-torchvision>=0.19.0,<0.21.0
-torchaudio>=2.4.0,<2.6.0
+torch>=2.5.1,<2.6.0
+torchvision>=0.20.1,<0.21.0
+torchaudio>=2.5.1,<2.6.0
 
 # ── Scientific Stack ────────────────────────────────────────────────────────
-# numpy<2.0 pin is intentional: torchmetrics[image] and pyarrow on Kaggle's
-# Python 3.10 do not play nicely with numpy 2.x.
 numpy>=1.26.0,<2.0.0
-scipy>=1.11.0,<1.15.0
-pandas>=2.1.0,<2.3.0
-pyarrow>=14.0.0,<18.0.0
+scipy>=1.13.0,<1.15.0
+pandas>=2.2.0,<2.3.0
+pyarrow>=16.0.0,<18.0.0
 
-# ── Metrics ─────────────────────────────────────────────────────────────────
-# [image] extra is MANDATORY for LPIPS + FID.
-torchmetrics[image]>=1.4.0,<1.7.0
-pycocotools>=2.0.7,<2.1.0
-torch-fidelity>=0.3.0,<0.5.0
+# ── Metrics (LPIPS / FID / mAP / SSIM) ──────────────────────────────────────
+# The [image] extra is MANDATORY: without it, LearnedPerceptualImagePatchSimilarity
+# and FrechetInceptionDistance raise ImportError at runtime.
+torchmetrics[image]>=1.4.0,<1.6.0
+pycocotools>=2.0.8,<2.1.0
+torch-fidelity>=0.4.0,<0.5.0
 
 # ── Computer Vision ─────────────────────────────────────────────────────────
-# headless is the ONLY safe choice on Kaggle/Colab (no libGL.so).
-opencv-python-headless>=4.9.0.80,<4.11.0
-scikit-image>=0.22.0,<0.25.0
-albumentations>=1.4.0,<2.1.0
-pillow>=10.2.0,<11.2.0
+# opencv-python-headless is required on Kaggle/Colab: no libGL.so present,
+# and the GUI build fails to import even during headless training.
+opencv-python-headless>=4.10.0.84,<4.11.0
+scikit-image>=0.24.0,<0.25.0
+scikit-learn>=1.5.0,<1.6.0
+albumentations>=1.4.0,<2.0.0
+pillow>=10.4.0,<11.1.0
 
-# ── Model Registry / Backbones ──────────────────────────────────────────────
-einops>=0.7.0,<0.9.0
-timm>=0.9.16,<1.1.0
-safetensors>=0.4.0,<0.6.0
+# ── Model Registry / Backbone helpers ───────────────────────────────────────
+einops>=0.8.0,<0.9.0
+timm>=1.0.0,<1.1.0
+safetensors>=0.4.4,<0.5.0
 
-# ── Diffusion / Text-to-Image ───────────────────────────────────────────────
-diffusers>=0.27.0,<0.32.0
-transformers>=4.40.0,<4.50.0
-accelerate>=0.29.0,<1.4.0
-peft>=0.10.0,<0.15.0
-bitsandbytes>=0.43.0,<0.46.0
+# ── Diffusion / Text-to-Image (task_type dispatch) ──────────────────────────
+diffusers>=0.31.0,<0.32.0
+transformers>=4.45.0,<4.47.0
+accelerate>=1.0.0,<1.2.0
+peft>=0.13.0,<0.15.0
+bitsandbytes>=0.44.0,<0.46.0
 sentencepiece>=0.2.0,<0.3.0
 
 # ── Object Detection ────────────────────────────────────────────────────────
-ultralytics>=8.2.0,<8.4.0
+# 8.4 moved model.add_callback to a different module path and breaks the
+# core_loop.py SOTA early-stop hook.
+ultralytics>=8.3.0,<8.4.0
 
-# ── Cloud Hub / Model Registry ──────────────────────────────────────────────
-kaggle>=1.6.0,<2.0.0
-kagglehub>=0.2.0,<0.4.0
-huggingface-hub>=0.23.0,<0.28.0
-gdown>=5.1.0,<5.3.0
-websockets>=12.0,<15.0
+# ── Cloud Hub / Federated Sync / Model Registry ─────────────────────────────
+kaggle>=1.6.17,<2.0.0
+kagglehub>=0.3.0,<0.4.0
+huggingface-hub>=0.26.0,<0.27.0
+gdown>=5.2.0,<5.3.0
+websockets>=13.0,<14.0
 
 # ── ONNX / Export ───────────────────────────────────────────────────────────
-onnx>=1.16.0,<1.18.0
+onnx>=1.17.0,<1.18.0
 onnxsim>=0.4.36,<0.5.0
-onnxconverter-common>=1.14.0,<1.17.0
+onnxconverter-common>=1.14.0,<1.15.0
 onnxscript>=0.1.0,<0.3.0
-# Kaggle Linux: CUDA-backed ORT.
-onnxruntime-gpu>=1.18.0,<1.21.0; sys_platform == "linux"
+# Linux (Kaggle/Colab): CUDA-backed ORT.
+onnxruntime-gpu>=1.19.0,<1.21.0; sys_platform == "linux"
+# Windows local dev: DirectML-backed ORT.
+onnxruntime-directml>=1.19.0,<1.21.0; sys_platform == "win32"
 
 # ── Utility ─────────────────────────────────────────────────────────────────
-pyyaml>=6.0.1,<6.1.0
-psutil>=5.9.0,<7.1.0
+pyyaml>=6.0.2,<6.1.0
+psutil>=6.0.0,<7.0.0
 tqdm>=4.66.0,<4.68.0
-requests>=2.31.0,<2.33.0
-matplotlib>=3.8.0,<3.11.0
+requests>=2.32.0,<2.33.0
+matplotlib>=3.9.0,<3.10.0
 
-# ── Forex indicators ────────────────────────────────────────────────────────
+# ── MT5 (Windows-only data pipeline) ────────────────────────────────────────
+# Has no Linux/macOS wheel; the marker skips it automatically on Kaggle/Colab.
+MetaTrader5>=5.0.45,<5.1.0; sys_platform == "win32"
+
+# ── Forex indicators (fast path in data/mt5_pipeline.py) ────────────────────
 pandas-ta-classic>=0.3.0,<0.9.0
+
+# ==============================================================================
+# Development / Type-Checking Tooling
+# ==============================================================================
+# Kept in the unified file so `requirements.txt` and `requirements-training.txt`
+# stay byte-identical. Adds ~40MB to the Kaggle install, which is acceptable.
+pylint>=3.3.0,<3.4.0
+pyright>=1.1.380,<1.1.400
+
+# Type stubs (must match runtime library versions above).
+types-PyYAML>=6.0.12
+types-psutil>=6.0.0
+types-requests>=2.32.0
+types-tqdm>=4.66.0
