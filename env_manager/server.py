@@ -16,11 +16,15 @@ Start-Process "http://127.0.0.1:8000/docs" opens Swagger UI, which lets you clic
 """
 
 import asyncio
+import json
+import logging
+from pathlib import Path
 import threading
+import urllib.error
+import urllib.request
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
-from pathlib import Path
 
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +36,8 @@ from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
 from env_manager.system_probe import probe_hardware
 from env_manager.utils import purge_project_cache
 from env_manager.venv_manager import discover_projects
+
+_log = logging.getLogger("env_manager.server")
 
 
 # ─── WebSocket connection manager ──────────────────────────────────────────
@@ -52,7 +58,8 @@ class ConnectionManager:
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
-            except Exception:
+            except Exception as exc:
+                _log.debug("Failed to broadcast message to websocket client: %s", exc)
                 self.disconnect(connection)
 
 
@@ -82,7 +89,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             await drain_task
         except asyncio.CancelledError:
-            pass
+            _log.debug("Drain event queue task cancelled cleanly during shutdown.")
 
 
 app = FastAPI(
@@ -374,6 +381,78 @@ async def validate_codebase(request: Optional[ValidateRequest] = None):
     }
 
 
+def _probe_sidecar(url: str, timeout: float = 1.5) -> Dict[str, Any]:
+    """Probe an external HTTP sidecar endpoint cleanly with a brief timeout."""
+    req = urllib.request.Request(url, headers={"User-Agent": "LemGendary-Env-Manager"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                body = resp.read().decode("utf-8")
+                try:
+                    data = json.loads(body)
+                    return {"status": "online", "reachable": True, "data": data}
+                except json.JSONDecodeError as exc:
+                    _log.debug("Sidecar response at %s was not valid JSON: %s", url, exc)
+                    return {"status": "online", "reachable": True, "raw": body}
+            return {"status": "error", "reachable": True, "http_status": resp.status}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        _log.debug("Sidecar probe to %s failed: %s", url, exc)
+        return {"status": "offline", "reachable": False, "error": str(exc)}
+
+
+@app.get("/api/gui/state")
+async def get_gui_state():
+    """Aggregated ecosystem and host state for LemGendary AI Studio Desktop GUI.
+
+    Returns host telemetry, hardware profile, discovered projects summary,
+    and orchestrator status in a single non-blocking payload.
+    """
+    loop = asyncio.get_running_loop()
+    hw_future = loop.run_in_executor(None, probe_hardware)
+    proj_future = loop.run_in_executor(None, discover_projects)
+    hw, projects = await asyncio.gather(hw_future, proj_future)
+
+    return {
+        "service": {
+            "name": "lemgendary-env-manager",
+            "version": "2.0.0",
+            "port": 8000,
+            "status": "online",
+        },
+        "hardware": hw.to_dict(),
+        "projects": [p.to_dict() for p in projects],
+        "pipeline": {
+            "is_running": orchestrator.is_running,
+            "last_status": orchestrator.last_status,
+            "last_run_timestamp": orchestrator.last_run_timestamp,
+        },
+    }
+
+
+@app.get("/api/gui/ecosystem")
+async def get_gui_ecosystem():
+    """Multi-sidecar health overview for LemGendary AI Studio Desktop GUI top-bar status."""
+    loop = asyncio.get_running_loop()
+    datasets_probe = await loop.run_in_executor(
+        None,
+        lambda: _probe_sidecar("http://127.0.0.1:8100/api/health", timeout=1.5),
+    )
+
+    return {
+        "env_manager": {
+            "service": "lemgendary-env-manager",
+            "port": 8000,
+            "status": "online",
+            "reachable": True,
+        },
+        "dataset_compiler": {
+            "service": "lemgendary-datasets",
+            "port": 8100,
+            **datasets_probe,
+        },
+    }
+
+
 @app.websocket("/ws/log")
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
@@ -381,11 +460,13 @@ async def websocket_logs(websocket: WebSocket):
     for ev in recent_events[-20:]:
         try:
             await websocket.send_json(ev)
-        except Exception:
+        except Exception as exc:
+            _log.debug("Error sending replay event to websocket: %s", exc)
             break
 
     try:
         while True:
             await websocket.receive_text()
-    except (WebSocketDisconnect, Exception):
+    except (WebSocketDisconnect, Exception) as exc:
+        _log.debug("WebSocket disconnected: %s", exc)
         manager.disconnect(websocket)

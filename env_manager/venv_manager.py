@@ -92,20 +92,17 @@ def _handle_remove_readonly(func, path, exc):
 def _is_inside_active_venv(venv_dir: Path) -> bool:
     try:
         current_exe = Path(sys.executable).resolve()
-    except Exception:
-        return False
-    try:
-        if current_exe.is_relative_to(venv_dir.resolve()):
-            return True
-    except AttributeError:
+        target_dir = venv_dir.resolve()
+        if hasattr(current_exe, "is_relative_to"):
+            return current_exe.is_relative_to(target_dir)
         try:
-            current_exe.relative_to(venv_dir.resolve())
+            current_exe.relative_to(target_dir)
             return True
         except ValueError:
-            pass
-    except Exception:
-        pass
-    return False
+            return False
+    except OSError as exc:
+        _log.debug("Failed to resolve executable path for venv check: %s", exc)
+        return False
 
 
 def create_venv(project_dir: Path) -> Tuple[bool, str]:

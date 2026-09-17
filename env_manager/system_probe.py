@@ -248,8 +248,10 @@ def _mt5_registry_probe() -> Optional[MetaTrader5Info]:
     When a registered origin path is found, the version is read directly
     from terminal64.exe so callers get an authoritative version number.
     """
+    if sys.platform != "win32":
+        return None
     try:
-        import winreg  # type: ignore[import]
+        import winreg
     except ImportError:
         return None
 
@@ -272,17 +274,17 @@ def _mt5_registry_probe() -> Optional[MetaTrader5Info]:
                         try:
                             origin, _ = winreg.QueryValueEx(sub, "Origin")
                             origin_path = str(origin)
-                        except FileNotFoundError:
-                            pass
+                        except (FileNotFoundError, OSError) as exc:
+                            _log.debug("No Origin key in MT5 subkey %s: %s", subkey, exc)
                         # Some MT5 builds register a "Version" value directly.
                         try:
                             ver_val, _ = winreg.QueryValueEx(sub, "Version")
                             if ver_val:
                                 version = str(ver_val)
-                        except FileNotFoundError:
-                            pass
-                except OSError:
-                    pass
+                        except (FileNotFoundError, OSError) as exc:
+                            _log.debug("No Version key in MT5 subkey %s: %s", subkey, exc)
+                except OSError as exc:
+                    _log.debug("Could not open MT5 subkey %s: %s", subkey, exc)
 
                 # Fall back to reading terminal64.exe's file version.
                 if version is None and origin_path:

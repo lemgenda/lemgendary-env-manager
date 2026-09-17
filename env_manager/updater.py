@@ -242,8 +242,8 @@ def _restore_freeze(project_dir: Path, freeze_text: str) -> Tuple[bool, str]:
     finally:
         try:
             os.unlink(path)
-        except Exception:
-            pass
+        except OSError as exc:
+            _log.debug("Failed to unlink temporary snapshot file %s: %s", path, exc)
 
 
 # ─── CUDA-aware torch-family dry-run ────────────────────────────────────────

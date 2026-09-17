@@ -20,7 +20,7 @@ try:
     from rich.table import Table
     _RICH_AVAILABLE = True
 except ImportError:
-    Table = None  # type: ignore
+    Table: Optional[Any] = None
     _RICH_AVAILABLE = False
 
 from env_manager.bootstrap import BootstrapStatus, verify_prerequisites

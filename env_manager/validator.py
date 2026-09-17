@@ -710,8 +710,8 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
         try:
             import os
             os.unlink(list_file)
-        except Exception:
-            pass
+        except OSError as exc:
+            _log.debug("Failed to unlink temporary PSScriptAnalyzer file %s: %s", list_file, exc)
 
     return violations
 

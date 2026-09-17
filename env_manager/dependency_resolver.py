@@ -236,8 +236,8 @@ def _write_constraints_file(pins: Dict[str, str]) -> str:
     except Exception:
         try:
             os.unlink(path)
-        except Exception:
-            pass
+        except OSError as exc:
+            _log.debug("Failed unlinking temp constraints file %s: %s", path, exc)
         raise
     return path
 
@@ -315,8 +315,8 @@ def constraint_preserving_dry_run(
     finally:
         try:
             os.unlink(constraint_path)
-        except Exception:
-            pass
+        except OSError as exc:
+            _log.debug("Failed unlinking constraint file %s: %s", constraint_path, exc)
 
 
 # ─── Safety classifier ──────────────────────────────────────────────────────
