@@ -914,7 +914,9 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
                 )
             )
 
-    models_yaml = project_dir / "models_metadata.yaml"
+    models_yaml = project_dir / "models" / "models_metadata.yaml"
+    if not models_yaml.exists():
+        models_yaml = project_dir / "models_metadata.yaml"
     if models_yaml.exists():
         try:
             import yaml
