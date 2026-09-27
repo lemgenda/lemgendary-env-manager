@@ -23,8 +23,30 @@
 #   torch    set on every platform; conceptually tied to torch import
 #            (currently treated identically to 'all' — see runtime/environment.py)
 
-version: "1.0"
-last_updated: "2026-09-16"
+version: "1.1"
+last_updated: "2026-09-26"
+
+container_runtime_dependencies:
+  mosaicml-streaming:
+    specifier: ">=0.9.0,<1.0.0"
+    format: "mds"
+    comment: "High-throughput multi-task streaming dataset container format."
+  litdata:
+    specifier: ">=0.2.0,<1.0.0"
+    format: "litdata"
+    comment: "Lightning AI chunked binary tensor streaming dataset container format."
+  webdataset:
+    specifier: "==1.0.2"
+    format: "webdataset"
+    comment: "Sharded tar archive streaming dataset container format."
+  pyarrow:
+    specifier: "==25.0.1"
+    format: "parquet"
+    comment: "High-performance columnar tabular storage format."
+  zstandard:
+    specifier: ">=0.23.0"
+    format: "zstd"
+    comment: "Zstandard lossless data compression algorithm."
 
 variables:
   PYTHONUTF8:

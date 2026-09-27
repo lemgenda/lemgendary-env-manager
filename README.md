@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.2.0)
+# LemGendary Environment Manager (v16.8.0-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -139,3 +139,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 - `openapi.json`: OpenAPI 3.1 contract exported for client code generation in `lemgendary-ai-studio-gui`.
 - `requirements/`: Canonical manifest directory governing ecosystem dependencies.
+
+---
+
+## Changelog
+
+### v16.8.0 — Container Runtime Dependencies Synchronization & SSOT Alignment
+
+- **Container Runtime Dependency Matrix Synchronization** — Upgraded centralized requirements manifests (`requirements-datasets.txt`, `requirements-training.txt`) with complete runtime support for unified streaming and columnar container engines: `mosaicml-streaming>=0.9.0,<1.0.0`, `litdata>=0.2.0,<1.0.0`, `webdataset==1.0.2`, `pyarrow==25.0.1`, and `zstandard>=0.23.0`.
+- **Runtime Environment Specification Upgrade** — Updated `requirements/runtime_env.yaml` to Version 1.1, explicitly registering `container_runtime_dependencies` with package specifiers, target container formats (`mds`, `litdata`, `webdataset`, `parquet`, `zstd`), and architectural descriptions.
+- **Cross-Project Manifest Synchronization** — Executed `sync_all_manifests()` from `env_manager.requirements_manager` to propagate sanitized, deterministic dependency manifests into `lemgendary-datasets/requirements.txt` and `lemgendary-training-suite/requirements.txt`.
+- **Web Service Dependencies Alignment** — Reconciled training server sidecar requirements in `requirements-training.txt` including `fastapi`, `uvicorn`, `pydantic`, and `httpx`.
