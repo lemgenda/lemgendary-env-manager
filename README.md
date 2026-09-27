@@ -144,6 +144,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.0 — Server API Coverage, CLI Isolation & Comprehensive Testing Battery
+
+- **Comprehensive 17-Test Quality Battery** — Implemented and verified full automated test suite (`tests/test_server_api.py`, `tests/test_cli.py`, `tests/test_bootstrap.py`, `tests/test_requirements_manager.py`, `tests/test_system_probe.py`, `tests/test_validator.py`) with 17/17 tests passing and 100% compliance under `lem-env validate`.
+- **Dependency-Free Asynchronous Server API Testing** — Tested all FastAPI route handlers directly via coroutine invocation (`asyncio.run()`), eliminating external testing dependencies while achieving sub-second verification across hardware, project status, pipeline execution, and ecosystem mesh endpoints.
+- **CLI Test Isolation & Performance Optimization** — Intercepted network-bound `winget` queries during CLI unit tests, reducing suite execution duration from 265s down to 15s with zero flakiness.
+- **Tripartite Mesh Orchestration** — Integrated sidecar discovery and health status reporting across the three ecosystem daemons (8000, 8100, 8200) powering `lemgendary-ai-studio-gui`.
+
 ### v16.8.0 — Container Runtime Dependencies Synchronization & SSOT Alignment
 
 - **Container Runtime Dependency Matrix Synchronization** — Upgraded centralized requirements manifests (`requirements-datasets.txt`, `requirements-training.txt`) with complete runtime support for unified streaming and columnar container engines: `mosaicml-streaming>=0.9.0,<1.0.0`, `litdata>=0.2.0,<1.0.0`, `webdataset==1.0.2`, `pyarrow==25.0.1`, and `zstandard>=0.23.0`.

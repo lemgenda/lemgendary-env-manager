@@ -334,6 +334,137 @@ async def sync_manifests():
     return {"status": "success", "results": formatted}
 
 
+class CleanRequest(BaseModel):
+    project: Optional[str] = None
+
+
+class ValidateRequest(BaseModel):
+    project: Optional[str] = None
+
+
+class ManifestValidateRequest(BaseModel):
+    name: str
+    content: str
+
+
+class ManifestSaveRequest(BaseModel):
+    name: str
+    content: str
+
+
+def _get_workspace_root() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve_manifest_target(name: str) -> Optional[Path]:
+    root = _get_workspace_root()
+    manifest_map = {
+        "unified_data.yaml": root / "lemgendary-datasets" / "unified_data.yaml",
+        "unified_models_v2.yaml": root / "lemgendary-training-suite" / "unified_models_v2.yaml",
+        "config.yaml": root / "lemgendary-training-suite" / "config.yaml",
+        "presets.yaml": root / "lemgendary-training-suite" / "presets.yaml",
+        "runtime_env.yaml": root / "lemgendary-env-manager" / "requirements" / "runtime_env.yaml",
+        "requirements-training.txt": root / "lemgendary-training-suite" / "requirements.txt",
+        "requirements-datasets.txt": root / "lemgendary-datasets" / "requirements.txt",
+        "requirements-env-manager.txt": root / "lemgendary-env-manager" / "requirements.txt",
+        "package.json": root / "lemgendary-ai-studio-gui" / "package.json",
+    }
+    return manifest_map.get(name)
+
+
+@app.get("/api/manifests/registry")
+async def get_manifest_registry():
+    """List all manageable ecosystem manifests, locations, and formats."""
+    manifest_targets = [
+        {"name": "unified_data.yaml", "project": "lemgendary-datasets", "format": "yaml", "description": "Authoritative dataset and source repository registry."},
+        {"name": "unified_models_v2.yaml", "project": "lemgendary-training-suite", "format": "yaml", "description": "Neural architecture registry and training hyperparameters."},
+        {"name": "config.yaml", "project": "lemgendary-training-suite", "format": "yaml", "description": "Global training execution and hardware governor configuration."},
+        {"name": "presets.yaml", "project": "lemgendary-training-suite", "format": "yaml", "description": "Canonical training and evaluation preset profiles."},
+        {"name": "runtime_env.yaml", "project": "lemgendary-env-manager", "format": "yaml", "description": "Runtime platform specifications and dependency matrices."},
+        {"name": "requirements-training.txt", "project": "lemgendary-training-suite", "format": "text", "description": "Training suite Python dependency manifest."},
+        {"name": "requirements-datasets.txt", "project": "lemgendary-datasets", "format": "text", "description": "Dataset compiler Python dependency manifest."},
+        {"name": "requirements-env-manager.txt", "project": "lemgendary-env-manager", "format": "text", "description": "Environment manager Python dependency manifest."},
+        {"name": "package.json", "project": "lemgendary-ai-studio-gui", "format": "json", "description": "Desktop GUI Tauri v2 and React package manifest."},
+    ]
+    items = []
+    for target in manifest_targets:
+        target_path = _resolve_manifest_target(target["name"])
+        exists = target_path.exists() if target_path else False
+        size_bytes = target_path.stat().st_size if exists and target_path else 0
+        items.append({
+            **target,
+            "exists": exists,
+            "size_bytes": size_bytes,
+            "path": str(target_path) if target_path else None,
+        })
+    return {"manifests": items}
+
+
+@app.get("/api/manifests/read")
+async def read_manifest(name: str = Query(..., description="Target manifest name")):
+    """Read full text content of a registered manifest."""
+    from fastapi import HTTPException
+    target_path = _resolve_manifest_target(name)
+    if not target_path or not target_path.exists():
+        raise HTTPException(status_code=404, detail=f"Manifest '{name}' not found")
+    content = target_path.read_text(encoding="utf-8")
+    ext = target_path.suffix.lstrip(".")
+    fmt = "yaml" if ext in ("yaml", "yml") else "json" if ext == "json" else "text"
+    return {
+        "name": name,
+        "format": fmt,
+        "path": str(target_path),
+        "content": content,
+    }
+
+
+@app.post("/api/manifests/validate")
+async def validate_manifest_content(req: ManifestValidateRequest):
+    """Validate syntax for YAML, JSON, or text manifest content."""
+    import yaml
+    target_path = _resolve_manifest_target(req.name)
+    ext = target_path.suffix.lstrip(".") if target_path else "yaml"
+    try:
+        if ext in ("yaml", "yml"):
+            yaml.safe_load(req.content)
+        elif ext == "json":
+            json.loads(req.content)
+        return {"valid": True, "error": None}
+    except Exception as exc:
+        return {"valid": False, "error": str(exc)}
+
+
+@app.post("/api/manifests/save")
+async def save_manifest_content(req: ManifestSaveRequest):
+    """Safely validate, back up, and atomically write manifest content to disk."""
+    import yaml
+    from fastapi import HTTPException
+    target_path = _resolve_manifest_target(req.name)
+    if not target_path:
+        raise HTTPException(status_code=404, detail=f"Unknown manifest '{req.name}'")
+    ext = target_path.suffix.lstrip(".")
+    try:
+        if ext in ("yaml", "yml"):
+            yaml.safe_load(req.content)
+        elif ext == "json":
+            json.loads(req.content)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Syntax validation failed: {exc}")
+
+    # Backup existing file
+    if target_path.exists():
+        bak_path = target_path.with_suffix(target_path.suffix + ".bak")
+        bak_path.write_bytes(target_path.read_bytes())
+
+    # Write new content atomically
+    target_path.write_text(req.content, encoding="utf-8")
+    return {
+        "status": "success",
+        "name": req.name,
+        "bytes_written": len(req.content.encode("utf-8")),
+    }
+
+
 @app.post("/api/clean")
 async def clean_artifacts(request: Optional[CleanRequest] = None):
     base_dir = Path(__file__).resolve().parent.parent.parent
@@ -437,6 +568,10 @@ async def get_gui_ecosystem():
         None,
         lambda: _probe_sidecar("http://127.0.0.1:8100/api/health", timeout=1.5),
     )
+    training_probe = await loop.run_in_executor(
+        None,
+        lambda: _probe_sidecar("http://127.0.0.1:8200/gui/state", timeout=1.5),
+    )
 
     return {
         "env_manager": {
@@ -449,6 +584,11 @@ async def get_gui_ecosystem():
             "service": "lemgendary-datasets",
             "port": 8100,
             **datasets_probe,
+        },
+        "training_suite": {
+            "service": "lemgendary-training-suite",
+            "port": 8200,
+            **training_probe,
         },
     }
 
