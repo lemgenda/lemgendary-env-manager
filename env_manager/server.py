@@ -465,6 +465,252 @@ async def save_manifest_content(req: ManifestSaveRequest):
     }
 
 
+# ─── Secrets & Ecosystem Tokens Vault ────────────────────────────────────────
+
+class SecretItem(BaseModel):
+    id: str
+    service: str
+    label: str
+    username: Optional[str] = None
+    secret_value: str
+    server: Optional[str] = None
+    is_default: bool = False
+    created_at: Optional[str] = None
+
+
+class SecretsPayload(BaseModel):
+    secrets: List[SecretItem]
+
+
+def _resolve_secrets_file() -> Path:
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    return base_dir / ".secrets.yaml"
+
+
+def _seed_secrets_from_existing(base_dir: Path) -> List[Dict[str, Any]]:
+    """Seed initial secrets registry from legacy credential files across repositories."""
+    seeds: List[Dict[str, Any]] = []
+
+    # 1. Kaggle users from .kaggle_users in training-suite
+    kaggle_users_file = base_dir / "lemgendary-training-suite" / ".kaggle_users"
+    if kaggle_users_file.exists():
+        try:
+            content = kaggle_users_file.read_text(encoding="utf-8").strip()
+            for line in content.split(";"):
+                line = line.strip()
+                if not line:
+                    continue
+                parts = dict(p.strip().split("=", 1) for p in line.split(",") if "=" in p)
+                u = parts.get("KAGGLE_USERNAME")
+                t = parts.get("KAGGLE_API_TOKEN")
+                if u and t:
+                    seeds.append({
+                        "id": f"kaggle-{u}",
+                        "service": "kaggle",
+                        "label": f"Kaggle ({u})",
+                        "username": u,
+                        "secret_value": t,
+                        "server": None,
+                        "is_default": u == "lemtreursi",
+                    })
+        except Exception as exc:
+            _log.debug("Error parsing .kaggle_users: %s", exc)
+
+    # 2. Google Drive from .GOOGLE_DRIVE in training suite
+    gdrive_file = base_dir / "lemgendary-training-suite" / ".GOOGLE_DRIVE"
+    if gdrive_file.exists():
+        try:
+            key = gdrive_file.read_text(encoding="utf-8").strip()
+            if key:
+                seeds.append({
+                    "id": "gdrive-primary",
+                    "service": "google_drive",
+                    "label": "Google Drive Primary API Key",
+                    "username": "default",
+                    "secret_value": key,
+                    "server": None,
+                    "is_default": True,
+                })
+        except Exception as exc:
+            _log.debug("Error parsing .GOOGLE_DRIVE: %s", exc)
+
+    # 3. GitHub PAT
+    gh_file = base_dir / "lemgendary-training-suite" / ".GITHUB_PAT"
+    if gh_file.exists():
+        try:
+            tok = gh_file.read_text(encoding="utf-8").strip()
+            if tok:
+                seeds.append({
+                    "id": "github-primary",
+                    "service": "github",
+                    "label": "GitHub Personal Access Token",
+                    "username": "lemgenda",
+                    "secret_value": tok,
+                    "server": None,
+                    "is_default": True,
+                })
+        except Exception as exc:
+            _log.debug("Error parsing .GITHUB_PAT: %s", exc)
+
+    # 4. HuggingFace Token
+    hf_file = base_dir / "lemgendary-datasets" / ".huggingface_token"
+    if hf_file.exists():
+        try:
+            tok = hf_file.read_text(encoding="utf-8").strip()
+            if tok:
+                seeds.append({
+                    "id": "huggingface-primary",
+                    "service": "huggingface",
+                    "label": "Hugging Face Access Token",
+                    "username": "lemgenda",
+                    "secret_value": tok,
+                    "server": None,
+                    "is_default": True,
+                })
+        except Exception as exc:
+            _log.debug("Error parsing .huggingface_token: %s", exc)
+
+    # 5. MetaTrader 5
+    mt5_file = base_dir / "lemgendary-datasets" / ".mt5_credentials"
+    if mt5_file.exists():
+        try:
+            lines = mt5_file.read_text(encoding="utf-8").splitlines()
+            u = ""
+            p = ""
+            for l in lines:
+                if l.startswith("User:"):
+                    u = l.split(":", 1)[1].strip()
+                elif l.startswith("Pass:"):
+                    p = l.split(":", 1)[1].strip()
+            if u:
+                seeds.append({
+                    "id": f"mt5-{u}",
+                    "service": "metatrader5",
+                    "label": f"MT5 Account ({u})",
+                    "username": u,
+                    "secret_value": p,
+                    "server": "MetaQuotes-Demo",
+                    "is_default": True,
+                })
+        except Exception as exc:
+            _log.debug("Error parsing .mt5_credentials: %s", exc)
+
+    # 6. Saturn Cloud
+    saturn_file = base_dir / "lemgendary-training-suite" / ".SATURN_PAT"
+    if saturn_file.exists():
+        try:
+            tok = saturn_file.read_text(encoding="utf-8").strip()
+            if tok:
+                seeds.append({
+                    "id": "saturn-primary",
+                    "service": "saturn_cloud",
+                    "label": "Saturn Cloud Bearer Token",
+                    "username": "saturn-user",
+                    "secret_value": tok,
+                    "server": None,
+                    "is_default": True,
+                })
+        except Exception as exc:
+            _log.debug("Error parsing .SATURN_PAT: %s", exc)
+
+    return seeds
+
+
+@app.get("/api/secrets")
+async def get_secrets():
+    """Retrieve all ecosystem secrets, seeding defaults from credential files if uninitialized."""
+    import yaml
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    sec_file = _resolve_secrets_file()
+    if not sec_file.exists():
+        seeds = _seed_secrets_from_existing(base_dir)
+        with open(sec_file, "w", encoding="utf-8") as f:
+            yaml.safe_dump({"secrets": seeds}, f, default_flow_style=False, sort_keys=False)
+        return {"status": "success", "secrets": seeds}
+
+    try:
+        with open(sec_file, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return {"status": "success", "secrets": data.get("secrets", [])}
+    except Exception as exc:
+        _log.error("Failed loading .secrets.yaml: %s", exc)
+        return {"status": "error", "message": str(exc), "secrets": []}
+
+
+@app.post("/api/secrets")
+async def save_secrets(payload: SecretsPayload):
+    """Save secrets atomically and propagate mandatory tokens to ecosystem files."""
+    import yaml
+    from fastapi import HTTPException
+
+    # Enforce mandatory Kaggle secret
+    has_kaggle = any(s.service.lower() == "kaggle" and s.secret_value.strip() for s in payload.secrets)
+    if not has_kaggle:
+        raise HTTPException(
+            status_code=400,
+            detail="Validation failed: Kaggle API token is mandatory across the LemGendary Ecosystem.",
+        )
+
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    sec_file = _resolve_secrets_file()
+
+    # Backup existing
+    if sec_file.exists():
+        bak = sec_file.with_suffix(".yaml.bak")
+        bak.write_bytes(sec_file.read_bytes())
+
+    records = [s.model_dump() for s in payload.secrets]
+    with open(sec_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump({"secrets": records}, f, default_flow_style=False, sort_keys=False)
+
+    # Propagate to legacy credentials for seamless backwards compatibility
+    kaggle_items = [s for s in payload.secrets if s.service.lower() == "kaggle"]
+    default_kaggle = next((s for s in kaggle_items if s.is_default), kaggle_items[0] if kaggle_items else None)
+
+    if default_kaggle:
+        for proj in ["lemgendary-datasets", "lemgendary-training-suite", "lemgendary-env-manager"]:
+            tok_f = base_dir / proj / ".kaggle_token"
+            try:
+                tok_f.write_text(default_kaggle.secret_value.strip(), encoding="utf-8")
+            except OSError:
+                pass
+
+        # Update .kaggle_users
+        users_line = ";\n".join(
+            f"KAGGLE_USERNAME={s.username or 'lemtreursi'}, KAGGLE_API_TOKEN={s.secret_value.strip()}"
+            for s in kaggle_items
+        ) + ";\n"
+        users_f = base_dir / "lemgendary-training-suite" / ".kaggle_users"
+        try:
+            users_f.write_text(users_line, encoding="utf-8")
+        except OSError:
+            pass
+
+    return {
+        "status": "success",
+        "count": len(payload.secrets),
+        "message": "Secrets securely persisted and propagated across repositories.",
+    }
+
+
+# ─── Documentation Hub Offline & Online Metadata ─────────────────────────────
+
+DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "lemgendary-docs"
+if DOCS_DIR.exists():
+    from starlette.staticfiles import StaticFiles
+    app.mount("/documentation-hub", StaticFiles(directory=str(DOCS_DIR), html=True), name="documentation_hub")
+
+
+@app.get("/api/docs/status")
+async def get_docs_status():
+    """Report offline documentation hub availability and official online links."""
+    return {
+        "offline_available": DOCS_DIR.exists(),
+        "local_url": "http://127.0.0.1:8000/documentation-hub/index.html",
+        "online_url": "https://lemgenda.github.io/ai-training-whitepapers/index.html",
+    }
+
+
 @app.post("/api/clean")
 async def clean_artifacts(request: Optional[CleanRequest] = None):
     base_dir = Path(__file__).resolve().parent.parent.parent
