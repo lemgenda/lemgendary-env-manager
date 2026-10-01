@@ -144,6 +144,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.2 — Windowless Cross-Platform Daemon Execution & Startup Polling Stabilization
+
+- **Headless Windowless Daemon Execution** — Updated `service_manager.py` to launch background sidecars without spawning console or terminal windows. On Windows, preferentially selects `.venv/Scripts/pythonw.exe` (`IMAGE_SUBSYSTEM_WINDOWS_GUI`) and sets `CREATE_NO_WINDOW` (`0x08000000`) with `stdin=subprocess.DEVNULL`, preventing Windows 11 Windows Terminal from opening new windows. On Linux and macOS, sets `start_new_session=True` (`os.setsid()`) and runs `.venv/bin/python`.
+- **Extended Startup Verification Window** — Increased sidecar health check timeout from 4.0s to 20.0s to accommodate heavy PyTorch/CUDA model import times on Windows without false timeout returns.
+- **Automated Ecosystem Sidecar Startup on Boot** — Wired background `start_all_services()` directly into `lifespan` in `server.py`, ensuring all tripartite sidecars initialize on Environment Manager daemon startup.
+- **Port Collision & Concurrency Protection** — Added `is_port_in_use()` guard to prevent duplicate process spawning during daemon startup transitions.
+- **Dual GET & HEAD Health Endpoint Support** — Added `@app.head("/api/health")` decorator to ensure universal HTTP probe compatibility with desktop frontends.
+
 ### v16.9.1 — Ecosystem Sidecar Process Lifecycle Management & On-Demand Dispatch
 
 - **On-Demand Sidecar Process Supervisor** — Added `env_manager.service_manager` to programmatically spawn, monitor, and gracefully terminate background sidecar daemons (`lemgendary-datasets` on port 8100, `lemgendary-training-suite` on port 8200) directly from the centralized orchestrator.

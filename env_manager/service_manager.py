@@ -87,6 +87,17 @@ def is_service_healthy(health_url: str, timeout: float = 1.0) -> bool:
         return False
 
 
+def get_background_python_path(project_dir: Path) -> Path:
+    """Return pythonw.exe on Windows for windowless background execution, or python on POSIX."""
+    venv_dir = project_dir / ".venv"
+    if sys.platform == "win32":
+        pythonw = venv_dir / "Scripts" / "pythonw.exe"
+        if pythonw.is_file():
+            return pythonw
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
 def start_service(service_id: str) -> Dict[str, Any]:
     """Start an ecosystem sidecar service daemon in the background."""
     key = _resolve_service_key(service_id)
@@ -116,13 +127,22 @@ def start_service(service_id: str) -> Dict[str, Any]:
             "port": port,
         }
 
+    if is_port_in_use(port):
+        return {
+            "status": "starting",
+            "message": f"{name} is currently binding/starting on port {port}.",
+            "port": port,
+        }
+
     if not proj_dir.exists():
         return {
             "status": "error",
             "message": f"Project directory does not exist: {proj_dir}",
         }
 
-    python_exe = get_venv_python_path(proj_dir)
+    python_exe = get_background_python_path(proj_dir)
+    if not python_exe.exists():
+        python_exe = get_venv_python_path(proj_dir)
     if not python_exe.exists():
         return {
             "status": "error",
@@ -152,24 +172,28 @@ def start_service(service_id: str) -> Dict[str, Any]:
         str(port),
     ]
 
-    flags = 0
-    if sys.platform == "win32":
-        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
-            subprocess, "DETACHED_PROCESS", 0
-        )
-
     try:
         with open(stdout_path, "a", encoding="utf-8") as out_f, open(
             stderr_path, "a", encoding="utf-8"
         ) as err_f:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(proj_dir),
-                stdout=out_f,
-                stderr=err_f,
-                creationflags=flags,
-                close_fds=True,
-            )
+            popen_kwargs: Dict[str, Any] = {
+                "cwd": str(proj_dir),
+                "stdin": subprocess.DEVNULL,
+                "stdout": out_f,
+                "stderr": err_f,
+                "close_fds": True,
+            }
+
+            if sys.platform == "win32":
+                # Windows: Use CREATE_NO_WINDOW (0x08000000) to ensure zero console or terminal windows open
+                popen_kwargs["creationflags"] = getattr(
+                    subprocess, "CREATE_NO_WINDOW", 0x08000000
+                )
+            else:
+                # POSIX (Linux & macOS): detach process into its own session without any terminal
+                popen_kwargs["start_new_session"] = True
+
+            proc = subprocess.Popen(cmd, **popen_kwargs)
 
         _log.info(
             "Launched %s sidecar process (PID %d) on port %d",
@@ -178,10 +202,10 @@ def start_service(service_id: str) -> Dict[str, Any]:
             port,
         )
 
-        # Poll health endpoint up to 4.0 seconds to confirm startup
+        # Poll health endpoint up to 20.0 seconds to confirm startup (allows PyTorch/CUDA model suites to initialize)
         start_time = time.time()
-        while time.time() - start_time < 4.0:
-            time.sleep(0.4)
+        while time.time() - start_time < 20.0:
+            time.sleep(0.5)
             if is_service_healthy(health_url):
                 return {
                     "status": "started",

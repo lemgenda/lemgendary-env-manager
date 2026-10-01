@@ -83,6 +83,9 @@ async def _drain_event_queue():
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     drain_task = asyncio.create_task(_drain_event_queue())
+    # Automatically ensure tripartite sidecars are started on startup
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, start_all_services)
     try:
         yield
     finally:
@@ -127,6 +130,7 @@ class UpdateRequest(BaseModel):
 
 
 @app.get("/api/health")
+@app.head("/api/health")
 async def get_health(
     include_safety: bool = Query(
         False,
