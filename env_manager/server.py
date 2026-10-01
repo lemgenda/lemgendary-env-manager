@@ -816,7 +816,7 @@ async def get_gui_ecosystem():
     )
     training_probe = await loop.run_in_executor(
         None,
-        lambda: _probe_sidecar("http://127.0.0.1:8200/gui/state", timeout=1.5),
+        lambda: _probe_sidecar("http://127.0.0.1:8200/api/health", timeout=1.5),
     )
 
     return {
