@@ -105,6 +105,49 @@ def _is_inside_active_venv(venv_dir: Path) -> bool:
         return False
 
 
+def find_processes_in_venv(venv_dir: Path) -> List[Any]:
+    """Find all active processes whose executable or working directory is inside the venv."""
+    import psutil
+    procs = []
+    try:
+        venv_resolved = str(venv_dir.resolve()).lower()
+        for p in psutil.process_iter(["pid", "name", "exe"]):
+            try:
+                exe = p.info.get("exe")
+                if exe and str(Path(exe).resolve()).lower().startswith(venv_resolved):
+                    procs.append(p)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+    except Exception as exc:
+        _log.debug("Process discovery in venv %s failed: %s", venv_dir, exc)
+    return procs
+
+
+def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[bool, List[int]]:
+    """Terminate any active processes locking files inside the virtual environment."""
+    import psutil
+    procs = find_processes_in_venv(venv_dir)
+    if not procs:
+        return True, []
+
+    pids = [p.pid for p in procs]
+    _log.info("Terminating %d process(es) locking %s (PIDs: %s)", len(procs), venv_dir, pids)
+    for p in procs:
+        try:
+            p.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    gone, alive = psutil.wait_procs(procs, timeout=timeout)
+    for p in alive:
+        try:
+            p.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    return len(alive) == 0, pids
+
+
 def create_venv(project_dir: Path) -> Tuple[bool, str]:
     venv_dir = project_dir / ".venv"
 
@@ -119,7 +162,24 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
 
     try:
         if venv_dir.exists():
-            shutil.rmtree(venv_dir, onexc=_handle_remove_readonly)
+            terminate_processes_in_venv(venv_dir)
+
+            if platform.system().lower() == "windows":
+                import time
+                temp_trash = project_dir / f".venv_trash_{int(time.time())}"
+                try:
+                    venv_dir.rename(temp_trash)
+                    shutil.rmtree(temp_trash, onexc=_handle_remove_readonly)
+                except (PermissionError, OSError) as lock_exc:
+                    remaining = find_processes_in_venv(venv_dir)
+                    rem_info = [f"PID {p.pid} ({p.name()})" for p in remaining]
+                    return False, (
+                        f"Cannot recreate virtual environment for {project_dir.name}: "
+                        f"files are locked by active process(es): {', '.join(rem_info) or str(lock_exc)}. "
+                        f"Stop all running background services, workers, or terminals using this environment."
+                    )
+            else:
+                shutil.rmtree(venv_dir, onexc=_handle_remove_readonly)
 
         base_python = getattr(sys, "_base_executable", sys.executable)
 

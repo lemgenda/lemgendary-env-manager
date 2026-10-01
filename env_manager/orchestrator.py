@@ -201,19 +201,14 @@ class PipelineOrchestrator:
                         f"Skipping clean purge for active environment {p.name} "
                         f"(cannot delete the venv currently executing this pipeline).",
                     )
-                elif clean:
-                    if venv_dir.exists():
-                        yield emit(3, "Virtual Environments", "info",
-                                   f"Purging existing .venv for {p.name} (clean install)...")
-                        shutil.rmtree(venv_dir, ignore_errors=True)
-
-                if not is_venv_valid(p_dir):
+                elif clean or not is_venv_valid(p_dir):
+                    action_label = "Recreating fresh" if clean else "Creating fresh"
                     yield emit(3, "Virtual Environments", "info",
-                               f"Creating fresh virtual environment for {p.name}...")
+                               f"{action_label} virtual environment for {p.name}...")
                     success, msg = create_venv(p_dir)
                     if success:
                         yield emit(3, "Virtual Environments", "success",
-                                   f"Created fresh .venv for {p.name}.")
+                                   f"Virtual environment verified for {p.name}.")
                     else:
                         yield emit(3, "Virtual Environments", "error",
                                    f"Failed to create .venv for {p.name}: {msg}")
