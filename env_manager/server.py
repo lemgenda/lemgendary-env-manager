@@ -26,13 +26,14 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from env_manager.health_checker import run_full_health_audit
 from env_manager.npm_manager import audit_npm_workspaces
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
+from env_manager.service_manager import start_all_services, start_service, stop_service
 from env_manager.system_probe import probe_hardware
 from env_manager.utils import purge_project_cache
 from env_manager.venv_manager import discover_projects
@@ -837,6 +838,34 @@ async def get_gui_ecosystem():
             **training_probe,
         },
     }
+
+
+@app.post("/api/services/{service_id}/start")
+async def start_ecosystem_service(service_id: str):
+    """Start an ecosystem sidecar service daemon in the background."""
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, start_service, service_id)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+
+@app.post("/api/services/{service_id}/stop")
+async def stop_ecosystem_service(service_id: str):
+    """Stop an active ecosystem sidecar service daemon."""
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, stop_service, service_id)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+
+@app.post("/api/services/start-all")
+async def start_all_ecosystem_services():
+    """Start all offline ecosystem sidecars."""
+    loop = asyncio.get_running_loop()
+    results = await loop.run_in_executor(None, start_all_services)
+    return {"results": results}
 
 
 @app.websocket("/ws/log")

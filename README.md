@@ -144,6 +144,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.1 — Ecosystem Sidecar Process Lifecycle Management & On-Demand Dispatch
+
+- **On-Demand Sidecar Process Supervisor** — Added `env_manager.service_manager` to programmatically spawn, monitor, and gracefully terminate background sidecar daemons (`lemgendary-datasets` on port 8100, `lemgendary-training-suite` on port 8200) directly from the centralized orchestrator.
+- **Service Control REST Endpoints** — Implemented `POST /api/services/{service_id}/start`, `POST /api/services/{service_id}/stop`, and `POST /api/services/start-all` on port 8000 with sub-second health verification, automated virtual environment resolution, and process PID tracking.
+- **GUI Tripartite Integration** — Connected `lemgendary-ai-studio-gui` service cards to on-demand daemon startup, replacing pipeline re-installation triggers with non-destructive, isolated process dispatch.
+
 ### v16.9.0 — Server API Coverage, CLI Isolation & Comprehensive Testing Battery
 
 - **Comprehensive 17-Test Quality Battery** — Implemented and verified full automated test suite (`tests/test_server_api.py`, `tests/test_cli.py`, `tests/test_bootstrap.py`, `tests/test_requirements_manager.py`, `tests/test_system_probe.py`, `tests/test_validator.py`) with 17/17 tests passing and 100% compliance under `lem-env validate`.
