@@ -175,7 +175,8 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
         ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
-        "scratch", ".cache",
+        "scratch", ".cache", "export", "runs", ".lemtrain_server", ".lgd_server",
+        ".env_server",
     }
     yaml_files = [
         f for f in project_dir.rglob("*.yaml")
@@ -256,7 +257,8 @@ def run_jsonlint(project_dir: Path) -> List[FileValidationViolation]:
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
         ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
-        "scratch", ".cache", ".antigravity",
+        "scratch", ".cache", ".antigravity", "export", "runs", ".lemtrain_server",
+        ".lgd_server", ".env_server",
     }
     for root, dirs, files in Path(project_dir).walk():
         dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
@@ -1266,7 +1268,7 @@ def validate_project(project_dir: Path, is_node_project: bool = False) -> Projec
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
         ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
         "scratch", ".cache", "images", "targets", "labels", "train", "val", "test",
-        "lr", "hr",
+        "lr", "hr", "export", "runs", ".lemtrain_server", ".lgd_server", ".env_server",
     }
 
     # ── Emoji & Python compilation scan ──────────────────────────────────────

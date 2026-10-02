@@ -144,6 +144,10 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.3 — Validator Manifest Directory Exclusion & Artifact Protection
+
+- **Export and Cache Directory Masking** — Hardened `run_yamllint`, `run_jsonlint`, and `validate_project` in `env_manager/validator.py` with explicit exclusion of generator artifact folders (`export`, `runs`, `.lemtrain_server`, `.lgd_server`, `.env_server`). Eliminates false-positive lint failures caused by third-party training run configurations while preserving rigorous compliance enforcement across all source manifests.
+
 ### v16.9.2 — Windowless Cross-Platform Daemon Execution & Startup Polling Stabilization
 
 - **Headless Windowless Daemon Execution** — Updated `service_manager.py` to launch background sidecars without spawning console or terminal windows. On Windows, preferentially selects `.venv/Scripts/pythonw.exe` (`IMAGE_SUBSYSTEM_WINDOWS_GUI`) and sets `CREATE_NO_WINDOW` (`0x08000000`) with `stdin=subprocess.DEVNULL`, preventing Windows 11 Windows Terminal from opening new windows. On Linux and macOS, sets `start_new_session=True` (`os.setsid()`) and runs `.venv/bin/python`.
