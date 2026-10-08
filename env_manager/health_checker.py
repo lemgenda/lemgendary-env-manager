@@ -368,6 +368,28 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
     missing: List[str] = []
     total_required = 0
 
+    if project_info.is_node_project:
+        pkg_json = p_dir / "package.json"
+        total_req = 0
+        if pkg_json.is_file():
+            try:
+                data = json.loads(pkg_json.read_text(encoding="utf-8"))
+                total_req = len(data.get("dependencies", {})) + len(data.get("devDependencies", {}))
+            except Exception:
+                pass
+        node_mods = _read_node_modules_versions(p_dir) if project_info.node_modules_present else {}
+        return ProjectHealth(
+            name=project_info.name,
+            project_dir=project_info.project_dir,
+            venv_exists=project_info.node_modules_present,
+            python_version=None,
+            total_required=total_req,
+            total_installed=len(node_mods),
+            missing_packages=[] if project_info.node_modules_present else ["node_modules"],
+            installed_packages=node_mods,
+            is_healthy=project_info.node_modules_present,
+        )
+
     if req_file.exists():
         parsed = parse_requirements_file(req_file)
         for entry in parsed:
@@ -878,8 +900,6 @@ def run_full_health_audit(
 
     projects_health: List[ProjectHealth] = []
     for d in discovered:
-        if d.is_node_project:
-            continue
         health = audit_project_health(d)
         projects_health.append(health)
 

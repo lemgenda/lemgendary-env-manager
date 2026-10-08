@@ -314,6 +314,7 @@ def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
         "lemgendary-env-manager",
         "lemgendary-datasets",
         "lemgendary-training-suite",
+        "lemgendary-docs",
     ]
     node_projects = ["lemgendary-ai-studio-gui"]
 
