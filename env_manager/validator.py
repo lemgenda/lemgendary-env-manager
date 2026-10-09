@@ -22,6 +22,7 @@ HTML/CSS projects (lemgendary-docs):
 
 import collections
 import difflib
+import io
 import json
 import py_compile
 import re
@@ -880,6 +881,44 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
     return violations
 
 
+def _audit_documentation_suite(docs_dir: Path) -> List[FileValidationViolation]:
+    """Execute the comprehensive 20-rule documentation test suite in lemgendary-docs/tests."""
+    violations: List[FileValidationViolation] = []
+    tests_dir = docs_dir / "tests"
+    if not tests_dir.exists():
+        return violations
+
+    try:
+        import unittest
+
+        loader = unittest.TestLoader()
+        suite = loader.discover(start_dir=str(tests_dir), pattern="test_*.py")
+        runner = unittest.TextTestRunner(stream=io.StringIO(), verbosity=1)
+        result = runner.run(suite)
+
+        for test, trace in result.failures + result.errors:
+            t_id = test.id() if hasattr(test, "id") else str(test)
+            err_line = trace.strip().splitlines()[-1] if trace.strip() else "Test failed"
+            violations.append(
+                FileValidationViolation(
+                    file_path=str(tests_dir / "test_documentation.py"),
+                    line_number=1,
+                    violation_type="doc_integrity_failure",
+                    message=f"[{t_id}] {err_line}",
+                )
+            )
+    except Exception as exc:
+        violations.append(
+            FileValidationViolation(
+                file_path=str(tests_dir),
+                line_number=0,
+                violation_type="doc_test_execution_error",
+                message=f"Failed executing documentation test suite: {exc}",
+            )
+        )
+    return violations
+
+
 def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]:
     """Verify dataset manifest schema correctness and manifold metadata integrity."""
     violations: List[FileValidationViolation] = []
@@ -1237,6 +1276,7 @@ def run_domain_verification(project_dir: Path) -> List[FileValidationViolation]:
 
     if p_name == "lemgendary-docs":
         violations.extend(_audit_docs_synchronization(project_dir))
+        violations.extend(_audit_documentation_suite(project_dir))
     elif p_name in ("lemgendary-datasets", "LemGendaryDatasets"):
         violations.extend(_audit_dataset_manifests(project_dir))
     elif p_name == "lemgendary-training-suite":

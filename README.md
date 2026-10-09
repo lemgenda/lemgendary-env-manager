@@ -144,6 +144,11 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.4 — Automated Documentation Test Battery Integration & Pre-Commit Hook Hardening
+
+- **Automated Documentation Test Suite Gate** — Integrated `_audit_documentation_suite` directly into `run_domain_verification` in `env_manager/validator.py` for `lemgendary-docs`. Automatically executes the 20-rule documentation test suite (`tests/test_documentation.py`) covering LaTeX notation, zero emojis, category uniqueness, HTML structural integrity, and SSOT manifest alignment as a mandatory gate under `lem-env validate`.
+- **Git Hook Root Directory Discovery Hardening** — Hardened pre-commit hook scripts across `.githooks/pre-commit` and `.git/hooks/pre-commit` with dynamic directory inspection (`HOOK_DIR`) ensuring proper relative resolution of `WORKSPACE_ROOT` and `lem-env` regardless of whether git executes the hook from `.githooks` or `.git/hooks`.
+
 ### v16.9.3 — Validator Manifest Directory Exclusion & Artifact Protection
 
 - **Export and Cache Directory Masking** — Hardened `run_yamllint`, `run_jsonlint`, and `validate_project` in `env_manager/validator.py` with explicit exclusion of generator artifact folders (`export`, `runs`, `.lemtrain_server`, `.lgd_server`, `.env_server`). Eliminates false-positive lint failures caused by third-party training run configurations while preserving rigorous compliance enforcement across all source manifests.
