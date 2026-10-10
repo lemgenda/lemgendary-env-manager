@@ -7,12 +7,25 @@ Common helpers for cache reclamation, process execution, and version inspection.
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from env_manager._logging import get_logger
 
 _log = get_logger(__name__)
+
+WINDOWS_NO_WINDOW = (
+    subprocess.CREATE_NO_WINDOW
+    if sys.platform == "win32" and hasattr(subprocess, "CREATE_NO_WINDOW")
+    else 0x08000000 if sys.platform == "win32"
+    else 0
+)
+
+
+def get_subprocess_creation_flags() -> int:
+    """Return CREATE_NO_WINDOW flag on Windows to prevent console flashing, else 0."""
+    return WINDOWS_NO_WINDOW
 
 
 # ─── Environment for pip subprocesses ───────────────────────────────────────
@@ -77,6 +90,7 @@ def _purge_pip_cache(python_path: Path) -> None:
             [str(python_path), "-m", "pip", "cache", "purge"],
             capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=120, check=False, env=pip_env(),
+            creationflags=WINDOWS_NO_WINDOW,
         )
     except Exception as exc:
         _log.debug("pip cache purge failed: %s", exc)
@@ -122,6 +136,7 @@ def run_pip_with_recovery(
                 timeout=timeout,
                 check=False,
                 env=pip_env(no_cache=use_no_cache),
+                creationflags=WINDOWS_NO_WINDOW,
             )
         except subprocess.TimeoutExpired as exc:
             _log.warning("pip command timed out after %ss: %s", timeout, cmd)
@@ -165,23 +180,24 @@ def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
     cleaned_count = 0
     total_reclaimed = 0
 
-    for item in project_dir.rglob("__pycache__"):
-        if ".venv" in item.parts:
-            continue
-        if item.is_dir():
-            try:
-                size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
-                shutil.rmtree(item)
-                total_reclaimed += size
-                cleaned_count += 1
-            except Exception as exc:
-                _log.debug("Failed to remove __pycache__ dir %s: %s", item, exc)
+    ignored_dirs = {".venv", ".git", "node_modules", ".cache"}
+    for root, dirs, files in os.walk(project_dir):
+        dirs[:] = [d for d in dirs if d not in ignored_dirs]
+        for d in list(dirs):
+            if d == "__pycache__":
+                cache_path = Path(root) / d
+                try:
+                    size = sum(f.stat().st_size for f in cache_path.rglob("*") if f.is_file())
+                    shutil.rmtree(cache_path)
+                    total_reclaimed += size
+                    cleaned_count += 1
+                except Exception as exc:
+                    _log.debug("Failed to remove __pycache__ dir %s: %s", cache_path, exc)
+                dirs.remove(d)
 
-    for pattern in ["*.pyc", "*.pyo", "*.pyd"]:
-        for item in project_dir.rglob(pattern):
-            if ".venv" in item.parts:
-                continue
-            if item.is_file():
+        for f in files:
+            if f.endswith((".pyc", ".pyo", ".pyd")):
+                item = Path(root) / f
                 try:
                     size = item.stat().st_size
                     item.unlink()
@@ -217,4 +233,5 @@ def run_command_simple(
         cwd=str(cwd) if cwd else None,
         check=False,
         env=pip_env() if use_pip_env else None,
+        creationflags=WINDOWS_NO_WINDOW,
     )

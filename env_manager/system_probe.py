@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from env_manager._logging import get_logger
-from env_manager.utils import pip_env
+from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
 
 _log = get_logger(__name__)
 
@@ -103,6 +103,7 @@ def probe_nvidia_smi() -> List[AcceleratorDevice]:
             query_cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=5, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             for line in proc.stdout.strip().splitlines():
@@ -142,6 +143,7 @@ def probe_rocm_smi() -> List[AcceleratorDevice]:
             query_cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=5, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             lines = proc.stdout.strip().splitlines()
@@ -181,6 +183,7 @@ def probe_directml() -> List[AcceleratorDevice]:
             ps_cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=20, check=False, env=pip_env(),
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0 and proc.stdout.strip():
             data = json.loads(proc.stdout.strip())
@@ -208,14 +211,47 @@ def probe_directml() -> List[AcceleratorDevice]:
 # ─── MetaTrader 5 detection ─────────────────────────────────────────────────
 
 def _read_exe_version(exe_path: Path) -> Optional[str]:
-    """Extract FileVersion from a Windows PE executable.
-
-    Uses PowerShell's VersionInfo property, which reads the same metadata
-    the file's Properties dialog shows in Explorer. Returns None on any
-    failure — this is best-effort.
-    """
+    """Extract FileVersion from a Windows PE executable in-process without spawning consoles."""
     if not exe_path.is_file():
         return None
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            size = ctypes.windll.version.GetFileVersionInfoSizeW(str(exe_path), None)
+            if size > 0:
+                res = ctypes.create_string_buffer(size)
+                if ctypes.windll.version.GetFileVersionInfoW(str(exe_path), 0, size, res):
+                    u_len = wintypes.UINT()
+                    lp_buffer = wintypes.LPVOID()
+                    if ctypes.windll.version.VerQueryValueW(
+                        res, "\\", ctypes.byref(lp_buffer), ctypes.byref(u_len)
+                    ):
+                        class VS_FIXEDFILEINFO(ctypes.Structure):
+                            _fields_ = [
+                                ("dwSignature", wintypes.DWORD),
+                                ("dwStrucVersion", wintypes.DWORD),
+                                ("dwFileVersionMS", wintypes.DWORD),
+                                ("dwFileVersionLS", wintypes.DWORD),
+                                ("dwProductVersionMS", wintypes.DWORD),
+                                ("dwProductVersionLS", wintypes.DWORD),
+                                ("dwFileFlagsMask", wintypes.DWORD),
+                                ("dwFileFlags", wintypes.DWORD),
+                                ("dwFileOS", wintypes.DWORD),
+                                ("dwFileType", wintypes.DWORD),
+                                ("dwFileSubtype", wintypes.DWORD),
+                                ("dwFileDateMS", wintypes.DWORD),
+                                ("dwFileDateLS", wintypes.DWORD),
+                            ]
+
+                        fixed = VS_FIXEDFILEINFO.from_address(lp_buffer.value)
+                        v_ms = fixed.dwFileVersionMS
+                        v_ls = fixed.dwFileVersionLS
+                        return f"{v_ms >> 16}.{v_ms & 0xffff}.{v_ls >> 16}.{v_ls & 0xffff}"
+        except Exception as exc:
+            _log.debug("In-process ctypes version extraction failed for %s: %s", exe_path, exc)
 
     shell = _preferred_shell()
     ps_cmd = [
@@ -230,6 +266,7 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
             ps_cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=15, check=False, env=pip_env(),
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             version = (proc.stdout or "").strip()
@@ -350,6 +387,7 @@ def _mt5_get_package_probe(timeout: int = 45) -> Optional[MetaTrader5Info]:
             cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=timeout, check=False, env=pip_env(),
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode != 0 or not proc.stdout.strip():
             return None

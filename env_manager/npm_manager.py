@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from env_manager._logging import get_logger
-from env_manager.utils import pip_env
+from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
 
 _log = get_logger(__name__)
 
@@ -129,6 +129,7 @@ def run_npm_install(package_dir: Path) -> tuple[bool, str]:
             timeout=600,
             check=False,
             env=pip_env(),
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             return True, proc.stdout

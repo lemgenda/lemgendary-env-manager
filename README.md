@@ -144,6 +144,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.5 — Universal Zero Child Console Flashing & In-Process PE Inspection
+
+- **Elimination of Child Process Console Flashing** — Configured `WINDOWS_NO_WINDOW` (`0x08000000`) across all `subprocess.run` invocations in `utils.py`, `system_probe.py`, `bootstrap.py`, `venv_manager.py`, `npm_manager.py`, `updater.py`, `hooks.py`, and `validator.py`. Completely prevents Windows from allocating temporary console or PowerShell windows during background hardware probing, health audits, package discovery, and toolchain checks.
+- **In-Process PE FileVersion Reader** — Replaced external PowerShell PE version queries with native in-process `ctypes.windll.version.GetFileVersionInfoW` inspection for MetaTrader 5 executables, reducing probe latency to sub-millisecond with zero process allocations.
+- **Unified Subprocess Flag Exporter** — Added `get_subprocess_creation_flags()` and `WINDOWS_NO_WINDOW` in `env_manager.utils` for consistent cross-module child process execution standards.
+
 ### v16.9.4 — Automated Documentation Test Battery Integration & Pre-Commit Hook Hardening
 
 - **Automated Documentation Test Suite Gate** — Integrated `_audit_documentation_suite` directly into `run_domain_verification` in `env_manager/validator.py` for `lemgendary-docs`. Automatically executes the 20-rule documentation test suite (`tests/test_documentation.py`) covering LaTeX notation, zero emojis, category uniqueness, HTML structural integrity, and SSOT manifest alignment as a mandatory gate under `lem-env validate`.

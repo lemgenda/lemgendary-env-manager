@@ -153,6 +153,7 @@ def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool,
         "lemgendary-training-suite": manifests_dir / "requirements-training.txt",
         "lemgendary-datasets": manifests_dir / "requirements-datasets.txt",
         "lemgendary-env-manager": manifests_dir / "requirements-env-manager.txt",
+        "lemgendary-docs": manifests_dir / "requirements-documentation.txt",
     }
 
     results: Dict[str, tuple[bool, str]] = {}

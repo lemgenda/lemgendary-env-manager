@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from env_manager._logging import get_logger
-from env_manager.utils import pip_env
+from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
 
 _log = get_logger(__name__)
 
@@ -219,6 +219,7 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
             timeout=120,
             check=False,
             env=pip_env(),
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.stdout.strip():
             for line in proc.stdout.strip().splitlines():
@@ -368,6 +369,7 @@ def run_markdownlint(project_dir: Path) -> List[FileValidationViolation]:
             errors="replace",
             timeout=120,
             check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         combined = proc.stdout + proc.stderr
         for line in combined.splitlines():
@@ -424,6 +426,7 @@ def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
             errors="replace",
             timeout=180,
             check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
 
         # ESLint may emit non-JSON noise before the JSON block (Browserslist,
@@ -480,6 +483,7 @@ def run_typescript_check(project_dir: Path) -> List[FileValidationViolation]:
             errors="replace",
             timeout=180,
             check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode != 0:
             for line in (proc.stdout + proc.stderr).splitlines():
@@ -526,6 +530,7 @@ def run_html_validate(project_dir: Path) -> List[FileValidationViolation]:
             errors="replace",
             timeout=120,
             check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         combined = proc.stdout + proc.stderr
         for line in combined.splitlines():
@@ -572,6 +577,7 @@ def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
                 errors="replace",
                 timeout=60,
                 check=False,
+                creationflags=WINDOWS_NO_WINDOW,
             )
             combined = proc.stdout + proc.stderr
             current_issue: Optional[str] = None
@@ -651,6 +657,7 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
                 errors="replace",
                 timeout=180,
                 check=False,
+                creationflags=WINDOWS_NO_WINDOW,
             )
         except FileNotFoundError:
             # pwsh not on PATH despite shutil.which finding it earlier; fall
@@ -663,6 +670,7 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
                 errors="replace",
                 timeout=180,
                 check=False,
+                creationflags=WINDOWS_NO_WINDOW,
             )
 
         combined = proc.stdout + proc.stderr

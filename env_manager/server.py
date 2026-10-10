@@ -116,6 +116,13 @@ class RunPipelineRequest(BaseModel):
     target_project: Optional[str] = None
 
 
+class RunStepRequest(BaseModel):
+    step_number: int
+    target_project: Optional[str] = None
+    clean: bool = False
+
+
+
 class CleanRequest(BaseModel):
     project: Optional[str] = None
 
@@ -280,6 +287,47 @@ async def run_pipeline(request: RunPipelineRequest):
     return {"status": "accepted", "message": "Pipeline initiated."}
 
 
+def _run_step_worker(
+    step_number: int,
+    target_project: Optional[str],
+    clean: bool,
+    loop: asyncio.AbstractEventLoop,
+):
+    for event in orchestrator.run_pipeline_single_step(
+        step_number=step_number,
+        target_project=target_project,
+        clean=clean,
+    ):
+        ev_dict = event.to_dict()
+        recent_events.append(ev_dict)
+        if len(recent_events) > 200:
+            recent_events.pop(0)
+        asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
+
+
+@app.post("/api/pipeline/run-step")
+async def run_pipeline_step(request: RunStepRequest):
+    if orchestrator.is_running:
+        return {"status": "error", "message": "Pipeline or step is already running."}
+    if request.step_number < 1 or request.step_number > 7:
+        return {
+            "status": "error",
+            "message": f"Invalid step number: {request.step_number}. Must be between 1 and 7.",
+        }
+
+    loop = asyncio.get_running_loop()
+    thread = threading.Thread(
+        target=_run_step_worker,
+        args=(request.step_number, request.target_project, request.clean, loop),
+        daemon=True,
+    )
+    thread.start()
+    return {
+        "status": "accepted",
+        "message": f"Pipeline step {request.step_number} initiated.",
+    }
+
+
 @app.post("/api/update")
 async def run_update(request: Optional[UpdateRequest] = None):
     """Trigger safe bottom-up package upgrades across all projects."""
@@ -372,6 +420,7 @@ def _resolve_manifest_target(name: str) -> Optional[Path]:
         "requirements-training.txt": root / "lemgendary-training-suite" / "requirements.txt",
         "requirements-datasets.txt": root / "lemgendary-datasets" / "requirements.txt",
         "requirements-env-manager.txt": root / "lemgendary-env-manager" / "requirements.txt",
+        "requirements-documentation.txt": root / "lemgendary-docs" / "requirements.txt",
         "package.json": root / "lemgendary-ai-studio-gui" / "package.json",
     }
     return manifest_map.get(name)
@@ -389,6 +438,7 @@ async def get_manifest_registry():
         {"name": "requirements-training.txt", "project": "lemgendary-training-suite", "format": "text", "description": "Training suite Python dependency manifest."},
         {"name": "requirements-datasets.txt", "project": "lemgendary-datasets", "format": "text", "description": "Dataset compiler Python dependency manifest."},
         {"name": "requirements-env-manager.txt", "project": "lemgendary-env-manager", "format": "text", "description": "Environment manager Python dependency manifest."},
+        {"name": "requirements-documentation.txt", "project": "lemgendary-docs", "format": "text", "description": "Documentation hub Python dependency manifest."},
         {"name": "package.json", "project": "lemgendary-ai-studio-gui", "format": "json", "description": "Desktop GUI Tauri v2 and React package manifest."},
     ]
     items = []

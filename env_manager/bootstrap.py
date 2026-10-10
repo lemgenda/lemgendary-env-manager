@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from env_manager._logging import get_logger
 from env_manager.system_probe import probe_metatrader5
-from env_manager.utils import run_command_simple
+from env_manager.utils import WINDOWS_NO_WINDOW, run_command_simple
 
 _log = get_logger(__name__)
 
@@ -76,6 +76,7 @@ def check_git() -> Tuple[bool, Optional[str]]:
             [git_path, "--version"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=5, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
@@ -94,6 +95,7 @@ def check_npm() -> Tuple[bool, Optional[str]]:
             [npm_path, "--version"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=5, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
@@ -170,6 +172,7 @@ def _run_winget(
             errors="replace",
             timeout=timeout,
             check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
     except OSError as exc:
         winerror = getattr(exc, "winerror", None)
@@ -380,6 +383,7 @@ def install_software(name: str) -> Tuple[bool, str]:
             ],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=900, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             return True, f"Successfully installed {name} (winget id: {pkg_id})."

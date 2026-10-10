@@ -41,7 +41,7 @@ from env_manager.dependency_resolver import (
     classify_safe_upgrades,
     find_outdated_packages,
 )
-from env_manager.utils import pip_env, run_pip_with_recovery
+from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, run_pip_with_recovery
 from env_manager.venv_manager import (
     discover_projects,
     get_installed_packages,
@@ -60,6 +60,7 @@ UPGRADE_ORDER: List[str] = [
     "lemgendary-env-manager",
     "lemgendary-datasets",
     "lemgendary-training-suite",
+    "lemgendary-docs",
     "lemgendary-ai-studio-gui",
 ]
 
@@ -178,6 +179,7 @@ def _verify_torch_cuda_runtime(project_dir: Path) -> Tuple[bool, str]:
              "import torch; print(torch.__version__); print(int(torch.cuda.is_available()))"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=60, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode != 0:
             return False, (proc.stderr or "torch import failed").strip()[:200]
@@ -316,6 +318,7 @@ def _find_npm_outdated(project_dir: Path) -> List[OutdatedPackage]:
             cwd=str(project_dir),
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=90, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.stdout.strip():
             data = json.loads(proc.stdout.strip())
@@ -343,6 +346,7 @@ def _apply_npm_update(project_dir: Path) -> Tuple[bool, str]:
             cwd=str(project_dir),
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=300, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode == 0:
             return True, proc.stdout
@@ -694,6 +698,7 @@ def sync_manifests_from_venvs(
         "lemgendary-training-suite": "requirements-training.txt",
         "lemgendary-datasets": "requirements-datasets.txt",
         "lemgendary-env-manager": "requirements-env-manager.txt",
+        "lemgendary-docs": "requirements-documentation.txt",
     }
 
     results: Dict[str, Tuple[bool, str]] = {}

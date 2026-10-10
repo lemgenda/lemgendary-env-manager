@@ -17,6 +17,8 @@ from env_manager.server import (
     get_manifests,
     get_pipeline_status,
     get_projects,
+    run_pipeline_step,
+    RunStepRequest,
 )
 
 
@@ -65,6 +67,13 @@ class TestServerApi(unittest.TestCase):
         data = asyncio.run(get_manifests())
         self.assertIn("manifests", data)
         self.assertIsInstance(data["manifests"], dict)
+
+    def test_run_pipeline_step_validation(self) -> None:
+        # Invalid step outside 1-7 range
+        req = RunStepRequest(step_number=99)
+        result = asyncio.run(run_pipeline_step(req))
+        self.assertEqual(result.get("status"), "error")
+        self.assertIn("Invalid step number", result.get("message", ""))
 
 
 if __name__ == "__main__":

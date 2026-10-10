@@ -9,6 +9,8 @@ from pathlib import Path
 import subprocess
 from typing import List, Optional, Tuple
 
+from env_manager.utils import WINDOWS_NO_WINDOW
+
 PRE_COMMIT_TEMPLATE = """#!/bin/sh
 # LemGendary Ecosystem Pre-Commit Hook
 # Standardized hook enforcing full validation via lemgendary-env-manager
@@ -97,6 +99,7 @@ def install_git_hooks(
                 cwd=str(proj_dir),
                 capture_output=True,
                 check=False,
+                creationflags=WINDOWS_NO_WINDOW,
             )
 
             # 3. If .git/hooks exists, sync pre-commit there as well as fallback

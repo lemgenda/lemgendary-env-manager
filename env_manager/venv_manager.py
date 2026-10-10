@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from env_manager._logging import get_logger
-from env_manager.utils import pip_env, run_command_simple, run_pip_with_recovery
+from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, run_command_simple, run_pip_with_recovery
 
 _log = get_logger(__name__)
 
@@ -187,6 +187,7 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
             [str(base_python), "-m", "venv", str(venv_dir)],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=120, check=False,
+            creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode != 0:
             return False, proc.stderr or f"Failed to execute venv module via {base_python}."
