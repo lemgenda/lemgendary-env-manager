@@ -730,14 +730,28 @@ async def save_secrets(payload: SecretsPayload):
             except OSError:
                 pass
 
-        # Update .kaggle_users
+        # Update .kaggle_users with default user first
+        sorted_kaggle = [default_kaggle] + [s for s in kaggle_items if s.id != default_kaggle.id]
         users_line = ";\n".join(
             f"KAGGLE_USERNAME={s.username or 'lemtreursi'}, KAGGLE_API_TOKEN={s.secret_value.strip()}"
-            for s in kaggle_items
+            for s in sorted_kaggle
         ) + ";\n"
         users_f = base_dir / "lemgendary-training-suite" / ".kaggle_users"
         try:
             users_f.write_text(users_line, encoding="utf-8")
+        except OSError:
+            pass
+
+        # Sync ~/.kaggle/kaggle.json in clean UTF-8
+        try:
+            kaggle_dir = Path.home() / ".kaggle"
+            kaggle_dir.mkdir(parents=True, exist_ok=True)
+            k_json = kaggle_dir / "kaggle.json"
+            k_data = json.dumps({
+                "username": default_kaggle.username or "lemtreursi",
+                "key": default_kaggle.secret_value.strip(),
+            }, indent=2)
+            k_json.write_text(k_data, encoding="utf-8")
         except OSError:
             pass
 
