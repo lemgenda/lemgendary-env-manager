@@ -562,5 +562,13 @@ def setup_hooks(
         raise typer.Exit(code=1)
 
 
+@app.command(name="hooks")
+def hooks_command(
+    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
+):
+    """Install or repair standardized pre-commit hooks across all ecosystem projects (alias for setup-hooks)."""
+    setup_hooks(project=project)
+
+
 if __name__ == "__main__":
     app()

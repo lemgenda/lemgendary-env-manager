@@ -827,6 +827,37 @@ async def validate_codebase(request: Optional[ValidateRequest] = None):
     }
 
 
+class HooksInstallRequest(BaseModel):
+    project: Optional[str] = None
+
+
+@app.post("/api/hooks/install")
+async def install_hooks_endpoint(request: Optional[HooksInstallRequest] = None):
+    """Install or repair standardized pre-commit hooks across all ecosystem projects."""
+    from env_manager.hooks import install_git_hooks
+
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    target_project = request.project if request else None
+
+    loop = asyncio.get_running_loop()
+    raw_results = await loop.run_in_executor(
+        None,
+        lambda: install_git_hooks(base_dir=base_dir, target_project=target_project),
+    )
+
+    results = [
+        {"project": proj, "success": ok, "message": msg}
+        for proj, ok, msg in raw_results
+    ]
+    all_ok = all(item["success"] for item in results)
+
+    return {
+        "status": "success" if all_ok else "partial",
+        "all_ok": all_ok,
+        "results": results,
+    }
+
+
 def _probe_sidecar(url: str, timeout: float = 1.5) -> Dict[str, Any]:
     """Probe an external HTTP sidecar endpoint cleanly with a brief timeout."""
     req = urllib.request.Request(url, headers={"User-Agent": "LemGendary-Env-Manager"})

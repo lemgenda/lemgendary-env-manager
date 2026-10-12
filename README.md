@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.8.0-STABLE)
+# LemGendary Environment Manager (v16.9.6-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -143,6 +143,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.6 — Git Hook Installation API & CLI Alias Alignment, Cache Purge Endpoint
+
+- **Git Hook Installation Endpoint (`POST /api/hooks/install`)** — Implemented dedicated REST endpoint executing `install_git_hooks()` asynchronously, allowing desktop GUI and automated scripts to install or repair standardized pre-commit hooks across all 7 ecosystem repositories without terminal commands.
+- **CLI Subcommand Alias (`lem-env hooks`)** — Added concise alias `@app.command(name="hooks")` in `env_manager/cli.py` for `lem-env setup-hooks`.
+- **Ecosystem Maintenance & Governance Alignment** — Fully integrated with `lemgendary-ai-studio-gui` HealthPanel to power one-click Git Hook installations, deep cache purges (`POST /api/clean`), safe package upgrades, and multi-gate ecosystem validations.
 
 ### v16.9.5 — Universal Zero Child Console Flashing & In-Process PE Inspection
 
