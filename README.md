@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.6-STABLE)
+# LemGendary Environment Manager (v16.9.7-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -143,6 +143,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.7 — Centralized Desktop GUI Manifest Governance & Telemetry Progress Provisioning
+
+- **NPM Package Manifest Synchronization (`requirements/lemgendary-ai-studio-gui.package.json`)** — Added `@radix-ui/react-progress` (`^1.1.2`) to the centralized GUI package manifest under `env_manager.requirements_manager`.
+- **Automated Manifest Propagation (`lem-env sync`)** — Synchronized centralized package definitions to `lemgendary-ai-studio-gui/package.json` ensuring 100% manifest parity and deterministic dependency audits across desktop UI projects.
+
+---
 
 ### v16.9.6 — Git Hook Installation API & CLI Alias Alignment, Cache Purge Endpoint
 
