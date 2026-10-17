@@ -232,7 +232,7 @@ class PipelineOrchestrator:
                        "Installing dependencies into target environments...")
             for p in projects:
                 p_dir = Path(p.project_dir)
-                if p.is_node_project:
+                if p.is_node_project or (p_dir / "package.json").exists():
                     yield emit(4, "Package Installation", "info",
                                f"Running npm install for {p.name}...")
                     ok, inst_msg = run_npm_install(p_dir)
@@ -243,49 +243,49 @@ class PipelineOrchestrator:
                         install_failures.append(p.name)
                         yield emit(4, "Package Installation", "error",
                                    f"npm install failed for {p.name}: {inst_msg[:300]}")
+
+                req_file = p_dir / "requirements.txt"
+                if not req_file.exists():
+                    continue
+
+                yield emit(4, "Package Installation", "info",
+                           f"Installing requirements for {p.name}...")
+                ok, inst_msg = install_requirements(
+                    p_dir,
+                    req_file,
+                    extra_index_url=hw.recommended_torch_index,
+                )
+                if ok:
+                    yield emit(4, "Package Installation", "success",
+                               f"Dependencies installed successfully for {p.name}.")
                 else:
-                    req_file = p_dir / "requirements.txt"
-                    if not req_file.exists():
-                        continue
+                    install_failures.append(p.name)
+                    yield emit(4, "Package Installation", "error",
+                               f"Failed installing dependencies for {p.name}: "
+                               f"{inst_msg[:300]}")
+                    # Skip OpenCV normalization if install failed; there
+                    # is nothing sane to normalize against.
+                    continue
 
-                    yield emit(4, "Package Installation", "info",
-                               f"Installing requirements for {p.name}...")
-                    ok, inst_msg = install_requirements(
-                        p_dir,
-                        req_file,
-                        extra_index_url=hw.recommended_torch_index,
+                # ── Post-install OpenCV normalization ─────────────
+                desired = PREFERRED_OPENCV_VARIANT.get(p.name)
+                if desired:
+                    yield emit(
+                        4,
+                        "Package Installation",
+                        "info",
+                        f"Normalizing OpenCV provider for {p.name} to {desired}...",
                     )
-                    if ok:
-                        yield emit(4, "Package Installation", "success",
-                                   f"Dependencies installed successfully for {p.name}.")
+                    norm_ok, norm_msg = normalize_opencv_variant(p_dir, desired)
+                    if norm_ok:
+                        yield emit(4, "Package Installation", "success", norm_msg)
                     else:
-                        install_failures.append(p.name)
-                        yield emit(4, "Package Installation", "error",
-                                   f"Failed installing dependencies for {p.name}: "
-                                   f"{inst_msg[:300]}")
-                        # Skip OpenCV normalization if install failed; there
-                        # is nothing sane to normalize against.
-                        continue
-
-                    # ── Post-install OpenCV normalization ─────────────
-                    desired = PREFERRED_OPENCV_VARIANT.get(p.name)
-                    if desired:
                         yield emit(
                             4,
                             "Package Installation",
-                            "info",
-                            f"Normalizing OpenCV provider for {p.name} to {desired}...",
+                            "warning",
+                            f"OpenCV normalization failed for {p.name}: {norm_msg}",
                         )
-                        norm_ok, norm_msg = normalize_opencv_variant(p_dir, desired)
-                        if norm_ok:
-                            yield emit(4, "Package Installation", "success", norm_msg)
-                        else:
-                            yield emit(
-                                4,
-                                "Package Installation",
-                                "warning",
-                                f"OpenCV normalization failed for {p.name}: {norm_msg}",
-                            )
 
             # Step 5: Safe Dependency Audit
             yield emit(
@@ -601,7 +601,7 @@ class PipelineOrchestrator:
 
                 for p in projects:
                     p_dir = Path(p.project_dir)
-                    if p.is_node_project:
+                    if p.is_node_project or (p_dir / "package.json").exists():
                         yield emit(4, "Package Installation", "info",
                                    f"Running npm install for {p.name}...")
                         ok, inst_msg = run_npm_install(p_dir)
@@ -612,46 +612,46 @@ class PipelineOrchestrator:
                             install_failures.append(p.name)
                             yield emit(4, "Package Installation", "error",
                                        f"npm install failed for {p.name}: {inst_msg[:300]}")
+
+                    req_file = p_dir / "requirements.txt"
+                    if not req_file.exists():
+                        continue
+
+                    yield emit(4, "Package Installation", "info",
+                               f"Installing requirements for {p.name}...")
+                    ok, inst_msg = install_requirements(
+                        p_dir,
+                        req_file,
+                        extra_index_url=hw.recommended_torch_index,
+                    )
+                    if ok:
+                        yield emit(4, "Package Installation", "success",
+                                   f"Dependencies installed successfully for {p.name}.")
                     else:
-                        req_file = p_dir / "requirements.txt"
-                        if not req_file.exists():
-                            continue
+                        install_failures.append(p.name)
+                        yield emit(4, "Package Installation", "error",
+                                   f"Failed installing dependencies for {p.name}: "
+                                   f"{inst_msg[:300]}")
+                        continue
 
-                        yield emit(4, "Package Installation", "info",
-                                   f"Installing requirements for {p.name}...")
-                        ok, inst_msg = install_requirements(
-                            p_dir,
-                            req_file,
-                            extra_index_url=hw.recommended_torch_index,
+                    desired = PREFERRED_OPENCV_VARIANT.get(p.name)
+                    if desired:
+                        yield emit(
+                            4,
+                            "Package Installation",
+                            "info",
+                            f"Normalizing OpenCV provider for {p.name} to {desired}...",
                         )
-                        if ok:
-                            yield emit(4, "Package Installation", "success",
-                                       f"Dependencies installed successfully for {p.name}.")
+                        norm_ok, norm_msg = normalize_opencv_variant(p_dir, desired)
+                        if norm_ok:
+                            yield emit(4, "Package Installation", "success", norm_msg)
                         else:
-                            install_failures.append(p.name)
-                            yield emit(4, "Package Installation", "error",
-                                       f"Failed installing dependencies for {p.name}: "
-                                       f"{inst_msg[:300]}")
-                            continue
-
-                        desired = PREFERRED_OPENCV_VARIANT.get(p.name)
-                        if desired:
                             yield emit(
                                 4,
                                 "Package Installation",
-                                "info",
-                                f"Normalizing OpenCV provider for {p.name} to {desired}...",
+                                "warning",
+                                f"OpenCV normalization failed for {p.name}: {norm_msg}",
                             )
-                            norm_ok, norm_msg = normalize_opencv_variant(p_dir, desired)
-                            if norm_ok:
-                                yield emit(4, "Package Installation", "success", norm_msg)
-                            else:
-                                yield emit(
-                                    4,
-                                    "Package Installation",
-                                    "warning",
-                                    f"OpenCV normalization failed for {p.name}: {norm_msg}",
-                                )
                 self.last_status = "success" if not install_failures else "warning"
                 return sync_results
 

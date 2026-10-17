@@ -165,14 +165,21 @@ def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool,
         else:
             results[proj_name] = (False, f"Project directory does not exist: {proj_dir}")
 
-    # Synchronize GUI NPM package manifest
-    gui_manifest = manifests_dir / "lemgendary-ai-studio-gui.package.json"
-    gui_dir = base_dir / "lemgendary-ai-studio-gui"
-    if gui_manifest.exists() and gui_dir.exists() and gui_dir.is_dir():
-        try:
-            shutil.copy2(gui_manifest, gui_dir / "package.json")
-            results["lemgendary-ai-studio-gui"] = (True, f"Synchronized {gui_manifest.name} to {gui_dir / 'package.json'}.")
-        except Exception as exc:
-            results["lemgendary-ai-studio-gui"] = (False, f"Failed to synchronize GUI manifest: {exc}")
+    # Synchronize NPM package manifests
+    npm_mappings = {
+        "lemgendary-ai-studio-gui": manifests_dir / "lemgendary-ai-studio-gui.package.json",
+        "lemgendary-env-manager": manifests_dir / "lemgendary-env-manager.package.json",
+    }
+    for proj_name, manifest in npm_mappings.items():
+        proj_dir = base_dir / proj_name
+        if manifest.exists() and proj_dir.exists() and proj_dir.is_dir():
+            target_pkg = proj_dir / "package.json"
+            try:
+                # Avoid touching package.json if content is already identical
+                if not target_pkg.exists() or target_pkg.read_text(encoding="utf-8") != manifest.read_text(encoding="utf-8"):
+                    shutil.copy2(manifest, target_pkg)
+                results[f"{proj_name} (npm)"] = (True, f"Synchronized {manifest.name} to {target_pkg}.")
+            except Exception as exc:
+                results[f"{proj_name} (npm)"] = (False, f"Failed to synchronize {proj_name} npm manifest: {exc}")
 
     return results

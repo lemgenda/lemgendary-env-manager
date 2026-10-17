@@ -12,10 +12,9 @@ astroid==4.0.4
 pyright==1.1.414
 pytest==9.1.1
 yamllint==1.38.0
-pydantic==2.13.5
-pydantic-core==2.46.5
+pydantic==2.14.0
+pydantic-core==2.50.0
 beautifulsoup4==4.15.0
-
 # ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
 # Dev-time only; no runtime footprint. Match the runtime libraries listed
 # above so the type checker can resolve their imports cleanly.

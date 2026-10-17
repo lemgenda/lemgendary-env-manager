@@ -719,7 +719,7 @@ _PIN_GLYPH = {
     "exact":      "=",
     "range":      "~",
     "floating":   "*",
-    "transitive": "·",
+    "transitive": ".",
     "absent":     "",
 }
 
@@ -738,8 +738,8 @@ def _format_cell(
     base = f"{version}{glyph}" if glyph else version
 
     if upgrade and upgrade.is_outdated and upgrade.latest:
-        arrow = "↑" if upgrade.safe else "⊘"
-        return f"{base} → {upgrade.latest} {arrow}"
+        arrow = "^" if upgrade.safe else "!"
+        return f"{base} -> {upgrade.latest} {arrow}"
 
     return base
 
