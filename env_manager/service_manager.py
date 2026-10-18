@@ -249,6 +249,43 @@ def start_service(service_id: str) -> Dict[str, Any]:
         }
 
 
+def _kill_process_tree(pid: int) -> bool:
+    """Terminate a process and all its descendant child processes to prevent zombies."""
+    import psutil
+
+    if not psutil.pid_exists(pid):
+        return False
+    try:
+        if sys.platform == "win32":
+            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            res = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+                creationflags=cflags,
+            )
+            return res.returncode == 0
+
+        parent = psutil.Process(pid)
+        children = parent.children(recursive=True)
+        for child in children:
+            try:
+                child.terminate()
+            except psutil.NoSuchProcess:
+                pass
+        parent.terminate()
+        _, alive = psutil.wait_procs([parent] + children, timeout=3)
+        for p in alive:
+            try:
+                p.kill()
+            except psutil.NoSuchProcess:
+                pass
+        return True
+    except Exception as exc:
+        _log.warning("Failed to terminate process tree for PID %d: %s", pid, exc)
+        return False
+
+
 def stop_service(service_id: str) -> Dict[str, Any]:
     """Stop an active ecosystem sidecar process by reading PID file or finding listening process."""
     key = _resolve_service_key(service_id)
@@ -283,31 +320,19 @@ def stop_service(service_id: str) -> Dict[str, Any]:
             try:
                 pid = int(pfile.read_text(encoding="utf-8").strip())
                 if psutil.pid_exists(pid):
-                    p = psutil.Process(pid)
-                    p.terminate()
-                    try:
-                        p.wait(timeout=3)
-                    except psutil.TimeoutExpired:
-                        p.kill()
-                    terminated = True
-                    _log.info("Terminated %s (PID %d) via PID file", name, pid)
+                    terminated = _kill_process_tree(pid)
+                    _log.info("Terminated process tree for %s (PID %d) via PID file", name, pid)
                 pfile.unlink(missing_ok=True)
             except Exception as exc:
                 _log.warning("Error stopping %s via PID file %s: %s", name, pfile, exc)
 
-    # If still listening on port, terminate the process holding the port
+    # If still listening on port, terminate the process holding the port and all descendants
     if not terminated and is_port_in_use(port):
         for conn in psutil.net_connections(kind="inet"):
             if conn.laddr and conn.laddr.port == port and conn.pid:
                 try:
-                    p = psutil.Process(conn.pid)
-                    p.terminate()
-                    try:
-                        p.wait(timeout=3)
-                    except psutil.TimeoutExpired:
-                        p.kill()
-                    terminated = True
-                    _log.info("Terminated process on port %d (PID %d)", port, conn.pid)
+                    terminated = _kill_process_tree(conn.pid)
+                    _log.info("Terminated process tree on port %d (PID %d)", port, conn.pid)
                 except Exception as exc:
                     _log.warning("Could not terminate process holding port %d: %s", port, exc)
 
