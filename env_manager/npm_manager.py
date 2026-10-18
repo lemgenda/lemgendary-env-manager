@@ -9,7 +9,7 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
 from env_manager._logging import get_logger
 from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
@@ -106,38 +106,63 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
         return None
 
 
-def run_npm_install(package_dir: Path) -> tuple[bool, str]:
-    """Execute npm install in the given directory.
-
-    Uses ``pip_env()`` so the subprocess inherits UTF-8 encoding and colour
-    disabling. npm ignores the ``PIP_*`` variables, but the ``PYTHONIOENCODING``
-    and ``NO_COLOR`` settings apply to any tool's output and prevent the
-    cp1252 crash that pip had.
-    """
+def stream_npm_install(
+    package_dir: Path,
+    timeout: int = 600,
+) -> Generator[str, None, tuple[bool, str]]:
+    """Execute npm install in the given directory and stream output lines."""
     npm_path = shutil.which("npm")
     if not npm_path:
         return False, "NPM executable not found on system PATH."
 
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [npm_path, "install"],
             cwd=str(package_dir),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=600,
-            check=False,
             env=pip_env(),
             creationflags=WINDOWS_NO_WINDOW,
         )
+        lines: List[str] = []
+        if proc.stdout:
+            try:
+                for raw_line in iter(proc.stdout.readline, ""):
+                    stripped = raw_line.strip()
+                    if stripped:
+                        lines.append(stripped)
+                        yield stripped
+            finally:
+                proc.stdout.close()
+        proc.wait(timeout=timeout)
         if proc.returncode == 0:
-            return True, proc.stdout
-        return False, proc.stderr or proc.stdout or "NPM install failed."
+            return True, "\n".join(lines) or "ok"
+        return False, "\n".join(lines) or "NPM install failed."
     except subprocess.TimeoutExpired as exc:
-        return False, f"npm install timed out after 600s: {exc}"
+        return False, f"npm install timed out after {timeout}s: {exc}"
     except Exception as exc:
         return False, str(exc)
+
+
+def run_npm_install(
+    package_dir: Path,
+    on_line: Optional[Callable[[str], None]] = None,
+) -> tuple[bool, str]:
+    """Execute npm install in the given directory."""
+    gen = stream_npm_install(package_dir)
+    try:
+        while True:
+            line = next(gen)
+            if on_line:
+                try:
+                    on_line(line)
+                except Exception as cb_exc:
+                    _log.debug("npm install callback error: %s", cb_exc)
+    except StopIteration as stop:
+        return stop.value
 
 
 def audit_npm_workspaces(base_dir: Optional[Path] = None) -> List[NpmPackageStatus]:

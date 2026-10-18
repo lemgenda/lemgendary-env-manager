@@ -168,6 +168,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 - **Automated Documentation Test Suite Gate** — Integrated `_audit_documentation_suite` directly into `run_domain_verification` in `env_manager/validator.py` for `lemgendary-docs`. Automatically executes the 20-rule documentation test suite (`tests/test_documentation.py`) covering LaTeX notation, zero emojis, category uniqueness, HTML structural integrity, and SSOT manifest alignment as a mandatory gate under `lem-env validate`.
 - **Git Hook Root Directory Discovery Hardening** — Hardened pre-commit hook scripts across `.githooks/pre-commit` and `.git/hooks/pre-commit` with dynamic directory inspection (`HOOK_DIR`) ensuring proper relative resolution of `WORKSPACE_ROOT` and `lem-env` regardless of whether git executes the hook from `.githooks` or `.git/hooks`.
 
+### v16.9.8 — Real-Time Streaming Requirements Progress & Live Telemetry
+
+- **Real-Time Streaming Pip Execution** — Implemented `stream_pip_with_recovery` in `env_manager.utils` and `stream_install_requirements` in `env_manager.venv_manager` to yield stdout/stderr lines from pip in real time during requirement installation instead of blocking silently.
+- **Dynamic Package Installation Telemetry** — Added `is_progress: bool` to `PipelineEvent` and implemented live pip stdout parsing in `PipelineOrchestrator._parse_pip_line_to_event` and `_execute_package_installation`, broadcasting structured progress ticks (`INSTALLING`, `DOWNLOADING`, package counts, transfer rates, and ETA) over local WebSocket to the desktop GUI.
+- **Node.js NPM Streaming Execution** — Implemented `stream_npm_install` in `env_manager.npm_manager` with real-time process stdout line streaming and deterministic lifecycle completion.
+- **Zero Resource Leaks & Cleanup** — Enforced strict `try/finally` resource cleanup closing subprocess pipe wrappers across `stream_pip_with_recovery` and `stream_npm_install`, eliminating all Python `ResourceWarning` diagnostics.
+
 ### v16.9.3 — Validator Manifest Directory Exclusion & Artifact Protection
 
 - **Export and Cache Directory Masking** — Hardened `run_yamllint`, `run_jsonlint`, and `validate_project` in `env_manager/validator.py` with explicit exclusion of generator artifact folders (`export`, `runs`, `.lemtrain_server`, `.lgd_server`, `.env_server`). Eliminates false-positive lint failures caused by third-party training run configurations while preserving rigorous compliance enforcement across all source manifests.

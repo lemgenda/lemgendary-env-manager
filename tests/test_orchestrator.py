@@ -72,6 +72,52 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertEqual(second_event.status, "success")
         self.assertEqual(len(emitted_events), 2)
 
+    def test_pip_progress_parsing(self) -> None:
+        """Verify pip output lines are correctly parsed into live progress events."""
+        def emit_dummy(step_num: int, step_name: str, status: str, msg: str, data=None, is_progress=False) -> PipelineEvent:
+            return PipelineEvent(
+                timestamp="2026-10-18T00:00:00Z",
+                step_number=step_num,
+                total_steps=7,
+                step_name=step_name,
+                status=status,
+                message=msg,
+                data=data,
+                is_progress=is_progress,
+            )
+
+        # 1. Collecting line
+        res = PipelineOrchestrator._parse_pip_line_to_event(
+            "lemgendary-datasets", "Collecting torch>=2.2.0", 0, 40, "", emit_dummy
+        )
+        self.assertIsNotNone(res)
+        assert res is not None
+        completed, pkg, ev = res
+        self.assertEqual(completed, 1)
+        self.assertEqual(pkg, "torch")
+        self.assertTrue(ev.is_progress)
+        self.assertIn("INSTALLING: lemgendary-datasets - 2.5%", ev.message)
+
+        # 2. Downloading line
+        res_dl = PipelineOrchestrator._parse_pip_line_to_event(
+            "lemgendary-datasets", "   ━━━ 1.2/2.4 GB 25.1 MB/s eta 0:00:48", 1, 40, "torch", emit_dummy
+        )
+        self.assertIsNotNone(res_dl)
+        assert res_dl is not None
+        _, _, ev_dl = res_dl
+        self.assertTrue(ev_dl.is_progress)
+        self.assertIn("DOWNLOADING: torch - 1.2/2.4 GB 25.1 MB/s eta 0:00:48", ev_dl.message)
+
+        # 3. Installing collected packages
+        res_inst = PipelineOrchestrator._parse_pip_line_to_event(
+            "lemgendary-datasets", "Installing collected packages: torch, torchvision", 40, 40, "torch", emit_dummy
+        )
+        self.assertIsNotNone(res_inst)
+        assert res_inst is not None
+        _, _, ev_inst = res_inst
+        self.assertTrue(ev_inst.is_progress)
+        self.assertIn("95.0%", ev_inst.message)
+
 
 if __name__ == "__main__":
     unittest.main()

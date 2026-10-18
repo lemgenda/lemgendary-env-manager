@@ -81,6 +81,14 @@ class TestHealthChecker(unittest.TestCase):
         d = cov.to_dict()
         self.assertEqual(d["project_name"], "lemgendary-datasets")
 
+    def test_opencv_variant_coverage(self) -> None:
+        """Verify that opencv-contrib-python satisfies an opencv-python declaration."""
+        from env_manager.health_checker import _OPENCV_VARIANTS_NORMALIZED
+        self.assertIn("opencv-python", _OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-contrib-python", _OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-python-headless", _OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-contrib-python-headless", _OPENCV_VARIANTS_NORMALIZED)
+
 
 if __name__ == "__main__":
     unittest.main()

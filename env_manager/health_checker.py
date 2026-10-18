@@ -48,6 +48,14 @@ _BOOTSTRAP_NORMALIZED: Set[str] = {"pip", "wheel", "setuptools", "pkg-resources"
 # than PyPI when a CUDA/ROCm backend is available.
 _TORCH_FAMILY_NORMALIZED: Set[str] = {"torch", "torchvision", "torchaudio"}
 
+# OpenCV distributions that satisfy the 'cv2' runtime namespace.
+_OPENCV_VARIANTS_NORMALIZED: Set[str] = {
+    "opencv-python",
+    "opencv-python-headless",
+    "opencv-contrib-python",
+    "opencv-contrib-python-headless",
+}
+
 
 # ─── Data structures ────────────────────────────────────────────────────────
 
@@ -392,6 +400,9 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
 
     if req_file.exists():
         parsed = parse_requirements_file(req_file)
+        has_installed_opencv = any(
+            v in canonical_installed for v in _OPENCV_VARIANTS_NORMALIZED
+        )
         for entry in parsed:
             if entry.is_index_url:
                 continue
@@ -406,6 +417,8 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
                     )
             total_required += 1
             pkg_name = normalize_package_name(entry.name)
+            if pkg_name in _OPENCV_VARIANTS_NORMALIZED and has_installed_opencv:
+                continue
             if pkg_name not in canonical_installed:
                 missing.append(entry.name)
 
@@ -535,7 +548,13 @@ def compute_manifest_coverage(
         }
         installed = set(installed_norm.keys()) - _BOOTSTRAP_NORMALIZED
 
-        missing = sorted(declared - installed)
+        missing_set = declared - installed
+        if any(v in installed for v in _OPENCV_VARIANTS_NORMALIZED):
+            missing_set = {
+                pkg for pkg in missing_set if pkg not in _OPENCV_VARIANTS_NORMALIZED
+            }
+
+        missing = sorted(missing_set)
         extra = sorted(installed - declared)
 
         entries.append(

@@ -66,8 +66,7 @@ UPGRADE_ORDER: List[str] = [
 
 # Paired packages where manual curation matters more than "latest wins".
 PROTECTED_FROM_SYNC: set = {
-    "astroid",
-    "pylint",
+    "ruff",
     "pydantic",
     "pydantic-core",
     "pydantic_core",

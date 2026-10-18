@@ -246,6 +246,8 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
                                 ("dwFileDateLS", wintypes.DWORD),
                             ]
 
+                        if lp_buffer.value is None:
+                            return None
                         fixed = VS_FIXEDFILEINFO.from_address(lp_buffer.value)
                         v_ms = fixed.dwFileVersionMS
                         v_ls = fixed.dwFileVersionLS
@@ -451,6 +453,21 @@ def probe_metatrader5() -> MetaTrader5Info:
     return MetaTrader5Info(installed=False)
 
 
+def select_cuda_torch_index(driver_version: Optional[str]) -> str:
+    """Select modern PyTorch wheel index matching host NVIDIA driver."""
+    if not driver_version:
+        return "https://download.pytorch.org/whl/cu126"
+    try:
+        major = int(driver_version.split(".")[0])
+        if major >= 560:
+            return "https://download.pytorch.org/whl/cu126"
+        elif major >= 535:
+            return "https://download.pytorch.org/whl/cu121"
+        return "https://download.pytorch.org/whl/cu118"
+    except (ValueError, IndexError):
+        return "https://download.pytorch.org/whl/cu126"
+
+
 # ─── Full profile ───────────────────────────────────────────────────────────
 
 def probe_hardware() -> HardwareProfile:
@@ -478,7 +495,8 @@ def probe_hardware() -> HardwareProfile:
     if cuda_devices:
         accelerators.extend(cuda_devices)
         primary_backend = "cuda"
-        torch_index = "https://download.pytorch.org/whl/cu121"
+        driver_ver = cuda_devices[0].driver_version if cuda_devices else None
+        torch_index = select_cuda_torch_index(driver_ver)
     else:
         # Priority 2: ROCm
         rocm_devices = probe_rocm_smi()

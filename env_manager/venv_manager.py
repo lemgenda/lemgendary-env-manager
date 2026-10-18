@@ -11,10 +11,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
 from env_manager._logging import get_logger
-from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, run_command_simple, run_pip_with_recovery
+from env_manager.utils import (
+    WINDOWS_NO_WINDOW,
+    pip_env,
+    run_command_simple,
+    run_pip_with_recovery,
+    stream_pip_with_recovery,
+)
 
 _log = get_logger(__name__)
 
@@ -116,7 +122,7 @@ def find_processes_in_venv(venv_dir: Path) -> List[Any]:
                 exe = p.info.get("exe")
                 if exe and str(Path(exe).resolve()).lower().startswith(venv_resolved):
                     procs.append(p)
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
     except Exception as exc:
         _log.debug("Process discovery in venv %s failed: %s", venv_dir, exc)
@@ -227,30 +233,56 @@ def get_installed_packages(project_dir: Path) -> Dict[str, str]:
     return {}
 
 
+def stream_install_requirements(
+    project_dir: Path,
+    requirements_file: Path,
+    extra_index_url: Optional[str] = None,
+    timeout: int = 1800,
+) -> Generator[str, None, Tuple[bool, str]]:
+    """Install a requirements file into the project venv, yielding output lines in real time."""
+    if not is_venv_valid(project_dir):
+        return False, f"Virtual environment at {project_dir} is invalid or missing."
+
+    python_path = get_venv_python_path(project_dir)
+    args = ["install", "-r", str(requirements_file), "--progress-bar", "on"]
+    if extra_index_url:
+        args.extend(["--extra-index-url", extra_index_url])
+
+    proc = yield from stream_pip_with_recovery(python_path, args, timeout=timeout)
+    if proc.returncode == 0:
+        return True, proc.stdout or "ok"
+    return False, proc.stderr or proc.stdout or "Pip install failed."
+
+
 def install_requirements(
     project_dir: Path,
     requirements_file: Path,
     extra_index_url: Optional[str] = None,
     timeout: int = 1800,
+    on_line: Optional[Callable[[str], None]] = None,
 ) -> Tuple[bool, str]:
     """Install a requirements file into the project venv.
 
-    Uses :func:`run_pip_with_recovery` so a corrupted download or stale
+    Uses :func:`stream_install_requirements` so a corrupted download or stale
     cache entry triggers an automatic purge-and-retry rather than a
     hard failure.
     """
-    if not is_venv_valid(project_dir):
-        return False, f"Virtual environment at {project_dir} is invalid or missing."
-
-    python_path = get_venv_python_path(project_dir)
-    args = ["install", "-r", str(requirements_file)]
-    if extra_index_url:
-        args.extend(["--extra-index-url", extra_index_url])
-
-    proc = run_pip_with_recovery(python_path, args, timeout=timeout)
-    if proc.returncode == 0:
-        return True, proc.stdout or "ok"
-    return False, proc.stderr or proc.stdout or "Pip install failed."
+    gen = stream_install_requirements(
+        project_dir,
+        requirements_file,
+        extra_index_url=extra_index_url,
+        timeout=timeout,
+    )
+    try:
+        while True:
+            line = next(gen)
+            if on_line:
+                try:
+                    on_line(line)
+                except Exception as cb_exc:
+                    _log.debug("install_requirements callback error: %s", cb_exc)
+    except StopIteration as stop:
+        return stop.value
 
 
 def normalize_opencv_variant(

@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, Generator, List, Optional, Tuple
 
 from env_manager._logging import get_logger
 
@@ -98,11 +98,90 @@ def _purge_pip_cache(python_path: Path) -> None:
 
 # ─── Pip runner with recovery ───────────────────────────────────────────────
 
+def stream_pip_with_recovery(
+    python_path: Path,
+    args: List[str],
+    timeout: int = 1800,
+    max_attempts: int = 2,
+) -> Generator[str, None, subprocess.CompletedProcess]:
+    """Run ``python -m pip <args>`` with recovery logic, yielding stdout lines in real time."""
+    cmd = [str(python_path), "-m", "pip"] + args
+
+    last_proc: Optional[subprocess.CompletedProcess] = None
+    for attempt in range(1, max_attempts + 1):
+        use_no_cache = attempt > 1
+        output_lines: List[str] = []
+        try:
+            cmd_env = pip_env(no_cache=use_no_cache)
+            cmd_env["PYTHONUNBUFFERED"] = "1"
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=cmd_env,
+                creationflags=WINDOWS_NO_WINDOW,
+            )
+            if proc.stdout:
+                try:
+                    for line in iter(proc.stdout.readline, ""):
+                        stripped = line.strip()
+                        if stripped:
+                            output_lines.append(stripped)
+                            yield stripped
+                finally:
+                    proc.stdout.close()
+            proc.wait(timeout=timeout)
+            completed = subprocess.CompletedProcess(
+                args=cmd,
+                returncode=proc.returncode,
+                stdout="\n".join(output_lines),
+                stderr="",
+            )
+        except subprocess.TimeoutExpired as exc:
+            _log.warning("pip command timed out after %ss: %s", timeout, cmd)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=124, stdout="\n".join(output_lines),
+                stderr=f"pip command timed out after {timeout}s: {exc}",
+            )
+        except Exception as exc:
+            _log.warning("pip command crashed before completion: %s", exc)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="\n".join(output_lines), stderr=str(exc),
+            )
+
+        if completed.returncode == 0:
+            return completed
+
+        last_proc = completed
+        corruption = _looks_like_cache_corruption(completed.stderr, completed.stdout)
+
+        if attempt < max_attempts and corruption:
+            _log.warning(
+                "pip failed with a corruption-class error; purging HTTP cache "
+                "and retrying with --no-cache-dir (attempt %d/%d). Tail: %s",
+                attempt, max_attempts, (completed.stderr or completed.stdout or "")[-200:],
+            )
+            _purge_pip_cache(python_path)
+            yield f"Purged corrupt pip cache; retrying installation with --no-cache-dir (attempt {attempt + 1}/{max_attempts})..."
+            continue
+
+        # Not a corruption signature, or out of attempts.
+        return completed
+
+    return last_proc if last_proc is not None else subprocess.CompletedProcess(
+        args=cmd, returncode=1, stdout="", stderr="pip execution failed",
+    )
+
+
 def run_pip_with_recovery(
     python_path: Path,
     args: List[str],
     timeout: int = 1800,
     max_attempts: int = 2,
+    on_line: Optional[Callable[[str], None]] = None,
 ) -> subprocess.CompletedProcess:
     """Run ``python -m pip <args>`` with cache-first, no-cache-on-retry logic.
 
@@ -121,56 +200,17 @@ def run_pip_with_recovery(
     Returns the CompletedProcess from the final attempt. Callers should
     check ``returncode`` and inspect ``stdout`` / ``stderr`` themselves.
     """
-    cmd = [str(python_path), "-m", "pip"] + args
-
-    last_proc: Optional[subprocess.CompletedProcess] = None
-    for attempt in range(1, max_attempts + 1):
-        use_no_cache = attempt > 1
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                check=False,
-                env=pip_env(no_cache=use_no_cache),
-                creationflags=WINDOWS_NO_WINDOW,
-            )
-        except subprocess.TimeoutExpired as exc:
-            _log.warning("pip command timed out after %ss: %s", timeout, cmd)
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=124, stdout="",
-                stderr=f"pip command timed out after {timeout}s: {exc}",
-            )
-        except Exception as exc:
-            _log.warning("pip command crashed before completion: %s", exc)
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout="", stderr=str(exc),
-            )
-
-        if proc.returncode == 0:
-            return proc
-
-        last_proc = proc
-        corruption = _looks_like_cache_corruption(proc.stderr, proc.stdout)
-
-        if attempt < max_attempts and corruption:
-            _log.warning(
-                "pip failed with a corruption-class error; purging HTTP cache "
-                "and retrying with --no-cache-dir (attempt %d/%d). Tail: %s",
-                attempt, max_attempts, (proc.stderr or proc.stdout or "")[-200:],
-            )
-            _purge_pip_cache(python_path)
-            continue
-
-        # Not a corruption signature, or out of attempts.
-        return proc
-
-    return last_proc if last_proc is not None else subprocess.CompletedProcess(
-        args=cmd, returncode=1, stdout="", stderr="pip execution failed",
-    )
+    gen = stream_pip_with_recovery(python_path, args, timeout=timeout, max_attempts=max_attempts)
+    try:
+        while True:
+            line = next(gen)
+            if on_line:
+                try:
+                    on_line(line)
+                except Exception as cb_exc:
+                    _log.debug("pip on_line callback failed: %s", cb_exc)
+    except StopIteration as stop:
+        return stop.value
 
 
 # ─── Cache / bytecode cleaning ──────────────────────────────────────────────
