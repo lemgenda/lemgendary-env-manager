@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.7-STABLE)
+# LemGendary Environment Manager (v16.9.8-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -143,6 +143,15 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.8 — Dependency Resolver Diagnostic Precision and Extras-Marker Guard
+
+- **Actionable Blocker Diagnostics (`env_manager.dependency_resolver._diagnose_pinned_reason`)** — Replaced the generic `"kept pinned by another installed package's requirement"` blocker message with precise root-cause diagnostics. When a candidate version is blocked by the constraint-preserving dry-run, `_diagnose_pinned_reason` fetches the candidate's `Requires-Dist` metadata from PyPI and compares each dependency specifier against the currently installed versions, surfacing the exact conflicting pin (e.g., `diffusers 0.41.0 requires huggingface-hub<2.0 but 2.2.0 is installed`).
+- **Extras-Conditional Requirement Exclusion (`_get_reverse_dependencies`)** — Hardened the reverse-dependency graph builder to explicitly skip `Requires-Dist` entries whose marker expression contains the `extra` environment key. This prevents optional dependency groups (e.g., `diffusers==0.35.2; extra == "testing"` declared by `transformers`) from being counted as active runtime constraints and generating false-positive blocker reports.
+- **Top-Level Import Consolidation (`env_manager.updater`)** — Eliminated two `PLC0415`-violating function-level lazy imports (`probe_hardware` from `system_probe`, `constraint_preserving_dry_run` from `dependency_resolver`) by promoting them to the module top-level import block. No circular import risk exists between these modules.
+- **Zero Lint Diagnostics** — All changes resolve to zero ruff/pylint/pyright diagnostics across `dependency_resolver.py` and `updater.py`.
+
+---
 
 ### v16.9.7 — Centralized Desktop GUI Manifest Governance & Telemetry Progress Provisioning
 

@@ -2,18 +2,18 @@
 
 import json
 import os
-import re
-import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 
 from env_manager._logging import get_logger
-from env_manager.utils import pip_env, run_pip_with_recovery
+from env_manager.utils import run_pip_with_recovery
 from env_manager.venv_manager import get_venv_python_path, is_venv_valid
 
 _log = get_logger(__name__)
@@ -29,7 +29,7 @@ class OutdatedPackage:
     latest_version: str
     package_type: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -37,11 +37,11 @@ class OutdatedPackage:
 class DependencyResolutionPlan:
     """Plan for safe package upgrades."""
     project_name: str
-    outdated_packages: List[OutdatedPackage]
-    safe_upgrades: List[str]
+    outdated_packages: list[OutdatedPackage]
+    safe_upgrades: list[str]
     has_updates: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -53,7 +53,7 @@ def _normalize(name: str) -> str:
 
 def _version_lt(a: str, b: str) -> bool:
     try:
-        return Version(a.split("+")[0]) < Version(b.split("+")[0])
+        return Version(a.split("+", maxsplit=1)[0]) < Version(b.split("+", maxsplit=1)[0])
     except (InvalidVersion, AttributeError):
         return False
 
@@ -82,7 +82,7 @@ def venv_has_real_packages(project_dir: Path) -> bool:
     return venv_package_count(project_dir) > 0
 
 
-def _installed_package_versions(project_dir: Path) -> Dict[str, str]:
+def _installed_package_versions(project_dir: Path) -> dict[str, str]:
     """Return {normalized_name: version} for every installed package."""
     if not is_venv_valid(project_dir):
         return {}
@@ -101,7 +101,7 @@ def _installed_package_versions(project_dir: Path) -> Dict[str, str]:
 
 # ─── Reverse-dependency analysis (via pip inspect) ──────────────────────────
 
-def _get_reverse_dependencies(project_dir: Path) -> Dict[str, List[Tuple[str, str]]]:
+def _get_reverse_dependencies(project_dir: Path) -> dict[str, list[tuple[str, str]]]:
     """Return {dep_norm_name: [(requiring_pkg_norm_name, specifier_str), ...]}."""
     if not is_venv_valid(project_dir):
         return {}
@@ -118,7 +118,7 @@ def _get_reverse_dependencies(project_dir: Path) -> Dict[str, List[Tuple[str, st
         _log.debug("pip inspect failed for %s: %s", project_dir, exc)
         return {}
 
-    reverse: Dict[str, List[Tuple[str, str]]] = {}
+    reverse: dict[str, list[tuple[str, str]]] = {}
     for pkg in data.get("installed", []):
         meta = pkg.get("metadata") or {}
         req_name_raw = meta.get("name") or ""
@@ -131,6 +131,14 @@ def _get_reverse_dependencies(project_dir: Path) -> Dict[str, List[Tuple[str, st
             except InvalidRequirement:
                 continue
             if r.marker is not None:
+                # Explicitly exclude extras-conditional requirements. These are
+                # optional dependency groups (e.g. package[testing]) and are not
+                # active constraints in a standard installation. Treating them as
+                # runtime reverse-dependencies causes false blocker reports.
+                # Use the string representation: a stable public-API approach
+                # that does not rely on packaging internals.
+                if "extra" in str(r.marker):
+                    continue
                 try:
                     if not r.marker.evaluate():
                         continue
@@ -144,14 +152,14 @@ def _get_reverse_dependencies(project_dir: Path) -> Dict[str, List[Tuple[str, st
 def _check_reverse_deps(
     pkg_name: str,
     new_version: str,
-    reverse_deps: Dict[str, List[Tuple[str, str]]],
-    exclude_requirer: Optional[Set[str]] = None,
-) -> Optional[str]:
+    reverse_deps: dict[str, list[tuple[str, str]]],
+    exclude_requirer: set[str] | None = None,
+) -> str | None:
     """Return a reason string if upgrading pkg_name would violate a requirement."""
     key = _normalize(pkg_name)
     exclude = exclude_requirer or set()
     try:
-        new_ver = Version(new_version.split("+")[0])
+        new_ver = Version(new_version.split("+", maxsplit=1)[0])
     except InvalidVersion:
         return f"cannot parse candidate version {new_version!r}"
 
@@ -169,9 +177,73 @@ def _check_reverse_deps(
     return None
 
 
+def _fetch_pypi_requires_dist(package_name: str, version: str) -> list[str]:
+    """Fetch Requires-Dist metadata for a specific package version from PyPI.
+
+    Returns an empty list on any network or parse failure so callers degrade
+    gracefully without raising.
+    """
+    url = f"https://pypi.org/pypi/{package_name}/{version}/json"
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("info", {}).get("requires_dist") or []
+    except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
+        _log.debug("PyPI metadata fetch failed for %s==%s: %s", package_name, version, exc)
+        return []
+
+
+def _diagnose_pinned_reason(
+    pkg_name: str,
+    candidate_version: str,
+    current_state: dict[str, str],
+) -> str:
+    """Return a human-readable explanation for why a candidate version is blocked.
+
+    Fetches the candidate's Requires-Dist from PyPI and checks each non-extras
+    dependency specifier against the currently installed (pinned) version. When
+    a conflict is found the first one is returned as an actionable message.
+    Falls back to the generic message if PyPI is unreachable or no conflict
+    can be pinpointed.
+    """
+    requires_dist = _fetch_pypi_requires_dist(pkg_name, candidate_version)
+    for req_str in requires_dist:
+        try:
+            r = Requirement(req_str)
+        except InvalidRequirement:
+            continue
+        # Skip extras-only requirements — they are not active constraints.
+        if r.marker is not None:
+            marker_str = str(r.marker)
+            if "extra" in marker_str:
+                continue
+            try:
+                if not r.marker.evaluate():
+                    continue
+            except Exception:
+                continue
+        if not r.specifier:
+            continue
+        dep_norm = _normalize(r.name)
+        installed_ver = current_state.get(dep_norm)
+        if installed_ver is None:
+            continue
+        try:
+            installed = Version(installed_ver.split("+")[0])
+        except InvalidVersion:
+            continue
+        if installed not in r.specifier:
+            return (
+                f"{pkg_name} {candidate_version} requires "
+                f"{r.name}{r.specifier} but {installed_ver} is installed"
+            )
+    return "kept pinned by another installed package's requirement"
+
+
 # ─── Raw outdated query ─────────────────────────────────────────────────────
 
-def find_outdated_packages(project_dir: Path) -> List[OutdatedPackage]:
+def find_outdated_packages(project_dir: Path) -> list[OutdatedPackage]:
     """Query outdated packages. Returns raw results (no safety filtering)."""
     if not is_venv_valid(project_dir):
         return []
@@ -199,7 +271,7 @@ def find_outdated_packages(project_dir: Path) -> List[OutdatedPackage]:
 
 # ─── pip report parsing ─────────────────────────────────────────────────────
 
-def _parse_pip_report(stdout: str) -> Optional[Dict[str, Any]]:
+def _parse_pip_report(stdout: str) -> dict[str, Any] | None:
     idx = stdout.find("{")
     if idx < 0:
         return None
@@ -209,13 +281,13 @@ def _parse_pip_report(stdout: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _parse_would_install_text(stdout: str) -> Dict[str, str]:
-    for line in stdout.splitlines():
-        line = line.strip()
-        if not line.lower().startswith("would install"):
+def _parse_would_install_text(stdout: str) -> dict[str, str]:
+    for raw_line in stdout.splitlines():
+        stripped = raw_line.strip()
+        if not stripped.lower().startswith("would install"):
             continue
-        rest = line[len("Would install"):].strip()
-        result: Dict[str, str] = {}
+        rest = stripped[len("Would install"):].strip()
+        result: dict[str, str] = {}
         for token in rest.split():
             for i in range(len(token) - 1, -1, -1):
                 if token[i] == "-" and i + 1 < len(token) and token[i + 1].isdigit():
@@ -227,7 +299,7 @@ def _parse_would_install_text(stdout: str) -> Dict[str, str]:
 
 # ─── Constraint-preserving dry-run ──────────────────────────────────────────
 
-def _write_constraints_file(pins: Dict[str, str]) -> str:
+def _write_constraints_file(pins: dict[str, str]) -> str:
     fd, path = tempfile.mkstemp(prefix="pip_constraints_", suffix=".txt")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -244,12 +316,13 @@ def _write_constraints_file(pins: Dict[str, str]) -> str:
 
 def constraint_preserving_dry_run(
     project_dir: Path,
-    targets: List[str],
-    current_state: Optional[Dict[str, str]] = None,
-    index_url: Optional[str] = None,
-    extra_index_url: Optional[str] = None,
+    targets: list[str],
+    *,
+    current_state: dict[str, str] | None = None,
+    index_url: str | None = None,
+    extra_index_url: str | None = None,
     timeout: int = 300,
-) -> Tuple[bool, Dict[str, str], str]:
+) -> tuple[bool, dict[str, str], str]:
     """Dry-run upgrading ``targets`` while pinning everything else."""
     if not is_venv_valid(project_dir) or not targets:
         return True, {}, "nothing to do"
@@ -303,7 +376,7 @@ def constraint_preserving_dry_run(
                 if name and version:
                     would_install[_normalize(name)] = version
 
-        changed: Dict[str, str] = {}
+        changed: dict[str, str] = {}
         for name, new_ver in would_install.items():
             old_ver = current_state.get(name)
             if old_ver is None or old_ver != new_ver:
@@ -323,9 +396,9 @@ def constraint_preserving_dry_run(
 
 def classify_safe_upgrades(
     project_dir: Path,
-    candidates: List[OutdatedPackage],
-    cuda_index_url: Optional[str] = None,
-) -> Tuple[List[OutdatedPackage], List[Tuple[OutdatedPackage, str]]]:
+    candidates: list[OutdatedPackage],
+    cuda_index_url: str | None = None,
+) -> tuple[list[OutdatedPackage], list[tuple[OutdatedPackage, str]]]:
     """Split outdated candidates into (safe, blocked)."""
     if not candidates or not is_venv_valid(project_dir):
         return [], [(pkg, "invalid venv") for pkg in candidates]
@@ -336,11 +409,11 @@ def classify_safe_upgrades(
     torch_candidates = [pkg for pkg in candidates if pkg.package_type == "wheel-cuda"]
     normal_candidates = [pkg for pkg in candidates if pkg.package_type != "wheel-cuda"]
 
-    safe: List[OutdatedPackage] = []
-    blocked: List[Tuple[OutdatedPackage, str]] = []
+    safe: list[OutdatedPackage] = []
+    blocked: list[tuple[OutdatedPackage, str]] = []
 
     if normal_candidates:
-        passed_stage1: List[OutdatedPackage] = []
+        passed_stage1: list[OutdatedPackage] = []
         for pkg in normal_candidates:
             reason = _check_reverse_deps(
                 pkg.name, pkg.latest_version, reverse_deps,
@@ -362,26 +435,27 @@ def classify_safe_upgrades(
                     if _normalize(pkg.name) in changed:
                         safe.append(pkg)
                     else:
-                        blocked.append((
-                            pkg,
-                            "kept pinned by another installed package's requirement",
-                        ))
+                        reason = _diagnose_pinned_reason(
+                            pkg.name, pkg.latest_version, current_state
+                        )
+                        blocked.append((pkg, reason))
             else:
                 _log.info("Batch dry-run failed for %s: %s. Falling back per-package.",
                           project_dir, msg)
                 for pkg in passed_stage1:
-                    per_ok, per_changed, per_msg = constraint_preserving_dry_run(
+                    per_ok, per_changed, _per_msg = constraint_preserving_dry_run(
                         project_dir, [pkg.name], current_state=current_state,
                         extra_index_url=cuda_index_url,
                     )
                     if per_ok and _normalize(pkg.name) in per_changed:
                         safe.append(pkg)
                     else:
-                        reason = (
-                            "batch and per-package dry-run both failed"
-                            if not per_ok
-                            else "kept pinned by another installed package's requirement"
-                        )
+                        if not per_ok:
+                            reason = "batch and per-package dry-run both failed"
+                        else:
+                            reason = _diagnose_pinned_reason(
+                                pkg.name, pkg.latest_version, current_state
+                            )
                         blocked.append((pkg, reason))
 
     for pkg in torch_candidates:
@@ -433,12 +507,12 @@ def create_safe_upgrade_plan(project_dir: Path) -> DependencyResolutionPlan:
     )
 
 
-def apply_safe_upgrades(project_dir: Path, packages: List[str]) -> Tuple[bool, str]:
+def apply_safe_upgrades(project_dir: Path, packages: list[str]) -> tuple[bool, str]:
     if not is_venv_valid(project_dir) or not packages:
         return True, "No packages to upgrade or environment invalid."
     python_path = get_venv_python_path(project_dir)
     proc = run_pip_with_recovery(
-        python_path, ["install", "--upgrade"] + packages, timeout=900,
+        python_path, ["install", "--upgrade", *packages], timeout=900,
     )
     if proc.returncode == 0:
         return True, proc.stdout
@@ -447,11 +521,11 @@ def apply_safe_upgrades(project_dir: Path, packages: List[str]) -> Tuple[bool, s
 
 def _pip_dry_run(
     project_dir: Path,
-    packages: List[str],
-    index_url: Optional[str] = None,
-    extra_index_url: Optional[str] = None,
+    packages: list[str],
+    index_url: str | None = None,
+    extra_index_url: str | None = None,
     timeout: int = 300,
-) -> Tuple[bool, Dict[str, str], str]:
+) -> tuple[bool, dict[str, str], str]:
     """Simple (non-constraint) dry-run. Kept for backward compatibility."""
     if not is_venv_valid(project_dir) or not packages:
         return True, {}, "nothing to do"
@@ -476,7 +550,7 @@ def _pip_dry_run(
     if report is None:
         return True, _parse_would_install_text(proc.stdout), "ok-text"
 
-    result: Dict[str, str] = {}
+    result: dict[str, str] = {}
     for item in report.get("install", []):
         meta = item.get("metadata") or {}
         name = meta.get("name")
