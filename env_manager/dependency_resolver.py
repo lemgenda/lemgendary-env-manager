@@ -413,11 +413,27 @@ def classify_safe_upgrades(
     blocked: list[tuple[OutdatedPackage, str]] = []
 
     if normal_candidates:
+        candidate_names = {_normalize(pkg.name) for pkg in normal_candidates}
+        # Tightly coupled co-dependent package pairs that must be upgraded in lockstep
+        co_dependent_pairs: dict[str, set[str]] = {
+            "pydantic": {"pydantic-core", "pydantic_core"},
+            "pydantic-core": {"pydantic"},
+            "pydantic_core": {"pydantic"},
+        }
+
         passed_stage1: list[OutdatedPackage] = []
         for pkg in normal_candidates:
+            pkg_norm = _normalize(pkg.name)
+            exclude_req = {pkg_norm}
+            # If companion twin package is also an upgrade candidate, exclude it from blocking reverse_deps check
+            twins = co_dependent_pairs.get(pkg_norm, set())
+            for twin in twins:
+                if _normalize(twin) in candidate_names:
+                    exclude_req.add(_normalize(twin))
+
             reason = _check_reverse_deps(
                 pkg.name, pkg.latest_version, reverse_deps,
-                exclude_requirer={_normalize(pkg.name)},
+                exclude_requirer=exclude_req,
             )
             if reason is None:
                 passed_stage1.append(pkg)
