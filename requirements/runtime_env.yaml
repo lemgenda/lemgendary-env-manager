@@ -74,10 +74,7 @@ variables:
     scope: [windows]
     comment: Intel Fortran runtime silently ignores floating-point signals.
 
-  PYTORCH_CUDA_ALLOC_CONF:
-    value: "expandable_segments:True"
-    scope: [torch]
-    comment: Reduce PyTorch CUDA allocator fragmentation.
+  # PYTORCH_CUDA_ALLOC_CONF: (disabled: causes virtual memory mapping failures on Kaggle/CUDA 12)
 
   CUDA_FORCE_PTX_JIT:
     value: "1"
