@@ -75,7 +75,7 @@ variables:
     comment: Intel Fortran runtime silently ignores floating-point signals.
 
   PYTORCH_CUDA_ALLOC_CONF:
-    value: "expandable_segments:True"
+    value: "expandable_segments:True,max_split_size_mb:128"
     scope: [torch]
     comment: Reduce PyTorch CUDA allocator fragmentation.
 
