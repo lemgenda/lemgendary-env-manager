@@ -32,7 +32,7 @@ onnx==1.22.0
 onnxsim==0.7.3
 onnxconverter-common==1.16.0
 onnxscript==0.7.2
-kaggle==2.2.4
+kaggle>=2.2.5
 kagglehub==1.0.2
 gdown==6.2.0
 albumentations==2.0.8
