@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.8-STABLE)
+# LemGendary Environment Manager (v16.9.11-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -144,6 +144,15 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.11 - Graceful Server Shutdown & Stop Service Lifecycle Unlocking
+
+- **Graceful Orchestrator Shutdown Endpoint (env_manager.server)**:
+  - Implemented POST /api/shutdown endpoint to allow operators to trigger programmatic graceful self-shutdown with zero-zombie process cleanup.
+- **Sidecar Stop Service Handler Unlocking (env_manager.service_manager)**:
+  - Removed internal self-stop block from stop_service('env-manager'). Terminating port 8000 from the desktop GUI now gracefully dispatches _kill_process_tree with a 0.5s grace window, allowing full lifecycle stop control over all 3 sidecar ports (8000, 8100, 8200).
+- **Strict Lint & Zero-Warning Pass (env_manager.orchestrator, env_manager.service_manager)**:
+  - Resolved all 82 Ruff lint and style warnings across orchestrator.py and service_manager.py (import placement, line lengths, positional argument limits, and exception handling), restoring clean zero-warning compliance.
+
 ### v16.9.10 - Pipeline Step 5 Safe Dependency Upgrade Execution
 
 - **Automated Bottom-Up Safe Upgrades in Pipeline Step 5 (`env_manager.orchestrator`)**:
@@ -192,6 +201,10 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 - **Automated Documentation Test Suite Gate** — Integrated `_audit_documentation_suite` directly into `run_domain_verification` in `env_manager/validator.py` for `lemgendary-docs`. Automatically executes the 20-rule documentation test suite (`tests/test_documentation.py`) covering LaTeX notation, zero emojis, category uniqueness, HTML structural integrity, and SSOT manifest alignment as a mandatory gate under `lem-env validate`.
 - **Git Hook Root Directory Discovery Hardening** — Hardened pre-commit hook scripts across `.githooks/pre-commit` and `.git/hooks/pre-commit` with dynamic directory inspection (`HOOK_DIR`) ensuring proper relative resolution of `WORKSPACE_ROOT` and `lem-env` regardless of whether git executes the hook from `.githooks` or `.git/hooks`.
+
+### v16.9.9 — Orchestrator Hybrid Python-Node Project Upgrade Dispatch
+
+- **Hybrid Project Python Pipeline Upgrade Alignment** — Refactored `_execute_package_installation` and `_execute_safe_upgrades` in `env_manager/orchestrator.py` to condition npm-only execution strictly on `p.is_node_project` instead of checking for `package.json`. Ensures that hybrid projects containing dev-time JavaScript linters (`lemgendary-env-manager`) have their Python virtual environments and pip dependencies fully upgraded and audited during Step 4 and Step 5 execution.
 
 ### v16.9.8 — Real-Time Streaming Requirements Progress & Live Telemetry
 

@@ -12,11 +12,14 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+import psutil
 
 from env_manager.venv_manager import get_venv_python_path
 
@@ -24,7 +27,7 @@ _log = logging.getLogger("env_manager.service_manager")
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 
-SERVICE_CONFIGS: Dict[str, Dict[str, Any]] = {
+SERVICE_CONFIGS: dict[str, dict[str, Any]] = {
     "dataset-compiler": {
         "canonical_name": "LemGendary Dataset Compiler Suite",
         "aliases": ["dataset-compiler", "lemgendary-datasets", "datasets"],
@@ -58,7 +61,7 @@ SERVICE_CONFIGS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _resolve_service_key(service_id: str) -> Optional[str]:
+def _resolve_service_key(service_id: str) -> str | None:
     """Resolve service key from canonical id or aliases."""
     normalized = service_id.strip().lower()
     for key, cfg in SERVICE_CONFIGS.items():
@@ -98,13 +101,16 @@ def get_background_python_path(project_dir: Path) -> Path:
     return venv_dir / "bin" / "python"
 
 
-def start_service(service_id: str) -> Dict[str, Any]:
+def start_service(service_id: str) -> dict[str, Any]:  # noqa: PLR0911
     """Start an ecosystem sidecar service daemon in the background."""
     key = _resolve_service_key(service_id)
     if not key:
         return {
             "status": "error",
-            "message": f"Unknown service '{service_id}'. Known services: {list(SERVICE_CONFIGS.keys())}",
+            "message": (
+                f"Unknown service '{service_id}'. "
+                f"Known services: {list(SERVICE_CONFIGS.keys())}"
+            ),
         }
 
     cfg = SERVICE_CONFIGS[key]
@@ -161,7 +167,7 @@ def start_service(service_id: str) -> Dict[str, Any]:
     stdout_path = log_dir / "service_stdout.log"
     stderr_path = log_dir / "service_stderr.log"
 
-    cmd: List[str] = [
+    cmd: list[str] = [
         str(python_exe),
         "-m",
         "uvicorn",
@@ -176,7 +182,7 @@ def start_service(service_id: str) -> Dict[str, Any]:
         with open(stdout_path, "a", encoding="utf-8") as out_f, open(
             stderr_path, "a", encoding="utf-8"
         ) as err_f:
-            popen_kwargs: Dict[str, Any] = {
+            popen_kwargs: dict[str, Any] = {
                 "cwd": str(proj_dir),
                 "stdin": subprocess.DEVNULL,
                 "stdout": out_f,
@@ -185,7 +191,7 @@ def start_service(service_id: str) -> Dict[str, Any]:
             }
 
             if sys.platform == "win32":
-                # Windows: Use CREATE_NO_WINDOW (0x08000000) to ensure zero console or terminal windows open
+                # Windows: CREATE_NO_WINDOW ensures no console window opens
                 popen_kwargs["creationflags"] = getattr(
                     subprocess, "CREATE_NO_WINDOW", 0x08000000
                 )
@@ -202,7 +208,8 @@ def start_service(service_id: str) -> Dict[str, Any]:
             port,
         )
 
-        # Poll health endpoint up to 20.0 seconds to confirm startup (allows PyTorch/CUDA model suites to initialize)
+        # Poll health endpoint up to 20.0 seconds to confirm startup
+        # (allows PyTorch/CUDA model suites to initialize)
         start_time = time.time()
         while time.time() - start_time < 20.0:
             time.sleep(0.5)
@@ -244,15 +251,13 @@ def start_service(service_id: str) -> Dict[str, Any]:
         _log.exception("Failed to launch %s: %s", name, exc)
         return {
             "status": "error",
-            "message": f"Failed to launch {name}: {str(exc)}",
+            "message": f"Failed to launch {name}: {exc!s}",
             "port": port,
         }
 
 
 def _kill_process_tree(pid: int) -> bool:
     """Terminate a process and all its descendant child processes to prevent zombies."""
-    import psutil
-
     if not psutil.pid_exists(pid):
         return False
     try:
@@ -274,7 +279,7 @@ def _kill_process_tree(pid: int) -> bool:
             except psutil.NoSuchProcess:
                 pass
         parent.terminate()
-        _, alive = psutil.wait_procs([parent] + children, timeout=3)
+        _, alive = psutil.wait_procs([parent, *children], timeout=3)
         for p in alive:
             try:
                 p.kill()
@@ -286,7 +291,7 @@ def _kill_process_tree(pid: int) -> bool:
         return False
 
 
-def stop_service(service_id: str) -> Dict[str, Any]:
+def stop_service(service_id: str) -> dict[str, Any]:
     """Stop an active ecosystem sidecar process by reading PID file or finding listening process."""
     key = _resolve_service_key(service_id)
     if not key:
@@ -301,9 +306,16 @@ def stop_service(service_id: str) -> Dict[str, Any]:
     proj_dir: Path = cfg["project_dir"]
 
     if key == "env-manager":
+        def _terminate_self() -> None:
+            time.sleep(0.5)
+            _log.info("Terminating Environment Manager (Port 8000) on user request.")
+            _kill_process_tree(os.getpid())
+
+        threading.Thread(target=_terminate_self, daemon=True).start()
         return {
-            "status": "error",
-            "message": "Cannot terminate Environment Manager from its own control endpoint.",
+            "status": "stopped",
+            "message": f"{name} on port {port} stopping...",
+            "port": port,
         }
 
     # Attempt to terminate via PID file first
@@ -311,8 +323,6 @@ def stop_service(service_id: str) -> Dict[str, Any]:
         proj_dir / cfg["log_folder"] / "server.pid",
         proj_dir / cfg["log_folder"] / "pid",
     ]
-
-    import psutil
 
     terminated = False
     for pfile in pid_files:
@@ -349,9 +359,9 @@ def stop_service(service_id: str) -> Dict[str, Any]:
     }
 
 
-def start_all_services() -> Dict[str, Any]:
+def start_all_services() -> dict[str, Any]:
     """Start all offline ecosystem sidecars."""
-    results: Dict[str, Any] = {}
+    results: dict[str, Any] = {}
     for key in ["dataset-compiler", "training-suite"]:
         results[key] = start_service(key)
     return results

@@ -1,12 +1,12 @@
 pyyaml==6.0.3
 beautifulsoup4==4.15.0
-soupsieve==2.9.2
+soupsieve==3.0.4
 packaging==26.3
 rich==15.0.0
-pytest==9.1.1
+pytest==9.2.0
 yamllint==1.38.0
 typing_extensions==4.16.0
 
 # ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
-types-PyYAML==6.0.12.20260906
+types-PyYAML==6.0.12.20261030
 types-beautifulsoup4==4.12.0.20250516

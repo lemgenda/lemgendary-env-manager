@@ -8,9 +8,10 @@ import re
 import shutil
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable, Generator
 
 from env_manager.bootstrap import verify_prerequisites
 from env_manager.dependency_resolver import (
@@ -19,14 +20,18 @@ from env_manager.dependency_resolver import (
     venv_package_count,
 )
 from env_manager.health_checker import HealthAuditReport, run_full_health_audit
-from env_manager.npm_manager import run_npm_install, stream_npm_install
-from env_manager.requirements_manager import sync_all_manifests
+from env_manager.npm_manager import stream_npm_install
+from env_manager.requirements_manager import parse_requirements_file, sync_all_manifests
 from env_manager.system_probe import probe_hardware
+from env_manager.updater import (
+    _apply_batch_with_rollback,
+    _apply_npm_update,
+    sync_manifests_from_venvs,
+)
 from env_manager.validator import validate_project
 from env_manager.venv_manager import (
     create_venv,
     discover_projects,
-    install_requirements,
     is_venv_valid,
     normalize_opencv_variant,
     stream_install_requirements,
@@ -42,12 +47,12 @@ from env_manager.venv_manager import (
 # Training-suite is intentionally absent: albumentations (headless) and
 # ultralytics (full) coexist there for legitimate training-side reasons,
 # and training code does not call GUI functions like imshow.
-PREFERRED_OPENCV_VARIANT: Dict[str, str] = {
+PREFERRED_OPENCV_VARIANT: dict[str, str] = {
     "lemgendary-datasets": "opencv-contrib-python",
 }
 
 
-def _get_active_venv() -> Optional[Path]:
+def _get_active_venv() -> Path | None:
     """Return the .venv directory that the current process is running from."""
     try:
         exe = Path(sys.executable).resolve()
@@ -68,10 +73,10 @@ class PipelineEvent:
     step_name: str
     status: str  # "info", "success", "warning", "error"
     message: str
-    data: Optional[Dict[str, Any]] = None
+    data: dict[str, Any] | None = None
     is_progress: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary."""
         return asdict(self)
 
@@ -79,7 +84,7 @@ class PipelineEvent:
 class PipelineOrchestrator:
     """Orchestrates end-to-end environment creation, installation, and auditing."""
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Path | None = None):
         if base_dir is None:
             self.base_dir = Path(__file__).resolve().parent.parent.parent
         else:
@@ -89,33 +94,33 @@ class PipelineOrchestrator:
         self.total_steps = 7
         self.is_running = False
         self.last_status = "idle"
-        self.last_run_timestamp: Optional[str] = None
-        self.last_report: Optional[HealthAuditReport] = None
+        self.last_run_timestamp: str | None = None
+        self.last_report: HealthAuditReport | None = None
 
     def run_clean_install_pipeline(
         self,
-        event_callback: Optional[Callable[[PipelineEvent], None]] = None,
-        target_project: Optional[str] = None,
+        event_callback: Callable[[PipelineEvent], None] | None = None,
+        target_project: str | None = None,
         clean: bool = True,
     ) -> Generator[PipelineEvent, None, HealthAuditReport]:
         """Execute the 7-step Smart Clean Install Pipeline."""
         self.is_running = True
         self.last_status = "running"
-        self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
+        self.last_run_timestamp = datetime.now(UTC).isoformat()
 
         active_venv = _get_active_venv()
-        install_failures: List[str] = []
+        install_failures: list[str] = []
 
-        def emit(
+        def emit(  # noqa: PLR0917
             step_num: int,
             step_name: str,
             status: str,
             msg: str,
-            data: Optional[Dict[str, Any]] = None,
+            data: dict[str, Any] | None = None,
             is_progress: bool = False,
         ) -> PipelineEvent:
             ev = PipelineEvent(
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
                 step_number=step_num,
                 total_steps=self.total_steps,
                 step_name=step_name,
@@ -178,15 +183,19 @@ class PipelineOrchestrator:
                     if clean:
                         nm_dir = p_dir / "node_modules"
                         if nm_dir.exists():
-                            yield emit(3, "Virtual Environments", "info",
-                                       f"Purging existing node_modules for {p.name} (clean install)...")
+                            yield emit(
+                                3, "Virtual Environments", "info",
+                                f"Purging existing node_modules for {p.name} (clean install)...",
+                            )
                             shutil.rmtree(nm_dir, ignore_errors=True)
                     if p.node_modules_present and not clean:
                         yield emit(3, "Virtual Environments", "info",
                                    f"Existing node_modules verified for {p.name}.")
                     else:
-                        yield emit(3, "Virtual Environments", "info",
-                                   f"node_modules will be installed freshly for {p.name} in Step 4.")
+                        yield emit(
+                            3, "Virtual Environments", "info",
+                            f"node_modules will be installed freshly for {p.name} in Step 4.",
+                        )
                     continue
 
                 venv_dir = p_dir / ".venv"
@@ -235,7 +244,9 @@ class PipelineOrchestrator:
 
             yield emit(4, "Package Installation", "info",
                        "Installing dependencies into target environments...")
-            failures = yield from self._execute_package_installation(projects, target_project, hw, emit)
+            failures = yield from self._execute_package_installation(
+                projects, target_project, hw, emit
+            )
             install_failures.extend(failures)
 
             # Step 5: Safe Dependency Audit & Upgrades
@@ -339,32 +350,32 @@ class PipelineOrchestrator:
                        f"Unhandled pipeline exception: {exc}")
             raise
 
-    def run_pipeline_single_step(
+    def run_pipeline_single_step(  # noqa: PLR0911
         self,
         step_number: int,
-        event_callback: Optional[Callable[[PipelineEvent], None]] = None,
-        target_project: Optional[str] = None,
+        event_callback: Callable[[PipelineEvent], None] | None = None,
+        target_project: str | None = None,
         clean: bool = False,
     ) -> Generator[PipelineEvent, None, Any]:
         """Execute an individual step from the 7-step pipeline in isolation."""
         self.is_running = True
         self.current_step = step_number
         self.last_status = "running"
-        self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
+        self.last_run_timestamp = datetime.now(UTC).isoformat()
 
         active_venv = _get_active_venv()
-        install_failures: List[str] = []
+        install_failures: list[str] = []
 
-        def emit(
+        def emit(  # noqa: PLR0917
             step_num: int,
             step_name: str,
             status: str,
             msg: str,
-            data: Optional[Dict[str, Any]] = None,
+            data: dict[str, Any] | None = None,
             is_progress: bool = False,
         ) -> PipelineEvent:
             ev = PipelineEvent(
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
                 step_number=step_num,
                 total_steps=self.total_steps,
                 step_name=step_name,
@@ -435,8 +446,10 @@ class PipelineOrchestrator:
                         if clean:
                             nm_dir = p_dir / "node_modules"
                             if nm_dir.exists():
-                                yield emit(3, "Virtual Environments", "info",
-                                           f"Purging existing node_modules for {p.name} (clean install)...")
+                                yield emit(
+                                    3, "Virtual Environments", "info",
+                                    f"Purging node_modules for {p.name} (clean install)...",
+                                )
                                 shutil.rmtree(nm_dir, ignore_errors=True)
                         if p.node_modules_present and not clean:
                             yield emit(3, "Virtual Environments", "info",
@@ -499,7 +512,9 @@ class PipelineOrchestrator:
                 if target_project:
                     projects = [p for p in projects if p.name == target_project]
 
-                failures = yield from self._execute_package_installation(projects, target_project, hw, emit)
+                failures = yield from self._execute_package_installation(
+                projects, target_project, hw, emit
+            )
                 install_failures.extend(failures)
                 self.last_status = "success" if not install_failures else "warning"
                 return sync_results
@@ -530,7 +545,9 @@ class PipelineOrchestrator:
                     p_dir = Path(p.project_dir)
                     report = validate_project(
                         p_dir,
-                        is_node_project=p.is_node_project if hasattr(p, "is_node_project") else False,
+                        is_node_project=(
+                            p.is_node_project if hasattr(p, "is_node_project") else False
+                        ),
                     )
                     if report.passed:
                         yield emit(
@@ -618,7 +635,7 @@ class PipelineOrchestrator:
         finally:
             self.is_running = False
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Return current status and telemetry of the pipeline."""
         return {
             "is_running": self.is_running,
@@ -636,14 +653,14 @@ class PipelineOrchestrator:
         self.last_status = "idle"
 
     @staticmethod
-    def _parse_pip_line_to_event(
+    def _parse_pip_line_to_event(  # noqa: PLR0911 PLR0917
         project_name: str,
         line: str,
         completed_count: int,
         total_reqs: int,
         current_pkg: str,
         emit_fn: Callable[..., PipelineEvent],
-    ) -> Optional[Tuple[int, str, PipelineEvent]]:
+    ) -> tuple[int, str, PipelineEvent] | None:
         """Parse raw pip stdout line into a structured live telemetry progress event."""
         trimmed = line.strip()
         if not trimmed:
@@ -656,8 +673,13 @@ class PipelineOrchestrator:
             cleaned_pkg = pkg_name.split(">=")[0].split("==")[0].split("<")[0].split(";")[0]
             completed_count = min(total_reqs, completed_count + 1)
             pct = round((completed_count / max(1, total_reqs)) * 100, 1)
-            msg = f"INSTALLING: {project_name} - {pct}% [{completed_count}/{total_reqs} requirements, Collecting {cleaned_pkg}...]"
-            return completed_count, cleaned_pkg, emit_fn(4, "Package Installation", "info", msg, is_progress=True)
+            msg = (
+                f"INSTALLING: {project_name} - {pct}%"
+                f" [{completed_count}/{total_reqs} requirements, Collecting {cleaned_pkg}...]"
+            )
+            return completed_count, cleaned_pkg, emit_fn(
+                4, "Package Installation", "info", msg, is_progress=True
+            )
 
         # Check Requirement already satisfied
         if trimmed.startswith("Requirement already satisfied"):
@@ -665,42 +687,61 @@ class PipelineOrchestrator:
             pct = round((completed_count / max(1, total_reqs)) * 100, 1)
             pkg_info = trimmed.split(":", 1)[1].strip() if ":" in trimmed else trimmed
             cleaned_pkg = pkg_info.split()[0] if pkg_info else ""
-            msg = f"INSTALLING: {project_name} - {pct}% [{completed_count}/{total_reqs} requirements, satisfied {cleaned_pkg}]"
-            return completed_count, current_pkg, emit_fn(4, "Package Installation", "info", msg, is_progress=True)
+            msg = (
+                f"INSTALLING: {project_name} - {pct}%"
+                f" [{completed_count}/{total_reqs} requirements, satisfied {cleaned_pkg}]"
+            )
+            return completed_count, current_pkg, emit_fn(
+                4, "Package Installation", "info", msg, is_progress=True
+            )
 
         # Check Downloading
-        if trimmed.startswith("Downloading ") or "MB/s" in trimmed or "kB/s" in trimmed or "eta" in trimmed.lower():
+        if (
+            trimmed.startswith("Downloading ")
+            or "MB/s" in trimmed
+            or "kB/s" in trimmed
+            or "eta" in trimmed.lower()
+        ):
             clean_dl = re.sub(r"[\u2580-\u259F\u2500-\u257F━█─\-=|]", "", trimmed).strip()
             if clean_dl:
                 msg = f"DOWNLOADING: {current_pkg or project_name} - {clean_dl}"
-                return completed_count, current_pkg, emit_fn(4, "Package Installation", "info", msg, is_progress=True)
+                return completed_count, current_pkg, emit_fn(
+                    4, "Package Installation", "info", msg, is_progress=True
+                )
 
         # Check Installing collected packages
         if trimmed.startswith("Installing collected packages"):
-            msg = f"INSTALLING: {project_name} - 95.0% [Building wheels and installing collected packages...]"
-            return completed_count, current_pkg, emit_fn(4, "Package Installation", "info", msg, is_progress=True)
+            msg = (
+                f"INSTALLING: {project_name}"
+                f" - 95.0% [Building wheels and installing collected packages...]"
+            )
+            return completed_count, current_pkg, emit_fn(
+                4, "Package Installation", "info", msg, is_progress=True
+            )
 
         # Check Successfully installed
         if trimmed.startswith("Successfully installed"):
             msg = f"INSTALLING: {project_name} - 100% [Successfully installed dependencies]"
-            return completed_count, current_pkg, emit_fn(4, "Package Installation", "info", msg, is_progress=True)
+            return completed_count, current_pkg, emit_fn(
+                4, "Package Installation", "info", msg, is_progress=True
+            )
 
         return None
 
     def _execute_package_installation(
         self,
-        projects: List[Any],
-        target_project: Optional[str],
+        projects: list[Any],
+        target_project: str | None,
         hw: Any,
         emit: Callable[..., PipelineEvent],
-    ) -> Generator[PipelineEvent, None, List[str]]:
+    ) -> Generator[PipelineEvent, None, list[str]]:
         """Install node and python dependencies with live streaming progress telemetry."""
-        install_failures: List[str] = []
+        install_failures: list[str] = []
 
         for p in projects:
             p_dir = Path(p.project_dir)
 
-            if p.is_node_project or (p_dir / "package.json").exists():
+            if p.is_node_project:
                 yield emit(
                     4, "Package Installation", "info",
                     f"INSTALLING: {p.name} (npm) - [Running npm install...]",
@@ -741,15 +782,17 @@ class PipelineOrchestrator:
 
             declared_req_count = 1
             try:
-                from env_manager.requirements_manager import parse_requirements_file
                 parsed_reqs = parse_requirements_file(req_file)
-                declared_req_count = max(1, len([r for r in parsed_reqs if r.name and not r.is_index_url]))
+                declared_req_count = max(
+                    1, len([r for r in parsed_reqs if r.name and not r.is_index_url])
+                )
             except Exception:
                 declared_req_count = 10
 
             yield emit(
                 4, "Package Installation", "info",
-                f"INSTALLING: {p.name} - [0/{declared_req_count} requirements, resolving dependencies...]",
+                f"INSTALLING: {p.name}"
+                f" - [0/{declared_req_count} requirements, resolving dependencies...]",
                 is_progress=True,
             )
 
@@ -812,21 +855,15 @@ class PipelineOrchestrator:
 
     def _execute_safe_upgrades(
         self,
-        projects: List[Any],
+        projects: list[Any],
         hw: Any,
         emit: Callable[..., PipelineEvent],
     ) -> Generator[PipelineEvent, None, None]:
         """Apply safe dependency upgrades bottom-up across managed projects."""
-        from env_manager.updater import (
-            _apply_batch_with_rollback,
-            _apply_npm_update,
-            sync_manifests_from_venvs,
-        )
-
         for p in projects:
             p_dir = Path(p.project_dir)
 
-            if p.is_node_project or (p_dir / "package.json").exists():
+            if p.is_node_project:
                 raw_npm = find_outdated_packages(p_dir)
                 if not raw_npm:
                     yield emit(
@@ -877,13 +914,15 @@ class PipelineOrchestrator:
             for pkg, reason in blocked:
                 yield emit(
                     5, "Dependency Upgrades", "warning",
-                    f"  Blocked: {pkg.name} {pkg.current_version} -> {pkg.latest_version} ({reason})",
+                    f"  Blocked: {pkg.name} {pkg.current_version}"
+                    f" -> {pkg.latest_version} ({reason})",
                 )
 
             if not safe:
                 yield emit(
                     5, "Dependency Upgrades", "info",
-                    f"{p.name}: No unconstrained safe upgrades available (all {len(blocked)} candidate(s) blocked).",
+                    f"{p.name}: No unconstrained safe upgrades available"
+                    f" (all {len(blocked)} candidate(s) blocked).",
                 )
                 continue
 

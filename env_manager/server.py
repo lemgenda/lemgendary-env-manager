@@ -967,6 +967,31 @@ async def start_all_ecosystem_services():
     return {"results": results}
 
 
+@app.post("/api/shutdown")
+async def graceful_shutdown():
+    """Initiate a graceful self-shutdown of the Environment Manager server.
+
+    Schedules process termination after a short delay so the HTTP response
+    is delivered to the caller before the process exits.
+    """
+    import threading
+
+    def _exit_after_delay() -> None:
+        import os
+        import signal
+        import time
+        time.sleep(0.5)
+        _log.info("Graceful shutdown requested via /api/shutdown - terminating server process.")
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    t = threading.Thread(target=_exit_after_delay, daemon=True)
+    t.start()
+    return {
+        "status": "shutting_down",
+        "message": "Environment Manager is shutting down. Restart via the CLI or Task Manager.",
+    }
+
+
 @app.websocket("/ws/log")
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
