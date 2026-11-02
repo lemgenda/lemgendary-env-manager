@@ -144,6 +144,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.10 - Pipeline Step 5 Safe Dependency Upgrade Execution
+
+- **Automated Bottom-Up Safe Upgrades in Pipeline Step 5 (`env_manager.orchestrator`)**:
+  - Upgraded Pipeline Step 5 from a dry-run audit report to actively apply verified safe dependency upgrades bottom-up.
+  - Automatically applies safe python packages with snapshot rollback protection and runs npm updates for Node projects.
+  - Synchronizes centralized requirement manifests with updated dependency versions following successful upgrades.
+
 ### v16.9.9 - Validation Suite Hardening & Cross-Project Changelog Audit
 
 - **Automated Changelog Enforcement (env_manager.validator._audit_readme_changelog)**:
