@@ -58,24 +58,67 @@ def _version_lt(a: str, b: str) -> bool:
         return False
 
 
+# ─── pip JSON helpers ───────────────────────────────────────────────────────
+
+class PipJsonError(RuntimeError):
+    """pip failed or its stdout could not be read as the expected JSON.
+
+    Raised instead of returning an empty result so that callers which make
+    safety decisions (the upgrade classifier) fail closed rather than treat
+    "nothing installed" as "nothing to protect" (review finding D-07).
+    """
+
+
+def _log_pip_stderr(stderr: str, label: str, project_dir: Path) -> None:
+    """Log every non-empty pip stderr line as a warning."""
+    for line in (stderr or "").splitlines():
+        if line.strip():
+            _log.warning("pip %s (%s): %s", label, project_dir.name, line.strip())
+
+
+def _run_pip_json(project_dir: Path, args: list[str], timeout: int) -> Any:
+    """Run ``pip <args>`` in the project venv and parse stdout as JSON.
+
+    stderr is captured separately by ``run_pip_with_recovery`` and only
+    logged; only stdout is parsed. Any failure raises ``PipJsonError``.
+    """
+    label = " ".join(args[:2])
+    python_path = get_venv_python_path(project_dir)
+    proc = run_pip_with_recovery(python_path, args, timeout=timeout)
+    _log_pip_stderr(proc.stderr, label, project_dir)
+    if proc.returncode != 0:
+        tail = " | ".join((proc.stderr or proc.stdout or "").strip().splitlines()[-5:])
+        raise PipJsonError(
+            f"pip {label} exited with code {proc.returncode} for {project_dir.name}: {tail}"
+        )
+    text = proc.stdout.strip()
+    if not text:
+        raise PipJsonError(f"pip {label} returned no output for {project_dir.name}")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise PipJsonError(
+            f"pip {label} returned invalid JSON for {project_dir.name}: {exc}"
+        ) from exc
+
+
 # ─── Installed-set helpers ──────────────────────────────────────────────────
 
 def venv_package_count(project_dir: Path) -> int:
-    """Return number of non-bootstrap packages installed in the venv."""
+    """Return number of non-bootstrap packages installed in the venv.
+
+    Returns 0 (callers then skip the project) when pip output is unreadable;
+    the failure is logged as an error.
+    """
     if not is_venv_valid(project_dir):
         return 0
-    python_path = get_venv_python_path(project_dir)
     try:
-        proc = run_pip_with_recovery(
-            python_path, ["list", "--format=json"], timeout=30,
-        )
-        if proc.returncode != 0 or not proc.stdout.strip():
-            return 0
-        data = json.loads(proc.stdout.strip())
-        names = {item.get("name", "").lower() for item in data}
-        return len(names - _BOOTSTRAP_PACKAGES)
-    except Exception:
+        data = _run_pip_json(project_dir, ["list", "--format=json"], timeout=30)
+    except PipJsonError as exc:
+        _log.error("Cannot count installed packages: %s", exc)
         return 0
+    names = {item.get("name", "").lower() for item in data}
+    return len(names - _BOOTSTRAP_PACKAGES)
 
 
 def venv_has_real_packages(project_dir: Path) -> bool:
@@ -83,20 +126,24 @@ def venv_has_real_packages(project_dir: Path) -> bool:
 
 
 def _installed_package_versions(project_dir: Path) -> dict[str, str]:
-    """Return {normalized_name: version} for every installed package."""
+    """Return {normalized_name: version} for every installed package.
+
+    Returns ``{}`` only for a missing/invalid venv. For a valid venv, an
+    unreadable or empty ``pip list`` raises ``PipJsonError``: a real venv
+    always contains at least pip, so an empty set means the query failed.
+    """
     if not is_venv_valid(project_dir):
         return {}
-    python_path = get_venv_python_path(project_dir)
+    data = _run_pip_json(project_dir, ["list", "--format=json"], timeout=30)
     try:
-        proc = run_pip_with_recovery(
-            python_path, ["list", "--format=json"], timeout=30,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            data = json.loads(proc.stdout.strip())
-            return {_normalize(item["name"]): item["version"] for item in data}
-    except Exception as exc:
-        _log.debug("pip list failed for %s: %s", project_dir, exc)
-    return {}
+        versions = {_normalize(item["name"]): item["version"] for item in data}
+    except (TypeError, KeyError) as exc:
+        raise PipJsonError(
+            f"pip list returned unexpected JSON for {project_dir.name}: {exc}"
+        ) from exc
+    if not versions:
+        raise PipJsonError(f"pip list reported no packages for {project_dir.name}")
+    return versions
 
 
 # ─── Reverse-dependency analysis (via pip inspect) ──────────────────────────
@@ -106,17 +153,8 @@ def _get_reverse_dependencies(project_dir: Path) -> dict[str, list[tuple[str, st
     if not is_venv_valid(project_dir):
         return {}
 
-    python_path = get_venv_python_path(project_dir)
-    try:
-        proc = run_pip_with_recovery(
-            python_path, ["inspect", "--local"], timeout=60,
-        )
-        if proc.returncode != 0 or not proc.stdout.strip():
-            return {}
-        data = json.loads(proc.stdout.strip())
-    except Exception as exc:
-        _log.debug("pip inspect failed for %s: %s", project_dir, exc)
-        return {}
+    # Raises PipJsonError; classify_safe_upgrades fails closed on it.
+    data = _run_pip_json(project_dir, ["inspect", "--local"], timeout=60)
 
     reverse: dict[str, list[tuple[str, str]]] = {}
     for pkg in data.get("installed", []):
@@ -248,53 +286,57 @@ def find_outdated_packages(project_dir: Path) -> list[OutdatedPackage]:
     if not is_venv_valid(project_dir):
         return []
 
-    python_path = get_venv_python_path(project_dir)
     try:
-        proc = run_pip_with_recovery(
-            python_path, ["list", "--outdated", "--format=json"], timeout=90,
+        data = _run_pip_json(
+            project_dir, ["list", "--outdated", "--format=json"], timeout=90,
         )
-        if proc.returncode == 0 and proc.stdout.strip():
-            data = json.loads(proc.stdout.strip())
-            return [
-                OutdatedPackage(
-                    name=item.get("name", ""),
-                    current_version=item.get("version", ""),
-                    latest_version=item.get("latest_version", ""),
-                    package_type=item.get("type", "wheel"),
-                )
-                for item in data
-            ]
-    except Exception as exc:
-        _log.warning("pip list --outdated failed for %s: %s", project_dir, exc)
-    return []
+    except PipJsonError as exc:
+        # No candidates means nothing is upgraded: a safe outcome, but logged.
+        _log.error("Cannot list outdated packages: %s", exc)
+        return []
+    return [
+        OutdatedPackage(
+            name=item.get("name", ""),
+            current_version=item.get("version", ""),
+            latest_version=item.get("latest_version", ""),
+            package_type=item.get("type", "wheel"),
+        )
+        for item in data
+    ]
 
 
 # ─── pip report parsing ─────────────────────────────────────────────────────
 
 def _parse_pip_report(stdout: str) -> dict[str, Any] | None:
-    idx = stdout.find("{")
-    if idx < 0:
+    """Parse ``pip install --report -`` stdout. Returns None (logged) on failure.
+
+    stdout no longer contains pip's stderr warnings, so it must be exactly one
+    JSON document. Callers treat None as a failed dry-run (fail closed).
+    """
+    text = stdout.strip()
+    if not text:
+        _log.error("pip --report produced no JSON on stdout")
         return None
     try:
-        return json.loads(stdout[idx:])
-    except json.JSONDecodeError:
+        report = json.loads(text)
+    except json.JSONDecodeError as exc:
+        _log.error("pip --report stdout is not valid JSON: %s", exc)
         return None
+    if not isinstance(report, dict):
+        _log.error("pip --report JSON is not an object: %s", type(report).__name__)
+        return None
+    return report
 
 
-def _parse_would_install_text(stdout: str) -> dict[str, str]:
-    for raw_line in stdout.splitlines():
-        stripped = raw_line.strip()
-        if not stripped.lower().startswith("would install"):
-            continue
-        rest = stripped[len("Would install"):].strip()
-        result: dict[str, str] = {}
-        for token in rest.split():
-            for i in range(len(token) - 1, -1, -1):
-                if token[i] == "-" and i + 1 < len(token) and token[i + 1].isdigit():
-                    result[_normalize(token[:i])] = token[i + 1:]
-                    break
-        return result
-    return {}
+def _would_install_from_report(report: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for item in report.get("install", []):
+        meta = item.get("metadata") or {}
+        name = meta.get("name")
+        version = meta.get("version")
+        if name and version:
+            result[_normalize(name)] = version
+    return result
 
 
 # ─── Constraint-preserving dry-run ──────────────────────────────────────────
@@ -314,6 +356,45 @@ def _write_constraints_file(pins: dict[str, str]) -> str:
     return path
 
 
+def _run_dry_run_report(
+    project_dir: Path, python_path: Path, args: list[str], timeout: int,
+) -> tuple[dict[str, str] | None, str]:
+    """Run a ``pip install --dry-run --report -`` and return ``(would_install, error)``.
+
+    ``would_install`` is None on any failure, including an unparseable report.
+    """
+    proc = run_pip_with_recovery(python_path, args, timeout=timeout)
+    _log_pip_stderr(proc.stderr, "install --dry-run", project_dir)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]
+        return None, " | ".join(tail) or "pip dry-run failed"
+    report = _parse_pip_report(proc.stdout)
+    if report is None:
+        return None, "pip dry-run report could not be parsed"
+    return _would_install_from_report(report), ""
+
+
+def _require_installed_state(
+    project_dir: Path, current_state: dict[str, str] | None,
+) -> tuple[dict[str, str], str]:
+    """Return ``(installed_state, error)``; ``error`` is non-empty when unknown.
+
+    Without the installed set the constraints file would be empty and the
+    "constraint-preserving" dry-run would run unconstrained, so callers must
+    abort (fail closed) on an error.
+    """
+    if current_state is None:
+        try:
+            current_state = _installed_package_versions(project_dir)
+        except PipJsonError as exc:
+            _log.error("Dry-run aborted, installed state unknown: %s", exc)
+            return {}, f"installed package state unavailable: {exc}"
+    if not current_state:
+        _log.error("Dry-run aborted for %s: installed package state is empty", project_dir)
+        return {}, "installed package state unavailable"
+    return current_state, ""
+
+
 def constraint_preserving_dry_run(
     project_dir: Path,
     targets: list[str],
@@ -327,8 +408,9 @@ def constraint_preserving_dry_run(
     if not is_venv_valid(project_dir) or not targets:
         return True, {}, "nothing to do"
 
-    if current_state is None:
-        current_state = _installed_package_versions(project_dir)
+    current_state, state_error = _require_installed_state(project_dir, current_state)
+    if state_error:
+        return False, {}, state_error
 
     target_norm = {_normalize(t) for t in targets}
     constraint_pins = {
@@ -359,22 +441,9 @@ def constraint_preserving_dry_run(
     args.extend(targets)
 
     try:
-        proc = run_pip_with_recovery(python_path, args, timeout=timeout)
-        if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]
-            return False, {}, " | ".join(tail) or "pip dry-run failed"
-
-        report = _parse_pip_report(proc.stdout)
-        if report is None:
-            would_install = _parse_would_install_text(proc.stdout)
-        else:
-            would_install = {}
-            for item in report.get("install", []):
-                meta = item.get("metadata") or {}
-                name = meta.get("name")
-                version = meta.get("version")
-                if name and version:
-                    would_install[_normalize(name)] = version
+        would_install, run_error = _run_dry_run_report(project_dir, python_path, args, timeout)
+        if would_install is None:
+            return False, {}, run_error
 
         changed: dict[str, str] = {}
         for name, new_ver in would_install.items():
@@ -403,8 +472,15 @@ def classify_safe_upgrades(
     if not candidates or not is_venv_valid(project_dir):
         return [], [(pkg, "invalid venv") for pkg in candidates]
 
-    current_state = _installed_package_versions(project_dir)
-    reverse_deps = _get_reverse_dependencies(project_dir)
+    try:
+        current_state = _installed_package_versions(project_dir)
+        reverse_deps = _get_reverse_dependencies(project_dir)
+    except PipJsonError as exc:
+        # Fail closed: without the installed set and its requirements no
+        # candidate can be proven safe.
+        _log.error("Blocking all %d upgrade candidates for %s: %s",
+                   len(candidates), project_dir.name, exc)
+        return [], [(pkg, f"installed package state unavailable: {exc}") for pkg in candidates]
 
     torch_candidates = [pkg for pkg in candidates if pkg.package_type == "wheel-cuda"]
     normal_candidates = [pkg for pkg in candidates if pkg.package_type != "wheel-cuda"]
@@ -559,18 +635,11 @@ def _pip_dry_run(
     args.extend(packages)
 
     proc = run_pip_with_recovery(python_path, args, timeout=timeout)
+    _log_pip_stderr(proc.stderr, "install --dry-run", project_dir)
     if proc.returncode != 0:
         return False, {}, (proc.stderr or proc.stdout or "")[-300:]
 
     report = _parse_pip_report(proc.stdout)
     if report is None:
-        return True, _parse_would_install_text(proc.stdout), "ok-text"
-
-    result: dict[str, str] = {}
-    for item in report.get("install", []):
-        meta = item.get("metadata") or {}
-        name = meta.get("name")
-        version = meta.get("version")
-        if name and version:
-            result[_normalize(name)] = version
-    return True, result, "ok"
+        return False, {}, "pip dry-run report could not be parsed"
+    return True, _would_install_from_report(report), "ok"

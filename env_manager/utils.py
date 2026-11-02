@@ -5,11 +5,13 @@ Common helpers for cache reclamation, process execution, and version inspection.
 """
 
 import os
+import queue
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
-from typing import Callable, Dict, Generator, List, Optional, Tuple
+from typing import IO, Callable, Dict, Generator, List, Optional, Tuple
 
 from env_manager._logging import get_logger
 
@@ -98,58 +100,107 @@ def _purge_pip_cache(python_path: Path) -> None:
 
 # ─── Pip runner with recovery ───────────────────────────────────────────────
 
+_STDOUT = "stdout"
+_STDERR = "stderr"
+
+
+def _pump_stream(
+    stream: IO[str],
+    tag: str,
+    sink: queue.Queue[tuple[str, str | None]],
+) -> None:
+    """Push every line of ``stream`` into ``sink`` tagged with its origin.
+
+    A final ``(tag, None)`` marks end of stream. Runs in a reader thread so
+    stdout and stderr drain concurrently and neither pipe can fill up and
+    block the child process.
+    """
+    try:
+        for line in iter(stream.readline, ""):
+            sink.put((tag, line))
+    finally:
+        stream.close()
+        sink.put((tag, None))
+
+
 def stream_pip_with_recovery(
     python_path: Path,
     args: List[str],
     timeout: int = 1800,
     max_attempts: int = 2,
 ) -> Generator[str, None, subprocess.CompletedProcess]:
-    """Run ``python -m pip <args>`` with recovery logic, yielding stdout lines in real time."""
+    """Run ``python -m pip <args>`` with recovery logic, yielding output lines in real time.
+
+    stdout and stderr are captured separately (review finding D-07). Both are
+    yielded live for progress display, but the returned ``CompletedProcess``
+    keeps them apart: ``stdout`` holds only what pip wrote to stdout, so
+    callers can parse ``--format=json`` / ``--report -`` output without pip
+    warnings (for example ``WARNING: Ignoring invalid distribution``)
+    corrupting it, and ``stderr`` holds pip's warnings and errors.
+    """
     cmd = [str(python_path), "-m", "pip"] + args
 
     last_proc: Optional[subprocess.CompletedProcess] = None
     for attempt in range(1, max_attempts + 1):
         use_no_cache = attempt > 1
-        output_lines: List[str] = []
+        output_lines: list[str] = []
+        error_lines: list[str] = []
         try:
             cmd_env = pip_env(no_cache=use_no_cache)
             cmd_env["PYTHONUNBUFFERED"] = "1"
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 env=cmd_env,
                 creationflags=WINDOWS_NO_WINDOW,
             )
-            if proc.stdout:
-                try:
-                    for line in iter(proc.stdout.readline, ""):
-                        stripped = line.strip()
-                        if stripped:
-                            output_lines.append(stripped)
-                            yield stripped
-                finally:
-                    proc.stdout.close()
+            sink: queue.Queue[tuple[str, str | None]] = queue.Queue()
+            readers = [
+                threading.Thread(target=_pump_stream, args=(stream, tag, sink), daemon=True)
+                for stream, tag in ((proc.stdout, _STDOUT), (proc.stderr, _STDERR))
+                if stream is not None
+            ]
+            for reader in readers:
+                reader.start()
+            open_streams = len(readers)
+            while open_streams:
+                tag, line = sink.get()
+                if line is None:
+                    open_streams -= 1
+                    continue
+                if tag == _STDOUT:
+                    # Keep stdout byte-for-byte (minus the newline) so JSON
+                    # documents stay intact.
+                    output_lines.append(line.rstrip("\r\n"))
+                else:
+                    error_lines.append(line.rstrip("\r\n"))
+                stripped = line.strip()
+                if stripped:
+                    yield stripped
+            for reader in readers:
+                reader.join()
             proc.wait(timeout=timeout)
             completed = subprocess.CompletedProcess(
                 args=cmd,
                 returncode=proc.returncode,
                 stdout="\n".join(output_lines),
-                stderr="",
+                stderr="\n".join(error_lines),
             )
         except subprocess.TimeoutExpired as exc:
             _log.warning("pip command timed out after %ss: %s", timeout, cmd)
             return subprocess.CompletedProcess(
                 args=cmd, returncode=124, stdout="\n".join(output_lines),
-                stderr=f"pip command timed out after {timeout}s: {exc}",
+                stderr="\n".join([*error_lines, f"pip command timed out after {timeout}s: {exc}"]),
             )
         except Exception as exc:
             _log.warning("pip command crashed before completion: %s", exc)
             return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout="\n".join(output_lines), stderr=str(exc),
+                args=cmd, returncode=1, stdout="\n".join(output_lines),
+                stderr="\n".join([*error_lines, str(exc)]),
             )
 
         if completed.returncode == 0:

@@ -221,15 +221,21 @@ def get_installed_packages(project_dir: Path) -> Dict[str, str]:
         return {}
     python_path = get_venv_python_path(project_dir)
 
+    proc = run_pip_with_recovery(
+        python_path, ["list", "--format=json"], timeout=30,
+    )
+    # stderr is captured separately from stdout (D-07): log it, parse stdout only.
+    for line in (proc.stderr or "").splitlines():
+        if line.strip():
+            _log.warning("pip list (%s): %s", project_dir.name, line.strip())
+    if proc.returncode != 0:
+        _log.error("pip list failed in %s with code %s", project_dir, proc.returncode)
+        return {}
     try:
-        proc = run_pip_with_recovery(
-            python_path, ["list", "--format=json"], timeout=30,
-        )
-        if proc.returncode == 0:
-            data = json.loads(proc.stdout.strip())
-            return {item["name"].lower(): item["version"] for item in data}
-    except Exception as exc:
-        _log.warning("Failed to list installed packages in %s: %s", project_dir, exc)
+        data = json.loads(proc.stdout.strip())
+        return {item["name"].lower(): item["version"] for item in data}
+    except (json.JSONDecodeError, TypeError, KeyError) as exc:
+        _log.error("Failed to parse installed packages in %s: %s", project_dir, exc)
     return {}
 
 

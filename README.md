@@ -103,7 +103,7 @@ The sidecar service binds to `http://127.0.0.1:8000` by default. Interactive doc
 - `POST /api/clean`: Purges build caches, `__pycache__`, and temporary artifacts.
 - `POST /api/validate`: Runs workspace compliance validation suites.
 - `GET /api/manifests`: Retrieves declared manifest contents.
-- `POST /api/manifests/sync`: Synchronizes requirements manifests across projects.
+- `POST /api/manifests/sync`: Copies the central manifests to the sibling projects. A sibling whose file the copy would downgrade or shrink is left unchanged and reported with `success: false` and a `DRIFT:` message.
 - `GET /api/secrets`: Lists ecosystem secrets masked: each item has `has_value` and `value_hint` (last 4 characters, empty for values shorter than 8) and never the secret itself. Read-only; when `.secrets.yaml` does not exist yet, items are seeded in memory from legacy credential files (`initialized: false`).
 - `POST /api/secrets`: Write-only save of the full secrets list. An empty or omitted `secret_value` keeps the stored value for the same `id`; a non-empty value replaces it; items left out are removed. A Kaggle token (new or kept) is mandatory. The response never echoes values and includes a `propagation` report (`written`, `skipped`, `failed`) for the legacy Kaggle files.
 - `WS /ws/logs`: Real-time streaming log feed for pipeline and background tasks.
@@ -152,9 +152,31 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 - `openapi.json`: OpenAPI 3.1 contract exported for client code generation in `lemgendary-ai-studio-gui`.
 - `requirements/`: Canonical manifest directory governing ecosystem dependencies.
 
+### Manifest Single Source of Truth
+
+- The central files in `requirements/` (`requirements-*.txt` and `*.package.json`) are the only manifests to edit. Each sibling `requirements.txt` or `package.json` is a generated copy written by `lem-env sync`, `POST /api/manifests/sync` and pipeline steps 4 and 6.
+- Sync is one-way (central to sibling) and never takes anything away from a sibling. It refuses to write, leaves both files unchanged and reports drift when the central copy would:
+  - lower a version floor (`torch==2.14.1` over `torch==2.15.0`, or a `version` field in `package.json`),
+  - drop a pin (`pillow` over `pillow==13.0.0`), or
+  - remove a package the sibling still lists.
+- Equal pins and central upgrades are written as before. To resolve drift, raise the central pin (or remove the package from both files on purpose), then sync again.
+
 ---
 
 ## Changelog
+
+### v16.9.16 - Manifest Downgrade Guard and Clean pip JSON
+
+- **Manifest Single Source of Truth (review finding D-06)**:
+  - Decision: the central `requirements/` files are the single source of truth and the siblings are generated copies (see "Manifest Single Source of Truth" above). The central files were brought up to the siblings first: `pytest==9.2.0` and `httpx2==2.16.0` added to `requirements-training.txt` and `requirements-datasets.txt`, `jsdom` `25.0.1` added to `lemgendary-ai-studio-gui.package.json`. The central and sibling files are now identical; no sibling file was edited.
+  - Downgrade guard: `sync_manifest_to_project` and the npm step of `sync_all_manifests` compare both files first (`find_requirement_drift`, `find_package_json_drift`). Lower floors, dropped pins and packages missing from central are drift: nothing is written, a warning is logged and the result is `(False, "DRIFT: ...")`, which the pipeline shows as a warning. Requirements are compared per package and environment marker.
+  - `tests/test_cli.py` runs `lem-env sync` against an empty temporary workspace, so the test suite can no longer rewrite sibling repositories.
+- **Clean pip JSON and Fail-Closed Classifier (review finding D-07)**:
+  - `stream_pip_with_recovery` captures stdout and stderr on separate pipes (two reader threads). Both still stream live, but `CompletedProcess.stdout` holds only pip's stdout and `stderr` holds its warnings and errors. Before, stderr was merged into stdout and `stderr` was always empty, so a warning such as `WARNING: Ignoring invalid distribution ~orch` broke every `--format=json` and `--report -` parse.
+  - `dependency_resolver`: new `_run_pip_json` logs each stderr line as a warning and parses only stdout. A failed or unparseable `pip list` / `pip inspect` raises `PipJsonError`; an empty `pip list` in a valid venv is also an error.
+  - Fail closed: `classify_safe_upgrades` blocks every candidate when the installed state or reverse dependencies cannot be read; `constraint_preserving_dry_run` aborts when the installed state is empty (an empty constraints file would make the dry-run unconstrained) or when the `--report` JSON cannot be parsed. The text fallback that guessed from "Would install" lines is gone.
+  - `venv_manager.get_installed_packages` logs pip stderr and catches only parse errors.
+- **Tests**: `tests/test_downgrade_guard.py` (11, temporary directories only, plus a read-only check that the committed central files are not behind the siblings) and `tests/test_pip_json_parsing.py` (9, including a real child process writing JSON to stdout and warnings to stderr). 95 pass.
 
 ### v16.9.15 - Non-Blocking Updates and Liveness Probe
 
