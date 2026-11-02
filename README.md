@@ -146,12 +146,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ### v16.9.11 - Graceful Server Shutdown & Stop Service Lifecycle Unlocking
 
-- **Graceful Orchestrator Shutdown Endpoint (env_manager.server)**:
-  - Implemented POST /api/shutdown endpoint to allow operators to trigger programmatic graceful self-shutdown with zero-zombie process cleanup.
-- **Sidecar Stop Service Handler Unlocking (env_manager.service_manager)**:
-  - Removed internal self-stop block from stop_service('env-manager'). Terminating port 8000 from the desktop GUI now gracefully dispatches _kill_process_tree with a 0.5s grace window, allowing full lifecycle stop control over all 3 sidecar ports (8000, 8100, 8200).
-- **Strict Lint & Zero-Warning Pass (env_manager.orchestrator, env_manager.service_manager)**:
-  - Resolved all 82 Ruff lint and style warnings across orchestrator.py and service_manager.py (import placement, line lengths, positional argument limits, and exception handling), restoring clean zero-warning compliance.
+- **Graceful Orchestrator Shutdown Endpoint (`env_manager.server`)**:
+  - Implemented `POST /api/shutdown` endpoint to allow operators to trigger programmatic graceful self-shutdown with zero-zombie process cleanup.
+- **Sidecar Stop Service Handler Unlocking (`env_manager.service_manager`)**:
+  - Removed internal self-stop block from `stop_service('env-manager')`. Terminating port 8000 from the desktop GUI now gracefully dispatches `_kill_process_tree` with a 0.5s grace window, allowing full lifecycle stop control over all 3 sidecar ports (8000, 8100, 8200).
+- **Strict Lint & Zero-Warning Pass (`env_manager.orchestrator`, `env_manager.service_manager`)**:
+  - Resolved all 82 Ruff lint and style warnings across `orchestrator.py` and `service_manager.py` (import placement, line lengths, positional argument limits, and exception handling), restoring clean zero-warning compliance.
 
 ### v16.9.10 - Pipeline Step 5 Safe Dependency Upgrade Execution
 
