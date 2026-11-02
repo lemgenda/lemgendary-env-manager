@@ -406,8 +406,15 @@ def _apply_torch_cuda_upgrade(
 
 # ─── Plan builder ───────────────────────────────────────────────────────────
 
-def build_upgrade_plan(base_dir: Path | None = None) -> EcosystemUpgradePlan:
-    """Build a safety-checked, CUDA-aware upgrade plan for every project."""
+def build_upgrade_plan(
+    base_dir: Path | None = None,
+    project: str | None = None,
+) -> EcosystemUpgradePlan:
+    """Build a safety-checked, CUDA-aware upgrade plan.
+
+    With ``project`` set, the plan covers only that project. Raises
+    ValueError if that project is not found under ``base_dir``.
+    """
     if base_dir is None:
         base_dir = Path(__file__).resolve().parent.parent.parent
 
@@ -416,6 +423,10 @@ def build_upgrade_plan(base_dir: Path | None = None) -> EcosystemUpgradePlan:
     _log.info("CUDA detection: %s (index=%s)", cuda_desc, cuda_index_url)
 
     projects = discover_projects(base_dir)
+    if project is not None:
+        projects = [p for p in projects if p.name == project]
+        if not projects:
+            raise ValueError(f"Project not found: {project}")
     order_map = {name: i for i, name in enumerate(UPGRADE_ORDER)}
     projects_sorted = sorted(projects, key=lambda p: order_map.get(p.name, 999))
 

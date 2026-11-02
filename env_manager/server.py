@@ -49,6 +49,8 @@ from env_manager.secrets_vault import (
 )
 from env_manager.service_manager import start_all_services, start_service, stop_service
 from env_manager.system_probe import probe_hardware
+from env_manager.update_jobs import UpdateAlreadyRunningError, UpdateJobManager, run_safe_update
+from env_manager.updater import UPGRADE_ORDER, build_upgrade_plan
 from env_manager.utils import purge_project_cache
 from env_manager.venv_manager import discover_projects
 
@@ -153,6 +155,13 @@ class ValidateRequest(BaseModel):
 class UpdateRequest(BaseModel):
     project: Optional[str] = None
     dry_run: bool = False
+
+
+@app.get("/api/ping")
+@app.head("/api/ping")
+async def ping():
+    """Liveness probe: constant-time, no I/O. Use /api/health for the full audit."""
+    return {"status": "ok", "service": "lemgendary-env-manager", "version": app.version}
 
 
 @app.get("/api/health")
@@ -302,6 +311,8 @@ def _run_pipeline_worker(
 async def run_pipeline(request: RunPipelineRequest):
     if orchestrator.is_running:
         return {"status": "error", "message": "Pipeline is already running."}
+    if update_jobs.is_running:
+        return {"status": "error", "message": "A package update is running."}
 
     loop = asyncio.get_running_loop()
     thread = threading.Thread(
@@ -335,6 +346,8 @@ def _run_step_worker(
 async def run_pipeline_step(request: RunStepRequest):
     if orchestrator.is_running:
         return {"status": "error", "message": "Pipeline or step is already running."}
+    if update_jobs.is_running:
+        return {"status": "error", "message": "A package update is running."}
     if request.step_number < 1 or request.step_number > 7:
         return {
             "status": "error",
@@ -354,43 +367,74 @@ async def run_pipeline_step(request: RunStepRequest):
     }
 
 
+def _broadcast_from_thread(loop: asyncio.AbstractEventLoop):
+    """Return a sink that worker threads use to publish WebSocket events."""
+
+    def _publish(ev_dict: Dict[str, Any]) -> None:
+        asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
+
+    return _publish
+
+
+def _workspace_dir() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
+
+
+update_jobs = UpdateJobManager(
+    runner=lambda project, emit: run_safe_update(project, emit, _workspace_dir()),
+)
+
+
 @app.post("/api/update")
 async def run_update(request: Optional[UpdateRequest] = None):
-    """Trigger safe bottom-up package upgrades across all projects."""
-    from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
-    from env_manager.system_probe import probe_hardware
+    """Start safe bottom-up package upgrades as a background job.
 
-    base_dir = Path(__file__).resolve().parent.parent.parent
-    plan = build_upgrade_plan(base_dir)
+    A dry run returns the plan. A real run returns at once with
+    ``status: "accepted"`` and a ``job_id``; progress is streamed over
+    ``/ws/log`` and readable at ``GET /api/update/status``.
+    """
+    request = request or UpdateRequest()
+    if request.project is not None and request.project not in UPGRADE_ORDER:
+        raise HTTPException(status_code=404, detail=f"Unknown project: {request.project}")
 
-    if not plan.has_any_updates:
-        return {"status": "up_to_date", "message": "All packages are up to date.", "events": []}
+    if request.dry_run:
+        loop = asyncio.get_running_loop()
+        try:
+            plan = await loop.run_in_executor(
+                None, lambda: build_upgrade_plan(_workspace_dir(), project=request.project)
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not plan.has_any_updates:
+            return {"status": "up_to_date", "message": "All packages are up to date.", "events": []}
+        return {"status": "dry_run", "plan": plan.to_dict()}
 
-    if request and request.dry_run:
-        return {
-            "status": "dry_run",
-            "plan": plan.to_dict(),
-        }
+    if orchestrator.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail="The pipeline is running. Wait for it to finish before updating packages.",
+        )
 
-    hw = probe_hardware()
-    loop = asyncio.get_running_loop()
-    events: List[Dict[str, Any]] = []
+    publish = _broadcast_from_thread(asyncio.get_running_loop())
+    try:
+        job = update_jobs.start(request.project, publish)
+    except UpdateAlreadyRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    def _run_update():
-        for ev in apply_upgrade_plan(plan, base_dir, extra_index_url=hw.recommended_torch_index):
-            ev_dict = ev.to_dict()
-            events.append(ev_dict)
-            asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
-
-    thread = threading.Thread(target=_run_update, daemon=True)
-    thread.start()
-    thread.join(timeout=1200)
-
-    all_ok = all(e.get("status") in ("upgraded", "skipped") for e in events)
+    scope = request.project or "all projects"
     return {
-        "status": "success" if all_ok else "partial",
-        "events": events,
+        "status": "accepted",
+        "message": f"Safe update started for {scope}.",
+        "job_id": job["job_id"],
+        "project": request.project,
+        "events": [],
     }
+
+
+@app.get("/api/update/status")
+async def get_update_status():
+    """Current or last safe-update job (``job`` is null before the first run)."""
+    return {"is_running": update_jobs.is_running, "job": update_jobs.snapshot()}
 
 
 @app.get("/api/manifests")

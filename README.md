@@ -81,7 +81,8 @@ The sidecar service binds to `http://127.0.0.1:8000` by default. Interactive doc
 
 ### Core Health & Telemetry Endpoints
 
-- `GET /api/health?include_safety={bool}`: Full ecosystem health report including Python and NPM package drift.
+- `GET /api/ping` (also `HEAD`): Constant-time liveness probe with no I/O. Returns `{"status": "ok", "service": "lemgendary-env-manager", "version": str}`. Use it to check whether the sidecar is online.
+- `GET /api/health?include_safety={bool}`: Full ecosystem health audit (slow: runs prerequisite, hardware and `pip list` checks). Includes Python and NPM package drift. Not a liveness probe; use `/api/ping` for that.
 - `GET /api/drift?include_safety={bool}`: Cross-project version drift, declared-vs-installed coverage, and single-manifest inventory.
 - `GET /api/hardware`: Host hardware metrics (CPU, RAM, GPU, CUDA, PyTorch compatibility).
 - `GET /api/projects`: Discovered project list with manifest and venv status.
@@ -97,7 +98,8 @@ The sidecar service binds to `http://127.0.0.1:8000` by default. Interactive doc
 - `GET /api/pipeline/status`: Current pipeline state and recent log events.
 - `POST /api/pipeline/run`: Initiates the asynchronous install pipeline. Body: `{"target_project": str | null, "clean": bool}`. Non-destructive by default: valid venvs and `node_modules` are kept. Only `"clean": true` deletes every `.venv` and `node_modules`, stops processes running from those venvs and reinstalls from scratch.
 - `POST /api/pipeline/run-step`: Runs one pipeline step (1-7) in isolation. Body: `{"step_number": int, "target_project": str | null, "clean": bool}`; `clean` defaults to `false` with the same meaning.
-- `POST /api/update`: Executes safe package upgrades according to dependency graphs.
+- `POST /api/update`: Safe package upgrades according to dependency graphs. Body: `{"project": str | null, "dry_run": bool}`; `project` limits the run to one project (unknown names return `404`). A dry run returns the plan (`status: "dry_run"` or `"up_to_date"`). A real run starts a background job and returns at once with `{"status": "accepted", "job_id": str, "project": str | null}`; progress is streamed over `/ws/log`. Only one update runs at a time: a second request, or a request while the pipeline runs, returns `409`.
+- `GET /api/update/status`: `{"is_running": bool, "job": {...} | null}` for the current or last update job (`status` is `running`, `up_to_date`, `success`, `partial` or `failed`, plus `events` and `error`).
 - `POST /api/clean`: Purges build caches, `__pycache__`, and temporary artifacts.
 - `POST /api/validate`: Runs workspace compliance validation suites.
 - `GET /api/manifests`: Retrieves declared manifest contents.
@@ -153,6 +155,18 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.15 - Non-Blocking Updates and Liveness Probe
+
+- **Background Safe Updates (review finding D-04)**:
+  - `POST /api/update` no longer waits for the upgrade inside the request handler (`thread.join(timeout=1200)` froze the event loop, every request and every WebSocket broadcast for up to 20 minutes). A real run starts a background job (`env_manager/update_jobs.py`, `UpdateJobManager`) and returns at once with `status: "accepted"` and a `job_id`.
+  - One update at a time: the job holds a lock; a second request returns `409` with the running job id. Updates also return `409` while the pipeline runs, and the pipeline refuses to start while an update runs.
+  - The `project` field is honoured: `build_upgrade_plan(base_dir, project=...)` plans only that project. Unknown projects return `404`.
+  - The dry-run plan is built in the thread pool instead of on the event loop.
+  - Progress: upgrade events and job start/finish events are streamed over `/ws/log`; the new `GET /api/update/status` returns the current or last job. Runner failures are logged and recorded as `status: "failed"` with `error`.
+- **Liveness Probe (review finding D-05)**: new `GET`/`HEAD /api/ping` returns `{"status": "ok", "service", "version"}` without any I/O. `/api/health` stays the full audit for the Health panel.
+- **OpenAPI**: `openapi.json` regenerated from the app; adds `/api/ping`, `/api/update/status`, and the previously missing `/api/pipeline/run-step`, `/api/hooks/install` and `/api/shutdown`.
+- **Tests (`tests/test_update_jobs.py`)**: 14 tests with a fake runner (the real updater is never called): the handler returns before the job finishes, lock gives `409`, `project` reaches the plan builder, failures release the lock, `/api/ping` never calls the audit.
 
 ### v16.9.14 - Non-Destructive Pipeline by Default
 
