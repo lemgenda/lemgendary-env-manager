@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.11-STABLE)
+# LemGendary Environment Manager (v16.9.17-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -164,6 +164,16 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.17 - Correct Upgrade Routing and Scoped Updates
+
+- **Pipeline Step 5 routing (review finding D-08)**:
+  - Project discovery now records `has_npm_manifest` (a `package.json` is present) next to `is_node_project`. Step 5 dispatches from this metadata: every Python project gets the pip safe-upgrade path, and every project with a `package.json` gets the npm path. A dual-stack project such as `lemgendary-env-manager` (Python plus npm lint tooling) now gets both.
+  - The npm path uses `npm outdated` (`_find_npm_outdated`) instead of the pip query, so outdated npm packages are actually found and updated.
+  - Step 5 is split into `_upgrade_npm_dependencies` and `_upgrade_python_dependencies`.
+- **Scoped `lem-env update --project X` (review finding D-09)**: the project is passed to `build_upgrade_plan`, so only X is planned and applied. An unknown project prints a clear error and exits with code 1.
+- **README header**: the title version now matches the latest changelog entry; `tests/test_readme_version.py` keeps them in sync.
+- Tests: `tests/test_upgrade_routing.py` (dual-stack, Python-only and npm-only routing with mocked upgrade functions; `update --project` scope; unknown project) and `tests/test_readme_version.py`.
 
 ### v16.9.16 - Manifest Downgrade Guard and Clean pip JSON
 

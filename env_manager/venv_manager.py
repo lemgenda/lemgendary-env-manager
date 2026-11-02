@@ -45,6 +45,7 @@ class ProjectVenvInfo:
     installed_packages_count: int = 0
     is_node_project: bool = False
     node_modules_present: bool = False
+    has_npm_manifest: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -374,6 +375,7 @@ def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
                     python_path=py_path, is_valid=valid, python_version=py_ver,
                     installed_packages_count=len(pkgs),
                     is_node_project=False, node_modules_present=False,
+                    has_npm_manifest=(p_dir / "package.json").exists(),
                 )
             )
 
@@ -387,6 +389,7 @@ def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
                     python_path=None, is_valid=node_modules_present,
                     python_version=None, installed_packages_count=0,
                     is_node_project=True, node_modules_present=node_modules_present,
+                    has_npm_manifest=(p_dir / "package.json").exists(),
                 )
             )
 

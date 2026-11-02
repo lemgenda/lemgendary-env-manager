@@ -1,0 +1,196 @@
+"""Regression tests for upgrade routing and scope (D-08, D-09).
+
+D-08: pipeline Step 5 must give every Python project the pip safe-upgrade
+path and every project with a ``package.json`` the npm path; a dual-stack
+project gets both.
+
+D-09: ``lem-env update --project X`` must plan and apply only project X.
+
+All upgrade functions are mocked; no real pip or npm command runs.
+"""
+
+import tempfile
+import unittest
+from datetime import datetime, UTC
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from typer.testing import CliRunner
+
+from env_manager.cli import app
+from env_manager.dependency_resolver import OutdatedPackage
+from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
+from env_manager.updater import (
+    EcosystemUpgradePlan,
+    ProjectUpgradePlan,
+    build_upgrade_plan,
+)
+from env_manager.venv_manager import discover_projects
+
+
+def _emit(step: int, name: str, status: str, message: str, **kwargs: object) -> PipelineEvent:
+    return PipelineEvent(
+        timestamp=datetime.now(UTC).isoformat(), step_number=step, total_steps=7,
+        step_name=name, status=status, message=message,
+        is_progress=bool(kwargs.get("is_progress", False)),
+    )
+
+
+def _project(name: str, root: Path, *, is_node: bool, has_npm: bool) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name, project_dir=str(root / name),
+        is_node_project=is_node, has_npm_manifest=has_npm,
+    )
+
+
+class TestDiscoveryMetadata(unittest.TestCase):
+    """Discovery records which projects carry an npm manifest."""
+
+    def test_has_npm_manifest_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("lemgendary-env-manager", "lemgendary-datasets",
+                         "lemgendary-ai-studio-gui"):
+                (root / name).mkdir()
+            (root / "lemgendary-env-manager" / "package.json").write_text("{}")
+            (root / "lemgendary-ai-studio-gui" / "package.json").write_text("{}")
+
+            found = {p.name: p for p in discover_projects(root)}
+
+        self.assertTrue(found["lemgendary-env-manager"].has_npm_manifest)
+        self.assertFalse(found["lemgendary-env-manager"].is_node_project)
+        self.assertFalse(found["lemgendary-datasets"].has_npm_manifest)
+        self.assertTrue(found["lemgendary-ai-studio-gui"].has_npm_manifest)
+        self.assertTrue(found["lemgendary-ai-studio-gui"].is_node_project)
+
+
+class TestStep5Routing(unittest.TestCase):
+    """Step 5 dispatches pip and npm upgrades from project metadata."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.pip_pkg = OutdatedPackage("rich", "13.0.0", "13.1.0", "pip")
+        self.npm_pkg = OutdatedPackage("eslint", "9.0.0", "9.1.0", "npm")
+        self.npm_outdated = patch(
+            "env_manager.orchestrator._find_npm_outdated", return_value=[self.npm_pkg]
+        ).start()
+        self.npm_update = patch(
+            "env_manager.orchestrator._apply_npm_update", return_value=(True, "ok")
+        ).start()
+        self.pkg_count = patch(
+            "env_manager.orchestrator.venv_package_count", return_value=5
+        ).start()
+        self.pip_outdated = patch(
+            "env_manager.orchestrator.find_outdated_packages", return_value=[self.pip_pkg]
+        ).start()
+        patch(
+            "env_manager.orchestrator.classify_safe_upgrades",
+            return_value=([self.pip_pkg], []),
+        ).start()
+        self.pip_apply = patch(
+            "env_manager.orchestrator._apply_batch_with_rollback",
+            return_value=(True, "ok", False),
+        ).start()
+        self.sync = patch("env_manager.orchestrator.sync_manifests_from_venvs").start()
+
+    def tearDown(self) -> None:
+        patch.stopall()
+        self._tmp.cleanup()
+
+    def _run(self, project: SimpleNamespace) -> list[PipelineEvent]:
+        orchestrator = PipelineOrchestrator(base_dir=self.root)
+        hw = MagicMock(recommended_torch_index=None)
+        return list(orchestrator._execute_safe_upgrades([project], hw, _emit))
+
+    def test_dual_stack_project_gets_pip_and_npm(self) -> None:
+        proj = _project("lemgendary-env-manager", self.root, is_node=False, has_npm=True)
+        self._run(proj)
+        p_dir = Path(proj.project_dir)
+        self.npm_outdated.assert_called_once_with(p_dir)
+        self.npm_update.assert_called_once_with(p_dir)
+        self.pip_outdated.assert_called_once_with(p_dir)
+        self.pip_apply.assert_called_once_with(p_dir, ["rich"], extra_index_url=None)
+        self.sync.assert_called_once_with(self.root)
+
+    def test_python_only_project_gets_pip_only(self) -> None:
+        proj = _project("lemgendary-datasets", self.root, is_node=False, has_npm=False)
+        self._run(proj)
+        self.npm_outdated.assert_not_called()
+        self.npm_update.assert_not_called()
+        self.pip_apply.assert_called_once_with(
+            Path(proj.project_dir), ["rich"], extra_index_url=None
+        )
+
+    def test_npm_only_project_gets_npm_only(self) -> None:
+        proj = _project("lemgendary-ai-studio-gui", self.root, is_node=True, has_npm=True)
+        events = self._run(proj)
+        self.npm_outdated.assert_called_once_with(Path(proj.project_dir))
+        self.npm_update.assert_called_once_with(Path(proj.project_dir))
+        self.pkg_count.assert_not_called()
+        self.pip_outdated.assert_not_called()
+        self.pip_apply.assert_not_called()
+        self.assertTrue(any("(npm) - updating 1 package" in e.message for e in events))
+
+    def test_npm_up_to_date_skips_update(self) -> None:
+        self.npm_outdated.return_value = []
+        proj = _project("lemgendary-ai-studio-gui", self.root, is_node=True, has_npm=True)
+        self._run(proj)
+        self.npm_update.assert_not_called()
+
+
+class TestUpdateCommandScope(unittest.TestCase):
+    """``lem-env update --project X`` plans and applies only X."""
+
+    def setUp(self) -> None:
+        self.runner = CliRunner()
+
+    @staticmethod
+    def _plan(name: str) -> EcosystemUpgradePlan:
+        pkg = OutdatedPackage("rich", "13.0.0", "13.1.0", "pip")
+        proj = ProjectUpgradePlan(
+            name=name, project_dir=name, is_node_project=False,
+            outdated_packages=[pkg], safe_packages=[pkg], blocked_packages=[],
+            has_updates=True, has_safe_updates=True,
+        )
+        return EcosystemUpgradePlan(
+            projects=[proj], total_outdated=1, total_safe=1, total_blocked=0,
+            has_any_updates=True, has_any_safe_updates=True,
+        )
+
+    def test_project_option_scopes_plan_and_apply(self) -> None:
+        plan = self._plan("lemgendary-datasets")
+        with patch("env_manager.cli.build_upgrade_plan", return_value=plan) as build, \
+                patch("env_manager.cli.apply_upgrade_plan", return_value=iter([])) as apply_, \
+                patch("env_manager.system_probe.probe_hardware",
+                      return_value=MagicMock(recommended_torch_index=None)):
+            result = self.runner.invoke(app, ["update", "--project", "lemgendary-datasets"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        build.assert_called_once()
+        self.assertEqual(build.call_args.kwargs["project"], "lemgendary-datasets")
+        apply_.assert_called_once()
+        applied_plan = apply_.call_args.args[0]
+        self.assertEqual([p.name for p in applied_plan.projects], ["lemgendary-datasets"])
+
+    def test_unknown_project_exits_non_zero(self) -> None:
+        with patch("env_manager.cli.build_upgrade_plan",
+                   side_effect=ValueError("Project not found: nope")) as build, \
+                patch("env_manager.cli.apply_upgrade_plan") as apply_:
+            result = self.runner.invoke(app, ["update", "--project", "nope"])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Project not found: nope", result.output)
+        self.assertEqual(build.call_args.kwargs["project"], "nope")
+        apply_.assert_not_called()
+
+    def test_unknown_project_rejected_by_plan_builder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("env_manager.updater._detect_cuda", return_value=(None, "none")):
+            with self.assertRaises(ValueError):
+                build_upgrade_plan(Path(tmp), project="nope")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -298,10 +298,17 @@ def update(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be upgraded without applying"),
 ):
-    """Safely upgrade all outdated packages (bottom-up) and auto-sync manifests."""
+    """Safely upgrade outdated packages (bottom-up) and auto-sync manifests.
+
+    With ``--project`` only that project is planned and upgraded.
+    """
     console.print("[bold cyan]Building ecosystem upgrade plan...[/bold cyan]")
     base_dir = Path(__file__).resolve().parent.parent.parent
-    plan = build_upgrade_plan(base_dir)
+    try:
+        plan = build_upgrade_plan(base_dir, project=project)
+    except ValueError as exc:
+        console.print(f"[bold red]{exc}[/bold red]")
+        raise typer.Exit(code=1) from exc
 
     if not plan.has_any_updates:
         console.print("[bold green]All packages are up to date across all projects.[/bold green]")
@@ -319,9 +326,6 @@ def update(
     plan_table.add_column("Packages (safe only)", style="white")
 
     for proj_plan in plan.projects:
-        if project and proj_plan.name != project:
-            continue
-
         safe_count = len(proj_plan.safe_packages)
         blocked_count = len(proj_plan.blocked_packages)
 
@@ -356,9 +360,6 @@ def update(
     blocked_count = 0
 
     for event in apply_upgrade_plan(plan, base_dir, extra_index_url=hw.recommended_torch_index):
-        if project and event.project != project and "(manifest sync)" not in event.package:
-            continue
-
         if event.status == "upgraded":
             color = "green"
             success_count += 1

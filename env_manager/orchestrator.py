@@ -26,6 +26,7 @@ from env_manager.system_probe import probe_hardware
 from env_manager.updater import (
     _apply_batch_with_rollback,
     _apply_npm_update,
+    _find_npm_outdated,
     sync_manifests_from_venvs,
 )
 from env_manager.validator import validate_project
@@ -883,99 +884,19 @@ class PipelineOrchestrator:
         hw: Any,
         emit: Callable[..., PipelineEvent],
     ) -> Generator[PipelineEvent, None, None]:
-        """Apply safe dependency upgrades bottom-up across managed projects."""
+        """Apply safe dependency upgrades bottom-up across managed projects.
+
+        Each project is classified from its discovery metadata: every
+        project that is not a pure Node project gets the Python safe-upgrade
+        path, and every project with a ``package.json`` gets the npm path.
+        A dual-stack project (for example a Python repo with npm lint
+        tooling) therefore receives both.
+        """
         for p in projects:
-            p_dir = Path(p.project_dir)
-
-            if p.is_node_project:
-                raw_npm = find_outdated_packages(p_dir)
-                if not raw_npm:
-                    yield emit(
-                        5, "Dependency Upgrades", "success",
-                        f"{p.name} npm dependencies are up to date.",
-                    )
-                    continue
-
-                yield emit(
-                    5, "Dependency Upgrades", "info",
-                    f"UPGRADING: {p.name} (npm) - updating {len(raw_npm)} package(s)...",
-                )
-                npm_ok, npm_msg = _apply_npm_update(p_dir)
-                if npm_ok:
-                    yield emit(
-                        5, "Dependency Upgrades", "success",
-                        f"{p.name}: Successfully updated npm packages.",
-                    )
-                else:
-                    yield emit(
-                        5, "Dependency Upgrades", "warning",
-                        f"{p.name}: npm update encountered issue: {npm_msg[:200]}",
-                    )
-                continue
-
-            pkg_count = venv_package_count(p_dir)
-            if pkg_count == 0:
-                yield emit(
-                    5, "Dependency Upgrades", "warning",
-                    f"{p.name} environment has no installed packages. Skipping upgrades.",
-                )
-                continue
-
-            raw = find_outdated_packages(p_dir)
-            if not raw:
-                yield emit(
-                    5, "Dependency Upgrades", "success",
-                    f"{p.name} dependencies are up to date ({pkg_count} packages).",
-                )
-                continue
-
-            safe, blocked = classify_safe_upgrades(
-                p_dir,
-                raw,
-                cuda_index_url=hw.recommended_torch_index,
-            )
-
-            for pkg, reason in blocked:
-                yield emit(
-                    5, "Dependency Upgrades", "warning",
-                    f"  Blocked: {pkg.name} {pkg.current_version}"
-                    f" -> {pkg.latest_version} ({reason})",
-                )
-
-            if not safe:
-                yield emit(
-                    5, "Dependency Upgrades", "info",
-                    f"{p.name}: No unconstrained safe upgrades available"
-                    f" (all {len(blocked)} candidate(s) blocked).",
-                )
-                continue
-
-            yield emit(
-                5, "Dependency Upgrades", "info",
-                f"UPGRADING: {p.name} - applying {len(safe)} safe upgrade(s)...",
-            )
-
-            safe_names = [pkg.name for pkg in safe]
-            upgraded_ok, upgrade_msg, rolled_back = _apply_batch_with_rollback(
-                p_dir,
-                safe_names,
-                extra_index_url=hw.recommended_torch_index,
-            )
-
-            if upgraded_ok:
-                upgraded_list = ", ".join(f"{pkg.name} ({pkg.latest_version})" for pkg in safe[:5])
-                if len(safe) > 5:
-                    upgraded_list += f", +{len(safe) - 5} more"
-                yield emit(
-                    5, "Dependency Upgrades", "success",
-                    f"{p.name}: Upgraded {len(safe)} package(s) safely [{upgraded_list}].",
-                )
-            else:
-                rollback_note = " (safely rolled back to previous snapshot)" if rolled_back else ""
-                yield emit(
-                    5, "Dependency Upgrades", "warning",
-                    f"{p.name}: Upgrade batch failed{rollback_note}: {upgrade_msg[:200]}",
-                )
+            if p.has_npm_manifest:
+                yield from self._upgrade_npm_dependencies(p, emit)
+            if not p.is_node_project:
+                yield from self._upgrade_python_dependencies(p, hw, emit)
 
         try:
             sync_manifests_from_venvs(self.base_dir)
@@ -983,4 +904,108 @@ class PipelineOrchestrator:
             yield emit(
                 5, "Dependency Upgrades", "info",
                 f"Manifest sync notice: {sync_err}",
+            )
+
+    def _upgrade_npm_dependencies(
+        self,
+        p: Any,
+        emit: Callable[..., PipelineEvent],
+    ) -> Generator[PipelineEvent, None, None]:
+        """Run ``npm update`` for a project with outdated npm packages."""
+        p_dir = Path(p.project_dir)
+        outdated = _find_npm_outdated(p_dir)
+        if not outdated:
+            yield emit(
+                5, "Dependency Upgrades", "success",
+                f"{p.name} npm dependencies are up to date.",
+            )
+            return
+
+        yield emit(
+            5, "Dependency Upgrades", "info",
+            f"UPGRADING: {p.name} (npm) - updating {len(outdated)} package(s)...",
+        )
+        npm_ok, npm_msg = _apply_npm_update(p_dir)
+        if npm_ok:
+            yield emit(
+                5, "Dependency Upgrades", "success",
+                f"{p.name}: Successfully updated npm packages.",
+            )
+        else:
+            yield emit(
+                5, "Dependency Upgrades", "warning",
+                f"{p.name}: npm update encountered issue: {npm_msg[:200]}",
+            )
+
+    def _upgrade_python_dependencies(
+        self,
+        p: Any,
+        hw: Any,
+        emit: Callable[..., PipelineEvent],
+    ) -> Generator[PipelineEvent, None, None]:
+        """Apply classified safe pip upgrades to one project's venv."""
+        p_dir = Path(p.project_dir)
+
+        pkg_count = venv_package_count(p_dir)
+        if pkg_count == 0:
+            yield emit(
+                5, "Dependency Upgrades", "warning",
+                f"{p.name} environment has no installed packages. Skipping upgrades.",
+            )
+            return
+
+        raw = find_outdated_packages(p_dir)
+        if not raw:
+            yield emit(
+                5, "Dependency Upgrades", "success",
+                f"{p.name} dependencies are up to date ({pkg_count} packages).",
+            )
+            return
+
+        safe, blocked = classify_safe_upgrades(
+            p_dir,
+            raw,
+            cuda_index_url=hw.recommended_torch_index,
+        )
+
+        for pkg, reason in blocked:
+            yield emit(
+                5, "Dependency Upgrades", "warning",
+                f"  Blocked: {pkg.name} {pkg.current_version}"
+                f" -> {pkg.latest_version} ({reason})",
+            )
+
+        if not safe:
+            yield emit(
+                5, "Dependency Upgrades", "info",
+                f"{p.name}: No unconstrained safe upgrades available"
+                f" (all {len(blocked)} candidate(s) blocked).",
+            )
+            return
+
+        yield emit(
+            5, "Dependency Upgrades", "info",
+            f"UPGRADING: {p.name} - applying {len(safe)} safe upgrade(s)...",
+        )
+
+        safe_names = [pkg.name for pkg in safe]
+        upgraded_ok, upgrade_msg, rolled_back = _apply_batch_with_rollback(
+            p_dir,
+            safe_names,
+            extra_index_url=hw.recommended_torch_index,
+        )
+
+        if upgraded_ok:
+            upgraded_list = ", ".join(f"{pkg.name} ({pkg.latest_version})" for pkg in safe[:5])
+            if len(safe) > 5:
+                upgraded_list += f", +{len(safe) - 5} more"
+            yield emit(
+                5, "Dependency Upgrades", "success",
+                f"{p.name}: Upgraded {len(safe)} package(s) safely [{upgraded_list}].",
+            )
+        else:
+            rollback_note = " (safely rolled back to previous snapshot)" if rolled_back else ""
+            yield emit(
+                5, "Dependency Upgrades", "warning",
+                f"{p.name}: Upgrade batch failed{rollback_note}: {upgrade_msg[:200]}",
             )
