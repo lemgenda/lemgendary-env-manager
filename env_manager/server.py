@@ -24,11 +24,32 @@ import urllib.error
 import urllib.request
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from env_manager.bug_report import (
+    DEFAULT_SETTINGS as BUG_REPORT_SETTINGS,
+    BugReportFields,
+    BugReportResponse,
+    BugReportService,
+    ReportsDirError,
+    SystemPlatformAdapter,
+    UploadRejectedError,
+    collect_submission,
+)
 
 from env_manager.health_checker import run_full_health_audit
 from env_manager.npm_manager import audit_npm_workspaces
@@ -623,6 +644,43 @@ async def save_secrets(payload: SecretsPayload) -> SecretsSaveResponse:
     except SecretsStorageError as exc:
         _log.error("%s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ─── Bug Reports ──────────────────────────────────────────────────────────────
+
+def _bug_report_service() -> BugReportService:
+    """Service rooted at the workspace, using the real mail client and file manager."""
+    return BugReportService(_get_workspace_root(), BUG_REPORT_SETTINGS, SystemPlatformAdapter())
+
+
+@app.post(
+    "/api/bug-report",
+    response_model=BugReportResponse,
+    responses={413: {"description": "An upload or the whole report is too large."}},
+)
+async def submit_bug_report(
+    fields: Annotated[BugReportFields, Form()],
+    screenshot: Annotated[list[UploadFile] | None, File()] = None,
+    telemetry: Annotated[UploadFile | None, File()] = None,
+    recording: Annotated[UploadFile | None, File()] = None,
+) -> BugReportResponse:
+    """Save a bug report ZIP in the workspace and open the mail client to send it.
+
+    The user attaches the archive by hand: ``mailto:`` cannot carry files.
+    """
+    try:
+        submission = await collect_submission(
+            fields, screenshot or [], telemetry, recording, BUG_REPORT_SETTINGS
+        )
+    except UploadRejectedError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+    try:
+        return await run_in_threadpool(_bug_report_service().submit, submission)
+    except (ReportsDirError, OSError) as exc:
+        _log.error("Could not save the bug report: %s", exc)
+        raise HTTPException(
+            status_code=500, detail="Could not save the bug report; see the env manager log."
+        ) from exc
 
 
 # ─── Documentation Hub Offline & Online Metadata ─────────────────────────────

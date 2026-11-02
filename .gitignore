@@ -79,3 +79,6 @@ kaggle.json
 .GOOGLE_DRIVE
 .GOOGLE_DRIVE_JSON
 .env_server/
+
+# Bug report archives (local only; default folder is at the workspace root)
+bug-reports/

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.17-STABLE)
+# LemGendary Environment Manager (v16.9.18-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -108,6 +108,15 @@ The sidecar service binds to `http://127.0.0.1:8000` by default. Interactive doc
 - `POST /api/secrets`: Write-only save of the full secrets list. An empty or omitted `secret_value` keeps the stored value for the same `id`; a non-empty value replaces it; items left out are removed. A Kaggle token (new or kept) is mandatory. The response never echoes values and includes a `propagation` report (`written`, `skipped`, `failed`) for the legacy Kaggle files.
 - `WS /ws/logs`: Real-time streaming log feed for pipeline and background tasks.
 
+### Bug Report Endpoint
+
+- `POST /api/bug-report` (`multipart/form-data`): Saves a bug report ZIP in the workspace and opens the mail client. No email is sent by the server and `mailto:` cannot attach files, so the message body names the archive and its relative path for the user to attach.
+  - Fields: `email` (valid address), `module`, `description` (at least 50 characters after trimming, at most 10000), `app_version`, `current_tab` (all required).
+  - Files: up to 5 `screenshot` (`image/png` or `image/webp`, 5 MB each), optional `telemetry` (`text/csv`, UTF-8, 2 MB), optional `recording` (`video/webm` or `video/mp4`, 50 MB). File signatures (magic bytes) must match the declared type. Total uploads at most 80 MB.
+  - Errors: `422` for invalid fields or uploads, `413` for size limits; `detail` lists `{"loc": ["body", field], "msg": str, "type": str}`.
+  - Archive `bug_report_<UTC YYYYMMDDTHHMMSSZ>_<8-char id>.zip` contains `report.csv` (header row plus one row: `timestamp,report_id,email,module,current_tab,app_version,description,screenshot_count,has_recording,has_telemetry`), `telemetry.csv`, `screenshot_N.<ext>` and `recording.<ext>`. It is saved to `bug-reports/` at the workspace root (outside every repository).
+  - Response: `report_id`, `archive_name`, `archive_path` (relative to the workspace root, forward slashes), `recipient`, `subject`, `mail_client_opened`, `folder_revealed`. If the mail client or file manager cannot be opened the flag is `false`; the request still succeeds because the archive is saved.
+
 ---
 
 ## CLI Usage
@@ -164,6 +173,15 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.18 - Bug Report Endpoint
+
+- **`POST /api/bug-report` (FIX_PLAN Phase 4 backend)**: the bug reporter backend now lives in the env manager. It validates the multipart form with Pydantic, checks upload count, size, declared type and magic bytes, writes `report.csv` with the `csv` module (formula-like cells are prefixed with `'`), and saves the ZIP to `bug-reports/` at the workspace root. No SMTP: the endpoint opens the user's mail client (`mailto:`) and reveals the archive in the file manager, and reports whether each step worked.
+- **Single configuration place**: recipient (`lemgenda.obrt@gmail.com`), subject (`LemGendary AI Studio Bug report`), reports folder and all limits are defined in `env_manager/bug_report/config.py` (`BugReportSettings`). A reports folder outside the workspace root is refused; one inside a git repository gets its own `.gitignore`.
+- **Platform adapter**: `PlatformAdapter` protocol with `SystemPlatformAdapter` (Windows `explorer /select,`, macOS `open -R`, Linux `xdg-open`; mail through `webbrowser`). The service depends only on the protocol.
+- **Dependencies**: `python-multipart==0.0.33` added to `requirements/requirements-env-manager.txt`, its generated copy `requirements.txt`, and `pyproject.toml`.
+- **OpenAPI**: `openapi.json` regenerated; adds `/api/bug-report` with `BugReportFields` and `BugReportResponse`.
+- Tests: `tests/test_bug_report.py` (fake adapter, temporary workspace): archive contents, CSV escaping of quotes, commas and newlines, each validation error, size limits, magic-byte mismatch, adapter failures, no absolute path in the response or mail body.
 
 ### v16.9.17 - Correct Upgrade Routing and Scoped Updates
 

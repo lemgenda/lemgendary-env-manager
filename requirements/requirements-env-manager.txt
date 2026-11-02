@@ -14,6 +14,7 @@ httpx2==2.16.0
 yamllint==1.38.0
 pydantic==2.14.1
 pydantic-core==2.50.1
+python-multipart==0.0.33
 beautifulsoup4==4.15.0
 # ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
 # Dev-time only; no runtime footprint. Match the runtime libraries listed
