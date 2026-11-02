@@ -8,6 +8,7 @@ directly without requiring external HTTP client test dependencies.
 
 import asyncio
 import unittest
+from unittest.mock import patch
 
 from env_manager.server import (
     app,
@@ -17,7 +18,9 @@ from env_manager.server import (
     get_manifests,
     get_pipeline_status,
     get_projects,
+    run_pipeline,
     run_pipeline_step,
+    RunPipelineRequest,
     RunStepRequest,
 )
 
@@ -74,6 +77,33 @@ class TestServerApi(unittest.TestCase):
         result = asyncio.run(run_pipeline_step(req))
         self.assertEqual(result.get("status"), "error")
         self.assertIn("Invalid step number", result.get("message", ""))
+
+
+class TestRunPipelineDestructiveOptIn(unittest.TestCase):
+    """``POST /api/pipeline/run`` is non-destructive unless ``clean`` is true."""
+
+    def test_request_defaults_to_non_destructive(self) -> None:
+        self.assertFalse(RunPipelineRequest().clean)
+        self.assertFalse(RunPipelineRequest(target_project="lemgendary-datasets").clean)
+        self.assertFalse(RunStepRequest(step_number=3).clean)
+
+    def _started_thread_args(self, req: RunPipelineRequest) -> tuple:
+        with (
+            patch("env_manager.server.threading.Thread") as mock_thread,
+            patch("env_manager.server.orchestrator.is_running", False),
+        ):
+            result = asyncio.run(run_pipeline(req))
+        self.assertEqual(result.get("status"), "accepted")
+        mock_thread.return_value.start.assert_called_once_with()
+        return mock_thread.call_args.kwargs["args"]
+
+    def test_run_forwards_default_false(self) -> None:
+        args = self._started_thread_args(RunPipelineRequest(target_project="x"))
+        self.assertEqual(args[:2], ("x", False))
+
+    def test_run_forwards_explicit_true(self) -> None:
+        args = self._started_thread_args(RunPipelineRequest(clean=True))
+        self.assertEqual(args[:2], (None, True))
 
 
 if __name__ == "__main__":

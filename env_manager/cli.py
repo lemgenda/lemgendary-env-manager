@@ -264,9 +264,20 @@ def audit(
 @app.command()
 def install(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
-    clean: bool = typer.Option(True, "--clean/--no-clean", help="Purge existing environment and recreate cleanly"),
+    clean: bool = typer.Option(
+        False,
+        "--clean",
+        help=(
+            "Destructive: delete every project .venv and node_modules, stop "
+            "processes running from those venvs, then reinstall from scratch. "
+            "Without this flag valid environments are kept."
+        ),
+    ),
 ):
-    """Run the Smart Clean Install Pipeline (creates venvs, npm install, pip install)."""
+    """Run the Smart Clean Install Pipeline (creates venvs, npm install, pip install).
+
+    Non-destructive by default; pass --clean for a full wipe and reinstall.
+    """
     console.print("[bold green]Starting Smart Clean Install Pipeline...[/bold green]")
     orchestrator = PipelineOrchestrator()
 

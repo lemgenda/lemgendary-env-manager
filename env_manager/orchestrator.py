@@ -64,6 +64,15 @@ def _get_active_venv() -> Path | None:
     return None
 
 
+def _purge_node_modules(nm_dir: Path) -> str | None:
+    """Delete a node_modules tree; return the error text if it fails."""
+    try:
+        shutil.rmtree(nm_dir)
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
 @dataclass
 class PipelineEvent:
     """Individual telemetry event emitted during pipeline execution."""
@@ -101,9 +110,14 @@ class PipelineOrchestrator:
         self,
         event_callback: Callable[[PipelineEvent], None] | None = None,
         target_project: str | None = None,
-        clean: bool = True,
+        clean: bool = False,
     ) -> Generator[PipelineEvent, None, HealthAuditReport]:
-        """Execute the 7-step Smart Clean Install Pipeline."""
+        """Execute the 7-step Smart Clean Install Pipeline.
+
+        The default run is non-destructive: valid venvs and node_modules are
+        kept and no processes are stopped. Only ``clean=True`` deletes every
+        venv and node_modules and stops processes running from those venvs.
+        """
         self.is_running = True
         self.last_status = "running"
         self.last_run_timestamp = datetime.now(UTC).isoformat()
@@ -187,7 +201,12 @@ class PipelineOrchestrator:
                                 3, "Virtual Environments", "info",
                                 f"Purging existing node_modules for {p.name} (clean install)...",
                             )
-                            shutil.rmtree(nm_dir, ignore_errors=True)
+                            purge_error = _purge_node_modules(nm_dir)
+                            if purge_error:
+                                yield emit(
+                                    3, "Virtual Environments", "error",
+                                    f"Failed to purge node_modules for {p.name}: {purge_error}",
+                                )
                     if p.node_modules_present and not clean:
                         yield emit(3, "Virtual Environments", "info",
                                    f"Existing node_modules verified for {p.name}.")
@@ -450,7 +469,12 @@ class PipelineOrchestrator:
                                     3, "Virtual Environments", "info",
                                     f"Purging node_modules for {p.name} (clean install)...",
                                 )
-                                shutil.rmtree(nm_dir, ignore_errors=True)
+                                purge_error = _purge_node_modules(nm_dir)
+                                if purge_error:
+                                    yield emit(
+                                        3, "Virtual Environments", "error",
+                                        f"Failed to purge node_modules for {p.name}: {purge_error}",
+                                    )
                         if p.node_modules_present and not clean:
                             yield emit(3, "Virtual Environments", "info",
                                        f"Existing node_modules verified for {p.name}.")

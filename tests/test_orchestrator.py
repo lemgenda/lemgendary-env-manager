@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
@@ -117,6 +120,90 @@ class TestPipelineOrchestrator(unittest.TestCase):
         _, _, ev_inst = res_inst
         self.assertTrue(ev_inst.is_progress)
         self.assertIn("95.0%", ev_inst.message)
+
+
+class TestPipelineDestructiveOptIn(unittest.TestCase):
+    """The full pipeline deletes environments only when ``clean=True`` is explicit.
+
+    Every destructive function is mocked; nothing on disk is deleted.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.node_dir = root / "node-project"
+        self.py_dir = root / "py-project"
+        (self.node_dir / "node_modules").mkdir(parents=True)
+        self.py_dir.mkdir()
+        self.projects = [
+            SimpleNamespace(name="node-project", project_dir=str(self.node_dir),
+                            is_node_project=True, node_modules_present=True),
+            SimpleNamespace(name="py-project", project_dir=str(self.py_dir),
+                            is_node_project=False, node_modules_present=False),
+        ]
+        hw = MagicMock()
+        hw.accelerators = []
+        hw.to_dict.return_value = {}
+        boot = MagicMock(python_valid=True, git_installed=True)
+        patch("env_manager.orchestrator.probe_hardware", return_value=hw).start()
+        patch("env_manager.orchestrator.verify_prerequisites", return_value=boot).start()
+        patch("env_manager.orchestrator.discover_projects", return_value=self.projects).start()
+        patch("env_manager.orchestrator.is_venv_valid", return_value=True).start()
+        patch("env_manager.orchestrator._get_active_venv", return_value=None).start()
+        self.mock_create_venv = patch(
+            "env_manager.orchestrator.create_venv", return_value=(True, "ok")
+        ).start()
+        self.mock_rmtree = patch("env_manager.orchestrator.shutil.rmtree").start()
+        self.mock_sync = patch("env_manager.orchestrator.sync_all_manifests").start()
+
+    def tearDown(self) -> None:
+        patch.stopall()
+        self._tmp.cleanup()
+
+    def _run_through_step_3(self, clean: bool | None = None) -> list[PipelineEvent]:
+        """Drive the pipeline generator until Step 4 starts, then stop it.
+
+        ``clean=None`` omits the argument to exercise the default.
+        """
+        orchestrator = PipelineOrchestrator(base_dir=Path(self._tmp.name))
+        if clean is None:
+            gen = orchestrator.run_clean_install_pipeline()
+        else:
+            gen = orchestrator.run_clean_install_pipeline(clean=clean)
+        events: list[PipelineEvent] = []
+        for event in gen:
+            if event.step_number >= 4:
+                break
+            events.append(event)
+        gen.close()
+        self.mock_sync.assert_not_called()
+        return events
+
+    def test_default_run_is_non_destructive(self) -> None:
+        events = self._run_through_step_3()
+        self.mock_create_venv.assert_not_called()
+        self.mock_rmtree.assert_not_called()
+        messages = [e.message for e in events]
+        self.assertIn("Existing .venv verified for py-project.", messages)
+        self.assertIn("Existing node_modules verified for node-project.", messages)
+
+    def test_explicit_false_is_non_destructive(self) -> None:
+        self._run_through_step_3(clean=False)
+        self.mock_create_venv.assert_not_called()
+        self.mock_rmtree.assert_not_called()
+
+    def test_explicit_true_runs_destructive_path(self) -> None:
+        self._run_through_step_3(clean=True)
+        self.mock_create_venv.assert_called_once_with(self.py_dir)
+        self.mock_rmtree.assert_called_once_with(self.node_dir / "node_modules")
+
+    def test_purge_failure_is_reported(self) -> None:
+        self.mock_rmtree.side_effect = PermissionError("locked")
+        events = self._run_through_step_3(clean=True)
+        errors = [e.message for e in events if e.status == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Failed to purge node_modules for node-project", errors[0])
+        self.assertIn("locked", errors[0])
 
 
 if __name__ == "__main__":

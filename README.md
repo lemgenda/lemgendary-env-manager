@@ -95,7 +95,8 @@ The sidecar service binds to `http://127.0.0.1:8000` by default. Interactive doc
 ### Orchestration & Maintenance Endpoints
 
 - `GET /api/pipeline/status`: Current pipeline state and recent log events.
-- `POST /api/pipeline/run`: Initiates an asynchronous clean install pipeline.
+- `POST /api/pipeline/run`: Initiates the asynchronous install pipeline. Body: `{"target_project": str | null, "clean": bool}`. Non-destructive by default: valid venvs and `node_modules` are kept. Only `"clean": true` deletes every `.venv` and `node_modules`, stops processes running from those venvs and reinstalls from scratch.
+- `POST /api/pipeline/run-step`: Runs one pipeline step (1-7) in isolation. Body: `{"step_number": int, "target_project": str | null, "clean": bool}`; `clean` defaults to `false` with the same meaning.
 - `POST /api/update`: Executes safe package upgrades according to dependency graphs.
 - `POST /api/clean`: Purges build caches, `__pycache__`, and temporary artifacts.
 - `POST /api/validate`: Runs workspace compliance validation suites.
@@ -128,6 +129,13 @@ python -m env_manager.cli audit
 python -m env_manager.cli validate -p lemgendary-env-manager
 python -m env_manager.cli validate -p lemgendary-datasets
 
+# Run the install pipeline (non-destructive: keeps valid venvs and node_modules)
+python -m env_manager.cli install -p lemgendary-datasets
+
+# Destructive clean install: deletes every .venv and node_modules, stops
+# processes running from those venvs, then reinstalls from scratch
+python -m env_manager.cli install --clean
+
 # Clean temporary caches and artifacts
 python -m env_manager.cli clean
 
@@ -145,6 +153,16 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.14 - Non-Destructive Pipeline by Default
+
+- **Pipeline `clean` Opt-In (review finding D-03)**:
+  - `PipelineOrchestrator.run_clean_install_pipeline` now defaults to `clean=False`. A default run keeps valid venvs and `node_modules` and stops no processes; only invalid or missing environments are created.
+  - `RunPipelineRequest` gains `clean: bool = False` and `POST /api/pipeline/run` forwards it. Requests without `clean` stay valid and are now non-destructive (previously every GUI "Run Pipeline" click deleted all venvs and `node_modules` and killed running sidecars).
+  - CLI `install`: replaced `--clean/--no-clean` (default clean) with an explicit `--clean` flag whose help text states what it deletes.
+  - `node_modules` purge no longer uses `shutil.rmtree(..., ignore_errors=True)`; a failed purge is reported as a Step 3 error event.
+- **OpenAPI**: `openapi.json` `RunPipelineRequest` schema gains the optional `clean` field (default `false`).
+- **Tests**: default run never calls `create_venv` or the `node_modules` purge, `clean=True` does (all destructive functions mocked); `RunPipelineRequest` defaults and `/api/pipeline/run` forwarding of `clean`.
 
 ### v16.9.13 - Masked, Write-Only Secrets Vault
 

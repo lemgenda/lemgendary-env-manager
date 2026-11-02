@@ -130,6 +130,9 @@ app.add_middleware(origin_guard_middleware)
 
 class RunPipelineRequest(BaseModel):
     target_project: Optional[str] = None
+    # Destructive opt-in: deletes every venv and node_modules and stops
+    # processes running from those venvs. Omitted means a safe run.
+    clean: bool = False
 
 
 class RunStepRequest(BaseModel):
@@ -279,8 +282,15 @@ async def get_pipeline_status():
     }
 
 
-def _run_pipeline_worker(target_project: Optional[str], loop: asyncio.AbstractEventLoop):
-    for event in orchestrator.run_clean_install_pipeline(target_project=target_project):
+def _run_pipeline_worker(
+    target_project: Optional[str],
+    clean: bool,
+    loop: asyncio.AbstractEventLoop,
+):
+    for event in orchestrator.run_clean_install_pipeline(
+        target_project=target_project,
+        clean=clean,
+    ):
         ev_dict = event.to_dict()
         recent_events.append(ev_dict)
         if len(recent_events) > 200:
@@ -296,7 +306,7 @@ async def run_pipeline(request: RunPipelineRequest):
     loop = asyncio.get_running_loop()
     thread = threading.Thread(
         target=_run_pipeline_worker,
-        args=(request.target_project, loop),
+        args=(request.target_project, request.clean, loop),
         daemon=True,
     )
     thread.start()
