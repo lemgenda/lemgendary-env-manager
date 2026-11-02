@@ -33,6 +33,12 @@ from pydantic import BaseModel
 from env_manager.health_checker import run_full_health_audit
 from env_manager.npm_manager import audit_npm_workspaces
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
+from env_manager.security import (
+    ALLOWED_HEADERS,
+    ALLOWED_METHODS,
+    ALLOWED_ORIGINS,
+    origin_guard_middleware,
+)
 from env_manager.service_manager import start_all_services, start_service, stop_service
 from env_manager.system_probe import probe_hardware
 from env_manager.utils import purge_project_cache
@@ -105,11 +111,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(ALLOWED_ORIGINS),
+    allow_credentials=False,
+    allow_methods=list(ALLOWED_METHODS),
+    allow_headers=list(ALLOWED_HEADERS),
 )
+# Added last, so it runs first: refuses foreign origins before CORS or routing.
+app.add_middleware(origin_guard_middleware)
 
 
 class RunPipelineRequest(BaseModel):

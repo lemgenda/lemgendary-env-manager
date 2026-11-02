@@ -144,6 +144,17 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.12 - Browser Origin Guard & Closed CORS Allow-List
+
+- **Origin Guard Middleware (`env_manager.security`)**:
+  - New `origin_guard_middleware` refuses (HTTP 403) any request whose `Origin` is not an AI Studio GUI origin (`tauri://localhost`, `http://tauri.localhost`, `https://tauri.localhost`, `http://localhost:1420`, `http://127.0.0.1:1420`).
+  - Browser requests using `POST`, `PUT`, `PATCH` or `DELETE` must send `X-LemGendary-Client: ai-studio-gui`; the custom header forces a CORS preflight and blocks cross-site form posts.
+  - WebSocket handshakes from foreign origins are refused. Requests without `Origin` (CLI, scripts, tests) are unaffected.
+- **Closed CORS Policy (`env_manager.server`)**:
+  - Replaced `allow_origins=["*"]` with credentials by the allow-list above, explicit methods, explicit headers and `allow_credentials=False`. Fixes review finding D-01 (any web page could read `/api/secrets` or start destructive runs).
+- **Test Dependency**: added `httpx2==2.16.0` (required by the FastAPI test client) to both requirement files.
+- **Tests (`tests/test_security.py`)**: 16 tests covering allowed and foreign origins, write header rules, CORS preflight, WebSocket handshakes and the real app wiring.
+
 ### v16.9.11 - Graceful Server Shutdown & Stop Service Lifecycle Unlocking
 
 - **Graceful Orchestrator Shutdown Endpoint (`env_manager.server`)**:
