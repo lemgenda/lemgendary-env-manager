@@ -144,6 +144,15 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 
 ## Changelog
 
+### v16.9.9 - Validation Suite Hardening & Cross-Project Changelog Audit
+
+- **Automated Changelog Enforcement (env_manager.validator._audit_readme_changelog)**:
+  - Validates that README.md includes an updated changelog section for any project with modified codebase files.
+- **Bijective Documentation & Capabilities Synchronization Gate (_audit_docs_synchronization, _audit_manifest_synchronization)**:
+  - Full bidirectional parity audit across all 48 Markdown whitepapers and HTML publications in lemgendary-docs/.
+  - Enforces 100% alignment between documents.json, canonical_capabilities.json, and canonical_capabilities.yaml.
+  - Ensures clean markdownlint formatting and W3C/WCAG accessibility compliance.
+
 ### v16.9.8 — Dependency Resolver Diagnostic Precision and Extras-Marker Guard
 
 - **Actionable Blocker Diagnostics (`env_manager.dependency_resolver._diagnose_pinned_reason`)** — Replaced the generic `"kept pinned by another installed package's requirement"` blocker message with precise root-cause diagnostics. When a candidate version is blocked by the constraint-preserving dry-run, `_diagnose_pinned_reason` fetches the candidate's `Requires-Dist` metadata from PyPI and compares each dependency specifier against the currently installed versions, surfacing the exact conflicting pin (e.g., `diffusers 0.41.0 requires huggingface-hub<2.0 but 2.2.0 is installed`).

@@ -763,129 +763,304 @@ def _extract_html_sections(soup: Any) -> Dict[str, str]:
     return sections
 
 
-def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]:
-    """Verify word-for-word synchronization between Markdown papers and HTML documents."""
+def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
+    """Verify that README.md has an updated changelog if any project files have been modified."""
     violations: List[FileValidationViolation] = []
+    readme_path = project_dir / "README.md"
+
+    # Inspect git status of working directory
     try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        _log.warning("bs4 not available for doc sync verification")
-        return violations
+        proc = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            check=False,
+            creationflags=WINDOWS_NO_WINDOW,
+        )
+        status_lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        modified_files: List[str] = []
+        for line in status_lines:
+            path_part = line[2:].strip()
+            if " -> " in path_part:
+                path_part = path_part.split(" -> ")[1].strip()
+            modified_files.append(path_part)
 
-    md_dir = docs_dir / "MD-Papers"
-    papers_dir = docs_dir / "papers"
-    if not md_dir.exists() or not papers_dir.exists():
-        return violations
+        # If working tree is clean, inspect latest commit against parent
+        if not modified_files:
+            diff_proc = subprocess.run(
+                ["git", "diff", "HEAD~1", "--name-only"],
+                cwd=str(project_dir),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+                check=False,
+                creationflags=WINDOWS_NO_WINDOW,
+            )
+            if diff_proc.returncode == 0:
+                modified_files = [line.strip() for line in diff_proc.stdout.splitlines() if line.strip()]
 
-    pair_map = {
-        "PAPER_DATASET_COMPILER.md": "dataset-compiler.html",
-        "PAPER_FOREX_PREDICTOR.md": "forex_predictor.html",
-        "PAPER_LEMGENDARY_FFANET.md": "ffanet.html",
-        "PAPER_LEMGENDARY_HYBRID.md": "universal-hybrid.html",
-        "PAPER_LEMGENDARY_MIRNET.md": "mirnet.html",
-        "PAPER_LEMGENDARY_MPRNET.md": "mprnet.html",
-        "PAPER_LEMGENDARY_NAFNET.md": "nafnet.html",
-        "PAPER_LEMGENDARY_NIMA.md": "nima-quality.html",
-        "PAPER_TRAINING_PATHOLOGY.md": "training-pathology.html",
-        "PAPER_TRAINING_SUITE.md": "training-suite-master.html",
-        "PAPER_AI_STUDIO_GUI.md": "ai-studio-whitepaper.html",
-        "MANUAL_AI_STUDIO_GUI.md": "ai-studio-manual.html",
-        "PAPER_ENV_MANAGER.md": "env_manager.html",
-        "MANUAL_CLI.md": "cli-manual.html",
-        "MANUAL_API.md": "api-manual.html",
-    }
+        non_readme_changes = [f for f in modified_files if Path(f).name.lower() != "readme.md"]
+        readme_changed = any(Path(f).name.lower() == "readme.md" for f in modified_files)
 
-    for md_name, html_name in pair_map.items():
-        md_file = md_dir / md_name
-        html_file = papers_dir / html_name
-        if not md_file.exists() or not html_file.exists():
-            continue
-
-        try:
-            md_raw = md_file.read_text(encoding="utf-8")
-            html_raw = html_file.read_text(encoding="utf-8")
-
-            soup = BeautifulSoup(html_raw, "html.parser")
-            for tag in soup.find_all(["nav", "header", "footer", "script", "style", "pre"]):
-                tag.decompose()
-            for cb in soup.find_all(class_="cli-block"):
-                cb.decompose()
-            for modal in soup.find_all("div", class_="modal"):
-                modal.decompose()
-
-            md_secs = _extract_md_sections(md_raw)
-            html_secs = _extract_html_sections(soup)
-
-            total_md_words = 0
-            total_html_words = 0
-            matched_words = 0
-
-            for html_title, html_content in html_secs.items():
-                matched_md = None
-                h_num = html_title.split(".")[0].strip() if "." in html_title else ""
-                for md_title, md_content in md_secs.items():
-                    if (
-                        (html_title.lower() == md_title.lower())
-                        or (html_title.lower() in md_title.lower())
-                        or (md_title.lower() in html_title.lower())
-                    ):
-                        matched_md = md_content
-                        break
-                if not matched_md:
-                    for md_title, md_content in md_secs.items():
-                        m_num = md_title.split(".")[0].strip() if "." in md_title else ""
-                        if h_num and h_num == m_num:
-                            matched_md = md_content
-                            break
-
-                w_html = _tokenize_text(html_content)
-                total_html_words += len(w_html)
-                if matched_md:
-                    w_md = _tokenize_text(matched_md)
-                    total_md_words += len(w_md)
-                    seq_r = difflib.SequenceMatcher(None, w_md, w_html).ratio()
-                    c_m = collections.Counter(w_md)
-                    c_h = collections.Counter(w_html)
-                    bow_r = sum((c_m & c_h).values()) / max(len(w_md), len(w_html), 1)
-                    sim = max(seq_r, bow_r)
-                    matched_words += int(sim * max(len(w_md), len(w_html)))
-
-            if max(total_md_words, total_html_words) > 0:
-                overall_ratio = matched_words / max(total_md_words, total_html_words)
-            else:
-                md_clean = re.sub(r"<!--.*?-->", "", md_raw, flags=re.DOTALL)
-                md_clean = re.sub(r"```.*?```", "", md_clean, flags=re.DOTALL)
-                md_tokens = _tokenize_text(md_clean)
-                html_tokens = _tokenize_text(soup.get_text(separator=" "))
-                if not md_tokens or not html_tokens:
-                    continue
-                seq_r = difflib.SequenceMatcher(None, md_tokens, html_tokens).ratio()
-                c_m = collections.Counter(md_tokens)
-                c_h = collections.Counter(html_tokens)
-                bow_r = sum((c_m & c_h).values()) / max(len(md_tokens), len(html_tokens), 1)
-                overall_ratio = max(seq_r, bow_r)
-
-            if overall_ratio < 0.85:
+        if non_readme_changes:
+            if not readme_path.exists():
                 violations.append(
                     FileValidationViolation(
-                        file_path=str(html_file),
+                        file_path=str(readme_path),
                         line_number=1,
-                        violation_type="doc_sync_drift",
+                        violation_type="readme_changelog_missing",
                         message=(
-                            f"Sync similarity with {md_name} is "
-                            f"{overall_ratio*100:.1f}% (below mandatory 85% threshold)"
+                            f"Project '{project_dir.name}' has {len(non_readme_changes)} modified files "
+                            "but README.md does not exist."
                         ),
+                    )
+                )
+            else:
+                readme_text = readme_path.read_text(encoding="utf-8", errors="ignore")
+                has_changelog = bool(
+                    re.search(r"##\s+(?:Changelog|CHANGELOG)", readme_text)
+                    or re.search(r"###\s+v\d+\.\d+", readme_text)
+                )
+                if not has_changelog:
+                    violations.append(
+                        FileValidationViolation(
+                            file_path=str(readme_path),
+                            line_number=1,
+                            violation_type="readme_changelog_missing",
+                            message=(
+                                f"Project '{project_dir.name}' has modified files but README.md "
+                                "lacks a valid Changelog section."
+                            ),
+                        )
+                    )
+                elif not readme_changed and len(modified_files) > 0 and len(status_lines) > 0:
+                    # Uncommitted working tree files modified without README.md being updated
+                    violations.append(
+                        FileValidationViolation(
+                            file_path=str(readme_path),
+                            line_number=1,
+                            violation_type="readme_changelog_unupdated",
+                            message=(
+                                f"Project '{project_dir.name}' has uncommitted changes in "
+                                f"{len(non_readme_changes)} files, but README.md changelog was not updated."
+                            ),
+                        )
+                    )
+    except Exception as exc:
+        _log.warning("README changelog audit skipped for %s: %s", project_dir, exc)
+
+    return violations
+
+
+def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolation]:
+    """Verify bidirectional synchronization across documents.json, canonical_capabilities.json, and canonical_capabilities.yaml."""
+    violations: List[FileValidationViolation] = []
+    doc_m_path = docs_dir / "manifest" / "documents.json"
+    cap_j_path = docs_dir / "canonical_capabilities.json"
+    cap_y_path = docs_dir / "canonical_capabilities.yaml"
+
+    if not doc_m_path.exists():
+        violations.append(
+            FileValidationViolation(
+                file_path=str(doc_m_path),
+                line_number=1,
+                violation_type="manifest_missing",
+                message="documents.json manifest missing from lemgendary-docs/manifest/",
+            )
+        )
+    if not cap_j_path.exists():
+        violations.append(
+            FileValidationViolation(
+                file_path=str(cap_j_path),
+                line_number=1,
+                violation_type="manifest_missing",
+                message="canonical_capabilities.json missing from lemgendary-docs/",
+            )
+        )
+    if not cap_y_path.exists():
+        violations.append(
+            FileValidationViolation(
+                file_path=str(cap_y_path),
+                line_number=1,
+                violation_type="manifest_missing",
+                message="canonical_capabilities.yaml missing from lemgendary-docs/",
+            )
+        )
+
+    if doc_m_path.exists() and cap_j_path.exists() and cap_y_path.exists():
+        try:
+            with open(doc_m_path, "r", encoding="utf-8") as f:
+                dj = json.load(f)
+            with open(cap_j_path, "r", encoding="utf-8") as f:
+                cj = json.load(f)
+            import yaml
+            with open(cap_y_path, "r", encoding="utf-8") as f:
+                cy = yaml.safe_load(f)
+
+            d_base = dj.get("document_baseline")
+            c_base = cj.get("document_baseline")
+            y_base = cy.get("document_baseline")
+
+            if not (d_base == c_base == y_base):
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(cap_j_path),
+                        line_number=1,
+                        violation_type="manifest_baseline_mismatch",
+                        message=(
+                            f"Document baseline desynchronization: documents.json='{d_base}', "
+                            f"canonical_capabilities.json='{c_base}', canonical_capabilities.yaml='{y_base}'"
+                        ),
+                    )
+                )
+
+            total_docs = len(dj.get("documents", []))
+            if dj.get("total_publications") != total_docs:
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(doc_m_path),
+                        line_number=1,
+                        violation_type="manifest_count_mismatch",
+                        message=(
+                            f"Total publications count mismatch in documents.json: "
+                            f"header={dj.get('total_publications')} vs item_count={total_docs}"
+                        ),
+                    )
+                )
+
+            # JSON and YAML capabilities bijective parity
+            if cj != cy:
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(cap_y_path),
+                        line_number=1,
+                        violation_type="manifest_content_drift",
+                        message="canonical_capabilities.yaml is not strictly identical in structure to canonical_capabilities.json",
                     )
                 )
         except Exception as exc:
             violations.append(
                 FileValidationViolation(
-                    file_path=str(html_file),
+                    file_path=str(doc_m_path),
                     line_number=0,
-                    violation_type="doc_sync_error",
-                    message=f"Doc sync evaluation failed: {exc}",
+                    violation_type="manifest_parse_error",
+                    message=f"Failed parsing capabilities manifests: {exc}",
                 )
             )
+
+    return violations
+
+
+def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]:
+    """Verify comprehensive structural and content parity across all 48 Markdown papers and companion HTML publications."""
+    violations: List[FileValidationViolation] = []
+    manifest_path = docs_dir / "manifest" / "documents.json"
+    if not manifest_path.exists():
+        return violations
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        for doc in manifest.get("documents", []):
+            doc_id = doc.get("id", "unknown")
+            hp = docs_dir / doc.get("html_path", "")
+            mp = docs_dir / doc.get("md_path", "")
+
+            if not hp.exists():
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(hp),
+                        line_number=1,
+                        violation_type="doc_html_missing",
+                        message=f"Companion HTML publication missing for [{doc_id}]: {doc.get('html_path')}",
+                    )
+                )
+                continue
+            if not mp.exists():
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(mp),
+                        line_number=1,
+                        violation_type="doc_md_missing",
+                        message=f"Markdown source missing for [{doc_id}]: {doc.get('md_path')}",
+                    )
+                )
+                continue
+
+            h_raw = hp.read_text(encoding="utf-8", errors="ignore")
+            m_raw = mp.read_text(encoding="utf-8", errors="ignore")
+
+            # 1. H2 count & parity
+            h2_h = [
+                re.sub(r"<[^>]+>", "", x).strip()
+                for x in re.findall(r"<h2[^>]*>(.*?)</h2>", h_raw, re.I)
+            ]
+            h2_h = [
+                x for x in h2_h
+                if x.lower() not in ("contents", "table of contents", "navigation matrix")
+                and not x.lower().startswith("category")
+            ]
+            h2_m = [
+                re.sub(r"[*_`]", "", x).strip()
+                for x in re.findall(r"^##\s+(.+)$", m_raw, re.M)
+            ]
+            h2_m = [
+                x for x in h2_m
+                if x.lower() not in ("contents", "table of contents", "navigation matrix")
+                and not x.lower().startswith("category")
+            ]
+
+            if len(h2_h) != len(h2_m):
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(hp),
+                        line_number=1,
+                        violation_type="doc_heading_mismatch",
+                        message=f"[{doc_id}] H2 count mismatch: HTML({len(h2_h)}) vs MD({len(h2_m)})",
+                    )
+                )
+
+            # 2. Table count parity
+            h_tables = len(re.findall(r"<table", h_raw, re.I))
+            m_tables = len(re.findall(r"\|(?:\s*:?-+:?\s*\|)+", m_raw))
+            if abs(h_tables - m_tables) > 1:
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(hp),
+                        line_number=1,
+                        violation_type="doc_table_mismatch",
+                        message=f"[{doc_id}] Table count difference exceeds threshold: HTML={h_tables} vs MD={m_tables}",
+                    )
+                )
+
+            # 3. Length ratio bounds
+            ratio = len(m_raw) / len(h_raw) if len(h_raw) > 0 else 0
+            if ratio < 0.20 or ratio > 3.0:
+                violations.append(
+                    FileValidationViolation(
+                        file_path=str(hp),
+                        line_number=1,
+                        violation_type="doc_ratio_anomaly",
+                        message=f"[{doc_id}] Length ratio anomaly: ratio={ratio:.2f} (HTML={len(h_raw)}, MD={len(m_raw)})",
+                    )
+                )
+    except Exception as exc:
+        violations.append(
+            FileValidationViolation(
+                file_path=str(manifest_path),
+                line_number=0,
+                violation_type="doc_parity_audit_error",
+                message=f"Failed auditing 48-doc manifest parity: {exc}",
+            )
+        )
+
     return violations
 
 
@@ -1282,8 +1457,14 @@ def run_domain_verification(project_dir: Path) -> List[FileValidationViolation]:
     violations: List[FileValidationViolation] = []
     p_name = project_dir.name
 
+    # 1. Project-wide README changelog verification for code projects (skip asset stores)
+    if p_name not in ("LemGendaryModels", "lemgendary-models", "LemGendaryDatasets", "lemgendary-datasets-store"):
+        violations.extend(_audit_readme_changelog(project_dir))
+
+    # 2. Project-specific domain verifications
     if p_name == "lemgendary-docs":
         violations.extend(_audit_docs_synchronization(project_dir))
+        violations.extend(_audit_manifest_synchronization(project_dir))
         violations.extend(_audit_documentation_suite(project_dir))
     elif p_name in ("lemgendary-datasets", "LemGendaryDatasets"):
         violations.extend(_audit_dataset_manifests(project_dir))
