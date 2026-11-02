@@ -63,3 +63,19 @@ htmlcov/
 *.log
 logs/
 scratch/
+
+# Secrets and credential files (never commit)
+.secrets.yaml
+.secrets.yaml.bak
+.secrets.yaml.tmp
+.kaggle_token
+.kaggle_users
+.kaggle/
+kaggle.json
+.mt5_credentials
+.huggingface_token
+.GITHUB_PAT
+.SATURN_PAT
+.GOOGLE_DRIVE
+.GOOGLE_DRIVE_JSON
+.env_server/

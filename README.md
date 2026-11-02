@@ -101,6 +101,8 @@ The sidecar service binds to `http://127.0.0.1:8000` by default. Interactive doc
 - `POST /api/validate`: Runs workspace compliance validation suites.
 - `GET /api/manifests`: Retrieves declared manifest contents.
 - `POST /api/manifests/sync`: Synchronizes requirements manifests across projects.
+- `GET /api/secrets`: Lists ecosystem secrets masked: each item has `has_value` and `value_hint` (last 4 characters, empty for values shorter than 8) and never the secret itself. Read-only; when `.secrets.yaml` does not exist yet, items are seeded in memory from legacy credential files (`initialized: false`).
+- `POST /api/secrets`: Write-only save of the full secrets list. An empty or omitted `secret_value` keeps the stored value for the same `id`; a non-empty value replaces it; items left out are removed. A Kaggle token (new or kept) is mandatory. The response never echoes values and includes a `propagation` report (`written`, `skipped`, `failed`) for the legacy Kaggle files.
 - `WS /ws/logs`: Real-time streaming log feed for pipeline and background tasks.
 
 ---
@@ -143,6 +145,20 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.13 - Masked, Write-Only Secrets Vault
+
+- **Masked Secrets API (`env_manager.secrets_vault`)**:
+  - `GET /api/secrets` no longer returns secret values. Each item carries `has_value` and `value_hint` (last 4 characters, empty when the value is shorter than 8). Fixes the secrets exposure part of review finding D-01.
+  - `GET /api/secrets` has no side effects: it no longer creates `.secrets.yaml`. Legacy credential files are read in memory and persisted on the first save.
+  - `POST /api/secrets` is write-only: an empty or omitted `secret_value` keeps the stored value for the same `id`, a non-empty value replaces it. The mandatory Kaggle check counts kept values. The vault file is written atomically with a `.secrets.yaml.bak` backup.
+- **Legacy Credential Propagation (review finding D-02)**:
+  - The default Kaggle token is written only to repositories that read it and ignore it in git (`lemgendary-datasets/.kaggle_token`, `lemgendary-training-suite/.kaggle_token` and `.kaggle_users`); the env manager no longer writes its own `.kaggle_token`.
+  - No hardcoded usernames: entries without a username are skipped (and `kaggle.json` is not written) instead of falling back to a personal account. Seeding no longer invents usernames or an MT5 server.
+  - Write failures are logged and reported in the new `propagation` field (`written`, `skipped`, `failed`) instead of being swallowed by `except OSError: pass`.
+- **Git Hygiene**: `.gitignore` now ignores `.secrets.yaml`, its backup, `.kaggle_token`, `.kaggle_users`, `kaggle.json`, `.mt5_credentials` and the other secret dotfiles.
+- **OpenAPI**: `openapi.json` updated for the masked `GET /api/secrets` and write-only `POST /api/secrets` schemas.
+- **Tests (`tests/test_secrets_vault.py`)**: 15 tests on a temporary workspace covering masking, no GET side effect, keep-on-empty, replace-on-value, Kaggle validation with kept values, no plaintext in responses and propagation reporting.
 
 ### v16.9.12 - Browser Origin Guard & Closed CORS Allow-List
 

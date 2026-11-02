@@ -39,6 +39,14 @@ from env_manager.security import (
     ALLOWED_ORIGINS,
     origin_guard_middleware,
 )
+from env_manager.secrets_vault import (
+    SecretsListResponse,
+    SecretsPayload,
+    SecretsSaveResponse,
+    SecretsStorageError,
+    SecretsValidationError,
+    SecretsVault,
+)
 from env_manager.service_manager import start_all_services, start_service, stop_service
 from env_manager.system_probe import probe_hardware
 from env_manager.utils import purge_project_cache
@@ -530,244 +538,37 @@ async def save_manifest_content(req: ManifestSaveRequest):
 
 # ─── Secrets & Ecosystem Tokens Vault ────────────────────────────────────────
 
-class SecretItem(BaseModel):
-    id: str
-    service: str
-    label: str
-    username: Optional[str] = None
-    secret_value: str
-    server: Optional[str] = None
-    is_default: bool = False
-    created_at: Optional[str] = None
+def _secrets_vault() -> SecretsVault:
+    """Vault rooted at the workspace; Kaggle CLI config lives in the user home."""
+    return SecretsVault(_get_workspace_root(), Path.home() / ".kaggle")
 
 
-class SecretsPayload(BaseModel):
-    secrets: List[SecretItem]
-
-
-def _resolve_secrets_file() -> Path:
-    base_dir = Path(__file__).resolve().parent.parent.parent
-    return base_dir / ".secrets.yaml"
-
-
-def _seed_secrets_from_existing(base_dir: Path) -> List[Dict[str, Any]]:
-    """Seed initial secrets registry from legacy credential files across repositories."""
-    seeds: List[Dict[str, Any]] = []
-
-    # 1. Kaggle users from .kaggle_users in training-suite
-    kaggle_users_file = base_dir / "lemgendary-training-suite" / ".kaggle_users"
-    if kaggle_users_file.exists():
-        try:
-            content = kaggle_users_file.read_text(encoding="utf-8").strip()
-            for line in content.split(";"):
-                line = line.strip()
-                if not line:
-                    continue
-                parts = dict(p.strip().split("=", 1) for p in line.split(",") if "=" in p)
-                u = parts.get("KAGGLE_USERNAME")
-                t = parts.get("KAGGLE_API_TOKEN")
-                if u and t:
-                    seeds.append({
-                        "id": f"kaggle-{u}",
-                        "service": "kaggle",
-                        "label": f"Kaggle ({u})",
-                        "username": u,
-                        "secret_value": t,
-                        "server": None,
-                        "is_default": u == "lemtreursi",
-                    })
-        except Exception as exc:
-            _log.debug("Error parsing .kaggle_users: %s", exc)
-
-    # 2. Google Drive from .GOOGLE_DRIVE in training suite
-    gdrive_file = base_dir / "lemgendary-training-suite" / ".GOOGLE_DRIVE"
-    if gdrive_file.exists():
-        try:
-            key = gdrive_file.read_text(encoding="utf-8").strip()
-            if key:
-                seeds.append({
-                    "id": "gdrive-primary",
-                    "service": "google_drive",
-                    "label": "Google Drive Primary API Key",
-                    "username": "default",
-                    "secret_value": key,
-                    "server": None,
-                    "is_default": True,
-                })
-        except Exception as exc:
-            _log.debug("Error parsing .GOOGLE_DRIVE: %s", exc)
-
-    # 3. GitHub PAT
-    gh_file = base_dir / "lemgendary-training-suite" / ".GITHUB_PAT"
-    if gh_file.exists():
-        try:
-            tok = gh_file.read_text(encoding="utf-8").strip()
-            if tok:
-                seeds.append({
-                    "id": "github-primary",
-                    "service": "github",
-                    "label": "GitHub Personal Access Token",
-                    "username": "lemgenda",
-                    "secret_value": tok,
-                    "server": None,
-                    "is_default": True,
-                })
-        except Exception as exc:
-            _log.debug("Error parsing .GITHUB_PAT: %s", exc)
-
-    # 4. HuggingFace Token
-    hf_file = base_dir / "lemgendary-datasets" / ".huggingface_token"
-    if hf_file.exists():
-        try:
-            tok = hf_file.read_text(encoding="utf-8").strip()
-            if tok:
-                seeds.append({
-                    "id": "huggingface-primary",
-                    "service": "huggingface",
-                    "label": "Hugging Face Access Token",
-                    "username": "lemgenda",
-                    "secret_value": tok,
-                    "server": None,
-                    "is_default": True,
-                })
-        except Exception as exc:
-            _log.debug("Error parsing .huggingface_token: %s", exc)
-
-    # 5. MetaTrader 5
-    mt5_file = base_dir / "lemgendary-datasets" / ".mt5_credentials"
-    if mt5_file.exists():
-        try:
-            lines = mt5_file.read_text(encoding="utf-8").splitlines()
-            u = ""
-            p = ""
-            for l in lines:
-                if l.startswith("User:"):
-                    u = l.split(":", 1)[1].strip()
-                elif l.startswith("Pass:"):
-                    p = l.split(":", 1)[1].strip()
-            if u:
-                seeds.append({
-                    "id": f"mt5-{u}",
-                    "service": "metatrader5",
-                    "label": f"MT5 Account ({u})",
-                    "username": u,
-                    "secret_value": p,
-                    "server": "MetaQuotes-Demo",
-                    "is_default": True,
-                })
-        except Exception as exc:
-            _log.debug("Error parsing .mt5_credentials: %s", exc)
-
-    # 6. Saturn Cloud
-    saturn_file = base_dir / "lemgendary-training-suite" / ".SATURN_PAT"
-    if saturn_file.exists():
-        try:
-            tok = saturn_file.read_text(encoding="utf-8").strip()
-            if tok:
-                seeds.append({
-                    "id": "saturn-primary",
-                    "service": "saturn_cloud",
-                    "label": "Saturn Cloud Bearer Token",
-                    "username": "saturn-user",
-                    "secret_value": tok,
-                    "server": None,
-                    "is_default": True,
-                })
-        except Exception as exc:
-            _log.debug("Error parsing .SATURN_PAT: %s", exc)
-
-    return seeds
-
-
-@app.get("/api/secrets")
-async def get_secrets():
-    """Retrieve all ecosystem secrets, seeding defaults from credential files if uninitialized."""
-    import yaml
-    base_dir = Path(__file__).resolve().parent.parent.parent
-    sec_file = _resolve_secrets_file()
-    if not sec_file.exists():
-        seeds = _seed_secrets_from_existing(base_dir)
-        with open(sec_file, "w", encoding="utf-8") as f:
-            yaml.safe_dump({"secrets": seeds}, f, default_flow_style=False, sort_keys=False)
-        return {"status": "success", "secrets": seeds}
-
+@app.get("/api/secrets", response_model=SecretsListResponse)
+async def get_secrets() -> SecretsListResponse:
+    """List ecosystem secrets masked (``has_value`` and ``value_hint`` only). No side effects."""
+    vault = _secrets_vault()
     try:
-        with open(sec_file, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return {"status": "success", "secrets": data.get("secrets", [])}
-    except Exception as exc:
-        _log.error("Failed loading .secrets.yaml: %s", exc)
-        return {"status": "error", "message": str(exc), "secrets": []}
-
-
-@app.post("/api/secrets")
-async def save_secrets(payload: SecretsPayload):
-    """Save secrets atomically and propagate mandatory tokens to ecosystem files."""
-    import yaml
-    from fastapi import HTTPException
-
-    # Enforce mandatory Kaggle secret
-    has_kaggle = any(s.service.lower() == "kaggle" and s.secret_value.strip() for s in payload.secrets)
-    if not has_kaggle:
-        raise HTTPException(
-            status_code=400,
-            detail="Validation failed: Kaggle API token is mandatory across the LemGendary Ecosystem.",
+        items = vault.list_masked()
+    except SecretsStorageError as exc:
+        _log.error("%s", exc)
+        return SecretsListResponse(
+            status="error", initialized=True, secrets=[], message=str(exc)
         )
+    return SecretsListResponse(
+        status="success", initialized=vault.is_initialized(), secrets=items
+    )
 
-    base_dir = Path(__file__).resolve().parent.parent.parent
-    sec_file = _resolve_secrets_file()
 
-    # Backup existing
-    if sec_file.exists():
-        bak = sec_file.with_suffix(".yaml.bak")
-        bak.write_bytes(sec_file.read_bytes())
-
-    records = [s.model_dump() for s in payload.secrets]
-    with open(sec_file, "w", encoding="utf-8") as f:
-        yaml.safe_dump({"secrets": records}, f, default_flow_style=False, sort_keys=False)
-
-    # Propagate to legacy credentials for seamless backwards compatibility
-    kaggle_items = [s for s in payload.secrets if s.service.lower() == "kaggle"]
-    default_kaggle = next((s for s in kaggle_items if s.is_default), kaggle_items[0] if kaggle_items else None)
-
-    if default_kaggle:
-        for proj in ["lemgendary-datasets", "lemgendary-training-suite", "lemgendary-env-manager"]:
-            tok_f = base_dir / proj / ".kaggle_token"
-            try:
-                tok_f.write_text(default_kaggle.secret_value.strip(), encoding="utf-8")
-            except OSError:
-                pass
-
-        # Update .kaggle_users with default user first
-        sorted_kaggle = [default_kaggle] + [s for s in kaggle_items if s.id != default_kaggle.id]
-        users_line = ";\n".join(
-            f"KAGGLE_USERNAME={s.username or 'lemtreursi'}, KAGGLE_API_TOKEN={s.secret_value.strip()}"
-            for s in sorted_kaggle
-        ) + ";\n"
-        users_f = base_dir / "lemgendary-training-suite" / ".kaggle_users"
-        try:
-            users_f.write_text(users_line, encoding="utf-8")
-        except OSError:
-            pass
-
-        # Sync ~/.kaggle/kaggle.json in clean UTF-8
-        try:
-            kaggle_dir = Path.home() / ".kaggle"
-            kaggle_dir.mkdir(parents=True, exist_ok=True)
-            k_json = kaggle_dir / "kaggle.json"
-            k_data = json.dumps({
-                "username": default_kaggle.username or "lemtreursi",
-                "key": default_kaggle.secret_value.strip(),
-            }, indent=2)
-            k_json.write_text(k_data, encoding="utf-8")
-        except OSError:
-            pass
-
-    return {
-        "status": "success",
-        "count": len(payload.secrets),
-        "message": "Secrets securely persisted and propagated across repositories.",
-    }
+@app.post("/api/secrets", response_model=SecretsSaveResponse)
+async def save_secrets(payload: SecretsPayload) -> SecretsSaveResponse:
+    """Store secrets write-only: an empty ``secret_value`` keeps the stored value for that id."""
+    try:
+        return _secrets_vault().save(payload.secrets)
+    except SecretsValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SecretsStorageError as exc:
+        _log.error("%s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ─── Documentation Hub Offline & Online Metadata ─────────────────────────────
