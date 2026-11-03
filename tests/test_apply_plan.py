@@ -1,5 +1,6 @@
 """The apply phase installs exactly the vetted plan (REVIEW_REPORT D-10)."""
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,7 +40,8 @@ class TestApplyUpgradePlan(unittest.TestCase):
     """``apply_upgrade_plan`` honours the vetted plan."""
 
     def setUp(self) -> None:
-        self.ws = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.ws = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.ws)
         self.batch = patch(
             f"{APPLY}.apply_batch_with_rollback", return_value=(True, "ok", False),
         ).start()
@@ -99,7 +101,8 @@ class TestBatchRollback(unittest.TestCase):
 
     def test_install_failure_rolls_back(self) -> None:
         """A pip install that fails part-way is rolled back."""
-        ws = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        ws = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, ws)
         with patch(f"{APPLY}._snapshot_freeze", return_value="rich==13.0.0\n"), \
                 patch(f"{APPLY}._apply_pip_upgrade", return_value=(False, "boom")), \
                 patch(f"{APPLY}._restore_freeze",

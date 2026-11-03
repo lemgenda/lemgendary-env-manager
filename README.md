@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.56-STABLE)
+# LemGendary Environment Manager (v16.9.57-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -347,6 +347,16 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.57 - Validator-Clean Tests; yamllint Skips Ignored Trees
+
+- `tests/test_apply_plan.py` creates its temporary workspace with
+  `tempfile.mkdtemp()` and an `rmtree` cleanup. The validator's Pylint
+  (env-manager interpreter) reported `consider-using-with` for the
+  `enterContext(TemporaryDirectory())` form.
+- `.yamllint.yaml` sets `ignore-from-file: .gitignore`, so `yamllint .`
+  no longer lints third-party YAML inside an installed `node_modules` or
+  `.venv`.
 
 ### v16.9.56 - Central GUI Manifest Gets @types/node
 

@@ -1,6 +1,9 @@
 ---
 extends: default
 
+# Installed and generated trees (node_modules, .venv) are not project YAML.
+ignore-from-file: .gitignore
+
 rules:
   line-length:
     max: 120
