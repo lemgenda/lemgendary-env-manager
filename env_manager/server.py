@@ -30,7 +30,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from pathlib import Path
-from typing import Annotated, Any, Deque, Dict, List, Optional
+from typing import Annotated, Any
 
 import yaml
 
@@ -101,7 +101,7 @@ _log = logging.getLogger("env_manager.server")
 class ConnectionManager:
     """Tracks open ``/ws/log`` WebSocket clients and broadcasts events to them."""
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         """Accept the WebSocket and start broadcasting to it."""
@@ -113,7 +113,7 @@ class ConnectionManager:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
-    async def broadcast(self, message: Dict[str, Any]):
+    async def broadcast(self, message: dict[str, Any]):
         """Send ``message`` to every client; drop clients whose socket is gone."""
         for connection in list(self.active_connections):
             try:
@@ -127,7 +127,7 @@ manager = ConnectionManager()
 MAX_RECENT_EVENTS = 200
 """Pipeline events kept in memory for status and WebSocket replay."""
 
-recent_events: Deque[Dict[str, Any]] = deque(maxlen=MAX_RECENT_EVENTS)
+recent_events: deque[dict[str, Any]] = deque(maxlen=MAX_RECENT_EVENTS)
 _event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 orchestrator = PipelineOrchestrator()
 
@@ -176,7 +176,7 @@ app.add_middleware(origin_guard_middleware)
 
 class RunPipelineRequest(BaseModel):
     """Body of ``POST /api/pipeline/run``."""
-    target_project: Optional[str] = None
+    target_project: str | None = None
     # Destructive opt-in: deletes every venv and node_modules and stops
     # processes running from those venvs. Omitted means a safe run.
     clean: bool = False
@@ -185,24 +185,24 @@ class RunPipelineRequest(BaseModel):
 class RunStepRequest(BaseModel):
     """Body of ``POST /api/pipeline/run-step``."""
     step_number: int
-    target_project: Optional[str] = None
+    target_project: str | None = None
     clean: bool = False
 
 
 
 class CleanRequest(BaseModel):
     """Body of ``POST /api/clean``; no project means every project."""
-    project: Optional[str] = None
+    project: str | None = None
 
 
 class ValidateRequest(BaseModel):
     """Body of ``POST /api/validate``; no project means every project."""
-    project: Optional[str] = None
+    project: str | None = None
 
 
 class UpdateRequest(BaseModel):
     """Body of ``POST /api/update``."""
-    project: Optional[str] = None
+    project: str | None = None
     dry_run: bool = False
 
 
@@ -257,7 +257,7 @@ async def get_drift(
         lambda: run_full_health_audit(include_safety=include_safety),
     )
 
-    python_drift: List[Dict[str, Any]] = []
+    python_drift: list[dict[str, Any]] = []
     for entry in report.version_drift:
         python_drift.append({
             "package_name": entry.package_name,
@@ -285,12 +285,12 @@ async def get_drift(
             "projects_declared": entry.projects_declared,
         })
 
-    coverage: List[Dict[str, Any]] = [c.to_dict() for c in report.manifest_coverage]
-    single_manifest: List[Dict[str, Any]] = [
+    coverage: list[dict[str, Any]] = [c.to_dict() for c in report.manifest_coverage]
+    single_manifest: list[dict[str, Any]] = [
         s.to_dict() for s in report.single_manifest_packages
     ]
 
-    npm_drift: List[Dict[str, Any]] = []
+    npm_drift: list[dict[str, Any]] = []
     for entry in report.npm_drift:
         npm_drift.append({
             "package_name": entry.package_name,
@@ -345,7 +345,7 @@ async def get_pipeline_status():
 
 
 def _run_pipeline_worker(
-    target_project: Optional[str],
+    target_project: str | None,
     clean: bool,
     loop: asyncio.AbstractEventLoop,
 ):
@@ -378,7 +378,7 @@ async def run_pipeline(request: RunPipelineRequest):
 
 def _run_step_worker(
     step_number: int,
-    target_project: Optional[str],
+    target_project: str | None,
     clean: bool,
     loop: asyncio.AbstractEventLoop,
 ):
@@ -421,7 +421,7 @@ async def run_pipeline_step(request: RunStepRequest):
 def _broadcast_from_thread(loop: asyncio.AbstractEventLoop):
     """Return a sink that worker threads use to publish WebSocket events."""
 
-    def _publish(ev_dict: Dict[str, Any]) -> None:
+    def _publish(ev_dict: dict[str, Any]) -> None:
         asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
 
     return _publish
@@ -433,7 +433,7 @@ update_jobs = UpdateJobManager(
 
 
 @app.post("/api/update")
-async def run_update(request: Optional[UpdateRequest] = None):
+async def run_update(request: UpdateRequest | None = None):
     """Start safe bottom-up package upgrades as a background job.
 
     A dry run returns the plan. A real run returns at once with
@@ -517,7 +517,7 @@ class ManifestSaveRequest(BaseModel):
     content: str
 
 
-def _resolve_manifest_target(name: str) -> Optional[Path]:
+def _resolve_manifest_target(name: str) -> Path | None:
     root = workspace_root()
     manifest_map = {
         "unified_data.yaml": root / "lemgendary-datasets" / "unified_data.yaml",
@@ -764,7 +764,7 @@ async def get_docs_status():
 
 
 @app.post("/api/clean")
-async def clean_artifacts(request: Optional[CleanRequest] = None):
+async def clean_artifacts(request: CleanRequest | None = None):
     """Purge bytecode caches and build artifacts; report the space reclaimed."""
     base_dir = workspace_root()
     projects = discover_projects(base_dir)
@@ -788,7 +788,7 @@ async def clean_artifacts(request: Optional[CleanRequest] = None):
 
 
 @app.post("/api/validate")
-async def validate_codebase(request: Optional[ValidateRequest] = None):
+async def validate_codebase(request: ValidateRequest | None = None):
     """Run the full validation suite on one or every project."""
     base_dir = workspace_root()
     projects = discover_projects(base_dir)
@@ -813,11 +813,11 @@ async def validate_codebase(request: Optional[ValidateRequest] = None):
 
 class HooksInstallRequest(BaseModel):
     """Body of ``POST /api/hooks/install``; no project means every project."""
-    project: Optional[str] = None
+    project: str | None = None
 
 
 @app.post("/api/hooks/install")
-async def install_hooks_endpoint(request: Optional[HooksInstallRequest] = None):
+async def install_hooks_endpoint(request: HooksInstallRequest | None = None):
     """Install or repair standardized pre-commit hooks across all ecosystem projects."""
     base_dir = workspace_root()
     target_project = request.project if request else None
@@ -841,7 +841,7 @@ async def install_hooks_endpoint(request: Optional[HooksInstallRequest] = None):
     }
 
 
-def _probe_sidecar(url: str, timeout: float = 1.5) -> Dict[str, Any]:
+def _probe_sidecar(url: str, timeout: float = 1.5) -> dict[str, Any]:
     """Probe an external HTTP sidecar endpoint cleanly with a brief timeout."""
     req = urllib.request.Request(url, headers={"User-Agent": "LemGendary-Env-Manager"})
     try:

@@ -9,7 +9,8 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional
+from typing import Any
+from collections.abc import Callable, Generator
 
 from env_manager._logging import get_logger
 from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, wait_or_kill
@@ -23,11 +24,11 @@ class NpmDependencyDetail:
     """Detailed information for a single NPM package dependency."""
     name: str
     declared_version: str
-    installed_version: Optional[str]
+    installed_version: str | None
     is_dev: bool
     is_installed: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -37,18 +38,18 @@ class NpmPackageStatus:
     """Status of an NPM package file."""
     location: str
     package_json_path: str
-    dependencies: Dict[str, str]
-    dev_dependencies: Dict[str, str]
+    dependencies: dict[str, str]
+    dev_dependencies: dict[str, str]
     node_modules_present: bool
-    detailed_packages: List[NpmDependencyDetail]
-    audit_summary: Optional[str] = None
+    detailed_packages: list[NpmDependencyDetail]
+    audit_summary: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
-def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
+def check_npm_package(package_dir: Path) -> NpmPackageStatus | None:
     """Inspect package.json at a given directory."""
     pkg_json_file = package_dir / "package.json"
     if not pkg_json_file.exists():
@@ -64,7 +65,7 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
         nm_dir = package_dir / "node_modules"
         node_modules = nm_dir.exists()
 
-        detailed_pkgs: List[NpmDependencyDetail] = []
+        detailed_pkgs: list[NpmDependencyDetail] = []
 
         def _inspect_pkg(name: str, decl_ver: str, is_dev: bool):
             inst_ver = None
@@ -135,7 +136,7 @@ def stream_npm_install(
             env=pip_env(),
             creationflags=WINDOWS_NO_WINDOW,
         ) as proc:
-            lines: List[str] = []
+            lines: list[str] = []
             if proc.stdout:
                 try:
                     for raw_line in iter(proc.stdout.readline, ""):
@@ -159,7 +160,7 @@ def stream_npm_install(
 
 def run_npm_install(
     package_dir: Path,
-    on_line: Optional[Callable[[str], None]] = None,
+    on_line: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Execute npm install in the given directory."""
     gen = stream_npm_install(package_dir)
@@ -172,7 +173,7 @@ def run_npm_install(
         return stop.value
 
 
-def audit_npm_workspaces(base_dir: Optional[Path] = None) -> List[NpmPackageStatus]:
+def audit_npm_workspaces(base_dir: Path | None = None) -> list[NpmPackageStatus]:
     """Audit all known NPM package directories in the LemGendary ecosystem."""
     if base_dir is None:
         base_dir = workspace_root()
@@ -182,7 +183,7 @@ def audit_npm_workspaces(base_dir: Optional[Path] = None) -> List[NpmPackageStat
         base_dir / "lemgendary-ai-studio-gui",
     ]
 
-    results: List[NpmPackageStatus] = []
+    results: list[NpmPackageStatus] = []
     for d in target_dirs:
         if d.exists() and d.is_dir():
             status = check_npm_package(d)

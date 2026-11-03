@@ -23,7 +23,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import psutil
 
@@ -52,16 +52,16 @@ class AcceleratorDevice:
     name: str
     total_memory_mb: int
     backend: str
-    driver_version: Optional[str] = None
-    compute_capability: Optional[str] = None
+    driver_version: str | None = None
+    compute_capability: str | None = None
 
 
 @dataclass
 class MetaTrader5Info:
     """MetaTrader 5 terminal installation details."""
     installed: bool
-    version: Optional[str] = None
-    install_path: Optional[str] = None
+    version: str | None = None
+    install_path: str | None = None
     update_available: bool = False
 
 
@@ -78,11 +78,11 @@ class HardwareProfile:
     cpu_count_physical: int
     total_ram_mb: int
     primary_backend: str
-    accelerators: List[AcceleratorDevice]
+    accelerators: list[AcceleratorDevice]
     recommended_torch_index: str
-    metatrader5: Optional[MetaTrader5Info] = None
+    metatrader5: MetaTrader5Info | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -98,9 +98,9 @@ def _preferred_shell() -> str:
 
 # ─── GPU probes ─────────────────────────────────────────────────────────────
 
-def probe_nvidia_smi() -> List[AcceleratorDevice]:
+def probe_nvidia_smi() -> list[AcceleratorDevice]:
     """Probe NVIDIA GPUs using nvidia-smi if available."""
-    devices: List[AcceleratorDevice] = []
+    devices: list[AcceleratorDevice] = []
     nvidia_smi_path = shutil.which("nvidia-smi")
     if not nvidia_smi_path:
         return devices
@@ -143,9 +143,9 @@ def probe_nvidia_smi() -> List[AcceleratorDevice]:
     return devices
 
 
-def probe_rocm_smi() -> List[AcceleratorDevice]:
+def probe_rocm_smi() -> list[AcceleratorDevice]:
     """Probe AMD GPUs using rocm-smi if available."""
-    devices: List[AcceleratorDevice] = []
+    devices: list[AcceleratorDevice] = []
     rocm_smi_path = shutil.which("rocm-smi")
     if not rocm_smi_path:
         return devices
@@ -175,9 +175,9 @@ def probe_rocm_smi() -> List[AcceleratorDevice]:
     return devices
 
 
-def probe_directml() -> List[AcceleratorDevice]:
+def probe_directml() -> list[AcceleratorDevice]:
     """Probe DirectML compatible devices on Windows."""
-    devices: List[AcceleratorDevice] = []
+    devices: list[AcceleratorDevice] = []
     if platform.system().lower() != "windows":
         return devices
 
@@ -227,7 +227,7 @@ def probe_directml() -> List[AcceleratorDevice]:
 
 # ─── MetaTrader 5 detection ─────────────────────────────────────────────────
 
-def _read_exe_version(exe_path: Path) -> Optional[str]:
+def _read_exe_version(exe_path: Path) -> str | None:
     """Extract FileVersion from a Windows PE executable in-process without spawning consoles."""
     if not exe_path.is_file():
         return None
@@ -281,7 +281,7 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
     return None
 
 
-def _mt5_registry_probe() -> Optional[MetaTrader5Info]:
+def _mt5_registry_probe() -> MetaTrader5Info | None:
     """Query Windows registry for MetaTrader 5. Fast (~5ms).
 
     MT5 registers under several possible keys depending on installer
@@ -305,8 +305,8 @@ def _mt5_registry_probe() -> Optional[MetaTrader5Info]:
         try:
             with winreg.OpenKey(hive, key_path) as key:
                 subkey = winreg.EnumKey(key, 0)
-                version: Optional[str] = None
-                origin_path: Optional[str] = None
+                version: str | None = None
+                origin_path: str | None = None
 
                 try:
                     with winreg.OpenKey(hive, f"{key_path}\\{subkey}") as sub:
@@ -345,7 +345,7 @@ def _mt5_registry_probe() -> Optional[MetaTrader5Info]:
     return None
 
 
-def _mt5_known_paths_probe() -> Optional[MetaTrader5Info]:
+def _mt5_known_paths_probe() -> MetaTrader5Info | None:
     """Check well-known install locations for the MT5 terminal binary."""
     prog_files = os.environ.get("ProgramFiles", r"C:\Program Files")
     prog_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
@@ -371,7 +371,7 @@ def _mt5_known_paths_probe() -> Optional[MetaTrader5Info]:
     return None
 
 
-def _mt5_get_package_probe(timeout: int = 45) -> Optional[MetaTrader5Info]:
+def _mt5_get_package_probe(timeout: int = 45) -> MetaTrader5Info | None:
     """Fallback MT5 probe using PackageManagement's Get-Package."""
     shell = _preferred_shell()
     cmd = [
@@ -458,7 +458,7 @@ def probe_metatrader5() -> MetaTrader5Info:
     return MetaTrader5Info(installed=False)
 
 
-def select_cuda_torch_index(driver_version: Optional[str]) -> str:
+def select_cuda_torch_index(driver_version: str | None) -> str:
     """Select modern PyTorch wheel index matching host NVIDIA driver."""
     if not driver_version:
         return "https://download.pytorch.org/whl/cu126"
@@ -489,7 +489,7 @@ def probe_hardware() -> HardwareProfile:
     cpu_physical = psutil.cpu_count(logical=False) or 1
     ram_mb = int(psutil.virtual_memory().total / (1024 * 1024))
 
-    accelerators: List[AcceleratorDevice] = []
+    accelerators: list[AcceleratorDevice] = []
 
     # Priority 1: CUDA
     cuda_devices = probe_nvidia_smi()

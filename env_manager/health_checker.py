@@ -9,7 +9,7 @@ import json
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from packaging.markers import (
     InvalidMarker,
@@ -42,14 +42,14 @@ MIN_SHARED_DECLARATIONS = 2
 """A package counts as shared, and is drift-checked, when this many manifests declare it."""
 
 # Packages that exist in every fresh venv; excluded from coverage math.
-_BOOTSTRAP_NORMALIZED: Set[str] = {"pip", "wheel", "setuptools", "pkg-resources"}
+_BOOTSTRAP_NORMALIZED: set[str] = {"pip", "wheel", "setuptools", "pkg-resources"}
 
 # Packages served by the PyTorch index; must be checked against it rather
 # than PyPI when a CUDA/ROCm backend is available.
-_TORCH_FAMILY_NORMALIZED: Set[str] = {"torch", "torchvision", "torchaudio"}
+_TORCH_FAMILY_NORMALIZED: set[str] = {"torch", "torchvision", "torchaudio"}
 
 # OpenCV distributions that satisfy the 'cv2' runtime namespace.
-_OPENCV_VARIANTS_NORMALIZED: Set[str] = {
+_OPENCV_VARIANTS_NORMALIZED: set[str] = {
     "opencv-python",
     "opencv-python-headless",
     "opencv-contrib-python",
@@ -65,14 +65,14 @@ class ProjectHealth:
     name: str
     project_dir: str
     venv_exists: bool
-    python_version: Optional[str]
+    python_version: str | None
     total_required: int
     total_installed: int
-    missing_packages: List[str]
-    installed_packages: Dict[str, str]
+    missing_packages: list[str]
+    installed_packages: dict[str, str]
     is_healthy: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -82,9 +82,9 @@ class PinInfo:
     """How a single package is pinned in a project's manifest."""
     pin_type: str          # "exact" | "range" | "floating" | "transitive" | "absent"
     specifier: str
-    installed: Optional[str] = None
+    installed: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -92,10 +92,10 @@ class PinInfo:
 @dataclass
 class ProjectManifest:
     """Parsed view of a project's requirements.txt."""
-    pins: Dict[str, PinInfo] = field(default_factory=dict)
-    platform_skipped: List[str] = field(default_factory=list)
+    pins: dict[str, PinInfo] = field(default_factory=dict)
+    platform_skipped: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the pins and the platform-skipped package list as a dict."""
         return {
             "pins": {k: v.to_dict() for k, v in self.pins.items()},
@@ -106,17 +106,17 @@ class ProjectManifest:
 @dataclass
 class UpgradeStatus:
     """Per-project upgrade status for a single package."""
-    current: Optional[str]
-    latest: Optional[str]
+    current: str | None
+    latest: str | None
     safe: bool
-    reason: Optional[str] = None
+    reason: str | None = None
 
     @property
     def is_outdated(self) -> bool:
         """True when a newer version than the installed one is known."""
         return self.latest is not None and self.latest != self.current
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -125,14 +125,14 @@ class UpgradeStatus:
 class VersionDriftEntry:
     """Package version comparison across projects, with pin and safety info."""
     package_name: str
-    versions: Dict[str, Optional[str]]
-    pins: Dict[str, PinInfo]
-    upgrades: Dict[str, UpgradeStatus]
+    versions: dict[str, str | None]
+    pins: dict[str, PinInfo]
+    upgrades: dict[str, UpgradeStatus]
     has_drift: bool
     has_pin_mismatch: bool
     projects_declared: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a dict, with each project's upgrade status serialized."""
         d = asdict(self)
         d["upgrades"] = {
@@ -147,11 +147,11 @@ class ManifestCoverageEntry:
     project_name: str
     declared_count: int
     installed_count: int
-    missing: List[str]           # declared but not installed
-    extra: List[str]             # installed but not declared (transitive)
-    platform_skipped: List[str]  # declared but skipped by an OS-specific marker
+    missing: list[str]           # declared but not installed
+    extra: list[str]             # installed but not declared (transitive)
+    platform_skipped: list[str]  # declared but skipped by an OS-specific marker
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -161,11 +161,11 @@ class SingleManifestEntry:
     """A package declared in exactly one manifest (drift-matrix invisible)."""
     package_name: str
     project: str
-    installed_version: Optional[str]
+    installed_version: str | None
     pin_type: str
     specifier: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -174,12 +174,12 @@ class SingleManifestEntry:
 class NpmDriftEntry:
     """Package version comparison for npm workspaces."""
     package_name: str
-    versions: Dict[str, Optional[str]]
-    specifiers: Dict[str, Optional[str]]
+    versions: dict[str, str | None]
+    specifiers: dict[str, str | None]
     has_drift: bool
     is_dev_dependency: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -189,15 +189,15 @@ class HealthAuditReport:
     """Comprehensive ecosystem health audit report."""
     bootstrap: BootstrapStatus
     hardware: HardwareProfile
-    projects: List[ProjectHealth]
-    version_drift: List[VersionDriftEntry]
-    manifest_coverage: List[ManifestCoverageEntry]
-    single_manifest_packages: List[SingleManifestEntry]
-    npm_packages: List[NpmPackageStatus]
-    npm_drift: List[NpmDriftEntry]
+    projects: list[ProjectHealth]
+    version_drift: list[VersionDriftEntry]
+    manifest_coverage: list[ManifestCoverageEntry]
+    single_manifest_packages: list[SingleManifestEntry]
+    npm_packages: list[NpmPackageStatus]
+    npm_drift: list[NpmDriftEntry]
     overall_healthy: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -262,7 +262,7 @@ def _load_project_manifest(req_file: Path) -> ProjectManifest:
 
 # Keep the old name as a thin compatibility shim for callers that only
 # need the pin map.
-def _load_project_pins(req_file: Path) -> Dict[str, PinInfo]:
+def _load_project_pins(req_file: Path) -> dict[str, PinInfo]:
     return _load_project_manifest(req_file).pins
 
 
@@ -270,9 +270,9 @@ def _load_project_pins(req_file: Path) -> Dict[str, PinInfo]:
 
 def _classify_torch_via_cuda_index(
     project_dir: Path,
-    current_state: Dict[str, str],
+    current_state: dict[str, str],
     cuda_index_url: str,
-) -> Dict[str, UpgradeStatus]:
+) -> dict[str, UpgradeStatus]:
     """Resolve torch-family upgrade candidates against the CUDA index."""
     candidates, reason = _check_torch_cuda_upgrades(
         project_dir, cuda_index_url, current_state,
@@ -280,7 +280,7 @@ def _classify_torch_via_cuda_index(
     if not candidates:
         _log.debug("No CUDA torch candidates for %s: %s", project_dir, reason)
 
-    result: Dict[str, UpgradeStatus] = {}
+    result: dict[str, UpgradeStatus] = {}
     for pkg in candidates:
         result[normalize_package_name(pkg.name)] = UpgradeStatus(
             current=pkg.current_version,
@@ -293,14 +293,14 @@ def _classify_torch_via_cuda_index(
 
 def _classify_project_upgrades(
     project: ProjectHealth,
-    cuda_index_url: Optional[str] = None,
-) -> Dict[str, UpgradeStatus]:
+    cuda_index_url: str | None = None,
+) -> dict[str, UpgradeStatus]:
     """Return {normalized_name: UpgradeStatus} for outdated packages."""
     p_dir = Path(project.project_dir)
     if not project.venv_exists:
         return {}
 
-    raw: List[OutdatedPackage] = find_outdated_packages(p_dir)
+    raw: list[OutdatedPackage] = find_outdated_packages(p_dir)
     if not raw:
         return {}
 
@@ -313,7 +313,7 @@ def _classify_project_upgrades(
         if normalize_package_name(p.name) not in _TORCH_FAMILY_NORMALIZED
     ]
 
-    result: Dict[str, UpgradeStatus] = {}
+    result: dict[str, UpgradeStatus] = {}
 
     if non_torch_raw:
         safe, blocked = classify_safe_upgrades(
@@ -371,7 +371,7 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
         normalize_package_name(k): v for k, v in installed.items()
     }
 
-    missing: List[str] = []
+    missing: list[str] = []
     total_required = 0
 
     if project_info.is_node_project:
@@ -428,20 +428,20 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
 # ─── Drift computation ──────────────────────────────────────────────────────
 
 def compute_version_drift(
-    projects: List[ProjectHealth],
-    cuda_index_url: Optional[str] = None,
+    projects: list[ProjectHealth],
+    cuda_index_url: str | None = None,
     include_safety: bool = True,
-) -> List[VersionDriftEntry]:
+) -> list[VersionDriftEntry]:
     """Identify version discrepancies, pin mismatches, and safe upgrades."""
     if not projects:
         return []
 
-    project_pins: Dict[str, Dict[str, PinInfo]] = {}
+    project_pins: dict[str, dict[str, PinInfo]] = {}
     for p in projects:
         req_file = Path(p.project_dir) / "requirements.txt"
         project_pins[p.name] = _load_project_pins(req_file)
 
-    declaration_counts: Dict[str, int] = {}
+    declaration_counts: dict[str, int] = {}
     for pins in project_pins.values():
         for name in pins.keys():
             declaration_counts[name] = declaration_counts.get(name, 0) + 1
@@ -450,20 +450,20 @@ def compute_version_drift(
         name for name, count in declaration_counts.items() if count >= MIN_SHARED_DECLARATIONS
     )
 
-    upgrade_map: Dict[str, Dict[str, UpgradeStatus]] = {}
+    upgrade_map: dict[str, dict[str, UpgradeStatus]] = {}
     if include_safety:
         for p in projects:
             upgrade_map[p.name] = _classify_project_upgrades(
                 p, cuda_index_url=cuda_index_url,
             )
 
-    entries: List[VersionDriftEntry] = []
+    entries: list[VersionDriftEntry] = []
     for pkg in shared_packages:
-        versions: Dict[str, Optional[str]] = {}
-        pins: Dict[str, PinInfo] = {}
-        upgrades: Dict[str, UpgradeStatus] = {}
-        pin_types: Set[str] = set()
-        observed_versions: Set[str] = set()
+        versions: dict[str, str | None] = {}
+        pins: dict[str, PinInfo] = {}
+        upgrades: dict[str, UpgradeStatus] = {}
+        pin_types: set[str] = set()
+        observed_versions: set[str] = set()
 
         for p in projects:
             pin = project_pins.get(p.name, {}).get(pkg)
@@ -476,15 +476,14 @@ def compute_version_drift(
                     installed=installed_ver,
                 )
                 pin_types.add(pin.pin_type)
+            elif installed_ver:
+                pins[p.name] = PinInfo(
+                    pin_type="transitive", specifier="", installed=installed_ver,
+                )
             else:
-                if installed_ver:
-                    pins[p.name] = PinInfo(
-                        pin_type="transitive", specifier="", installed=installed_ver,
-                    )
-                else:
-                    pins[p.name] = PinInfo(
-                        pin_type="absent", specifier="", installed=None,
-                    )
+                pins[p.name] = PinInfo(
+                    pin_type="absent", specifier="", installed=None,
+                )
 
             versions[p.name] = installed_ver
             if installed_ver:
@@ -521,10 +520,10 @@ def compute_version_drift(
 # ─── Coverage & single-manifest ─────────────────────────────────────────────
 
 def compute_manifest_coverage(
-    projects: List[ProjectHealth],
-) -> List[ManifestCoverageEntry]:
+    projects: list[ProjectHealth],
+) -> list[ManifestCoverageEntry]:
     """Reconcile every manifest's declared set against its installed set."""
-    entries: List[ManifestCoverageEntry] = []
+    entries: list[ManifestCoverageEntry] = []
 
     for p in projects:
         manifest = _load_project_manifest(Path(p.project_dir) / "requirements.txt")
@@ -559,20 +558,20 @@ def compute_manifest_coverage(
 
 
 def compute_single_manifest_packages(
-    projects: List[ProjectHealth],
-) -> List[SingleManifestEntry]:
+    projects: list[ProjectHealth],
+) -> list[SingleManifestEntry]:
     """Return every package declared in exactly one manifest."""
     project_manifests = {
         p.name: _load_project_manifest(Path(p.project_dir) / "requirements.txt")
         for p in projects
     }
 
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for manifest in project_manifests.values():
         for name in manifest.pins.keys():
             counts[name] = counts.get(name, 0) + 1
 
-    entries: List[SingleManifestEntry] = []
+    entries: list[SingleManifestEntry] = []
     for p in projects:
         manifest = project_manifests[p.name]
         installed_norm = {
@@ -597,7 +596,7 @@ def compute_single_manifest_packages(
 
 # ─── NPM drift ──────────────────────────────────────────────────────────────
 
-def _read_json_object(path: Path) -> Dict[str, Any]:
+def _read_json_object(path: Path) -> dict[str, Any]:
     """Return the JSON object stored at ``path``, or ``{}`` when unavailable.
 
     A missing file is an expected condition and returns ``{}`` silently. An
@@ -616,8 +615,8 @@ def _read_json_object(path: Path) -> Dict[str, Any]:
     return data
 
 
-def _read_node_modules_versions(workspace_dir: Path) -> Dict[str, str]:
-    installed: Dict[str, str] = {}
+def _read_node_modules_versions(workspace_dir: Path) -> dict[str, str]:
+    installed: dict[str, str] = {}
     node_modules = workspace_dir / "node_modules"
     if not node_modules.is_dir():
         return installed
@@ -644,9 +643,9 @@ def _read_node_modules_versions(workspace_dir: Path) -> Dict[str, str]:
 
 def _read_package_json_specifiers(
     workspace_dir: Path,
-) -> Tuple[Dict[str, str], Set[str]]:
-    specifiers: Dict[str, str] = {}
-    dev_names: Set[str] = set()
+) -> tuple[dict[str, str], set[str]]:
+    specifiers: dict[str, str] = {}
+    dev_names: set[str] = set()
     pkg_json = workspace_dir / "package.json"
     data = _read_json_object(pkg_json)
     if not data:
@@ -661,9 +660,9 @@ def _read_package_json_specifiers(
     return specifiers, dev_names
 
 
-def compute_npm_drift(base_dir: Path) -> List[NpmDriftEntry]:
+def compute_npm_drift(base_dir: Path) -> list[NpmDriftEntry]:
     """Identify version drift for npm packages across workspaces."""
-    workspaces: List[Path] = []
+    workspaces: list[Path] = []
     if base_dir and base_dir.is_dir():
         for child in base_dir.iterdir():
             if not child.is_dir():
@@ -674,9 +673,9 @@ def compute_npm_drift(base_dir: Path) -> List[NpmDriftEntry]:
     if not workspaces:
         return []
 
-    workspace_versions: Dict[str, Dict[str, str]] = {}
-    workspace_specifiers: Dict[str, Dict[str, str]] = {}
-    workspace_dev: Dict[str, Set[str]] = {}
+    workspace_versions: dict[str, dict[str, str]] = {}
+    workspace_specifiers: dict[str, dict[str, str]] = {}
+    workspace_dev: dict[str, set[str]] = {}
 
     for ws in workspaces:
         workspace_versions[ws.name] = _read_node_modules_versions(ws)
@@ -684,7 +683,7 @@ def compute_npm_drift(base_dir: Path) -> List[NpmDriftEntry]:
         workspace_specifiers[ws.name] = specifiers
         workspace_dev[ws.name] = dev_names
 
-    declaration_counts: Dict[str, int] = {}
+    declaration_counts: dict[str, int] = {}
     for spec_map in workspace_specifiers.values():
         for name in spec_map:
             declaration_counts[name] = declaration_counts.get(name, 0) + 1
@@ -693,11 +692,11 @@ def compute_npm_drift(base_dir: Path) -> List[NpmDriftEntry]:
         name for name, count in declaration_counts.items() if count >= MIN_SHARED_DECLARATIONS
     )
 
-    entries: List[NpmDriftEntry] = []
+    entries: list[NpmDriftEntry] = []
     for pkg in shared:
-        versions: Dict[str, Optional[str]] = {}
-        specs: Dict[str, Optional[str]] = {}
-        observed: Set[str] = set()
+        versions: dict[str, str | None] = {}
+        specs: dict[str, str | None] = {}
+        observed: set[str] = set()
         is_dev = False
 
         for ws in workspaces:
@@ -735,9 +734,9 @@ _PIN_GLYPH = {
 
 
 def _format_cell(
-    version: Optional[str],
-    pin: Optional[PinInfo],
-    upgrade: Optional[UpgradeStatus],
+    version: str | None,
+    pin: PinInfo | None,
+    upgrade: UpgradeStatus | None,
 ) -> str:
     """Format one drift-matrix cell."""
     if not version:
@@ -754,9 +753,9 @@ def _format_cell(
     return base
 
 
-def render_drift_matrix(entries: List[VersionDriftEntry]) -> Table:
+def render_drift_matrix(entries: list[VersionDriftEntry]) -> Table:
     """Return a Rich Table showing Python drift, pins, and upgrade status."""
-    projects: List[str] = []
+    projects: list[str] = []
     for e in entries:
         for name in e.versions.keys():
             if name not in projects:
@@ -770,7 +769,7 @@ def render_drift_matrix(entries: List[VersionDriftEntry]) -> Table:
     table.add_column("Safe ↑", justify="center", no_wrap=True)
 
     for entry in entries:
-        row: List[str] = [entry.package_name]
+        row: list[str] = [entry.package_name]
         safe_count = 0
         for proj in projects:
             ver = entry.versions.get(proj)
@@ -791,7 +790,7 @@ def render_drift_matrix(entries: List[VersionDriftEntry]) -> Table:
 
 
 def render_manifest_coverage_table(
-    entries: List[ManifestCoverageEntry],
+    entries: list[ManifestCoverageEntry],
 ) -> Table:
     """Return a Rich Table showing declared-vs-installed coverage per project."""
     table = Table(
@@ -828,7 +827,7 @@ def render_manifest_coverage_table(
 
 
 def render_single_manifest_table(
-    entries: List[SingleManifestEntry],
+    entries: list[SingleManifestEntry],
 ) -> Table:
     """Return a Rich Table showing packages declared in only one manifest."""
     table = Table(
@@ -850,9 +849,9 @@ def render_single_manifest_table(
     return table
 
 
-def render_npm_drift_matrix(entries: List[NpmDriftEntry]) -> Table:
+def render_npm_drift_matrix(entries: list[NpmDriftEntry]) -> Table:
     """Return a Rich Table showing npm workspace drift."""
-    workspaces: List[str] = []
+    workspaces: list[str] = []
     for e in entries:
         for name in e.versions.keys():
             if name not in workspaces:
@@ -866,7 +865,7 @@ def render_npm_drift_matrix(entries: List[NpmDriftEntry]) -> Table:
     table.add_column("Kind", justify="center", no_wrap=True)
 
     for entry in entries:
-        row: List[str] = [entry.package_name]
+        row: list[str] = [entry.package_name]
         for ws in workspaces:
             ver = entry.versions.get(ws)
             spec = entry.specifiers.get(ws)
@@ -888,7 +887,7 @@ def render_npm_drift_matrix(entries: List[NpmDriftEntry]) -> Table:
 # ─── Full audit ─────────────────────────────────────────────────────────────
 
 def run_full_health_audit(
-    base_dir: Optional[Path] = None,
+    base_dir: Path | None = None,
     include_safety: bool = True,
 ) -> HealthAuditReport:
     """Execute complete health audit across all projects and host system."""
@@ -896,7 +895,7 @@ def run_full_health_audit(
     hardware = probe_hardware()
     discovered = discover_projects(base_dir)
 
-    projects_health: List[ProjectHealth] = []
+    projects_health: list[ProjectHealth] = []
     for d in discovered:
         health = audit_project_health(d)
         projects_health.append(health)

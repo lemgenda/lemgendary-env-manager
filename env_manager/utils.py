@@ -11,7 +11,8 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import IO, Callable, Dict, Generator, List, Optional, Tuple
+from typing import IO
+from collections.abc import Callable, Generator
 
 from env_manager._logging import get_logger
 
@@ -32,7 +33,7 @@ def get_subprocess_creation_flags() -> int:
 
 # ─── Environment for pip subprocesses ───────────────────────────────────────
 
-def pip_env(no_cache: bool = False) -> Dict[str, str]:
+def pip_env(no_cache: bool = False) -> dict[str, str]:
     """Return an environment for pip subprocesses that is safe on Windows.
 
     Two Windows-specific pitfalls are handled here:
@@ -63,7 +64,7 @@ def pip_env(no_cache: bool = False) -> Dict[str, str]:
 
 # ─── Cache-corruption detection ─────────────────────────────────────────────
 
-_CACHE_CORRUPTION_MARKERS: Tuple[str, ...] = (
+_CACHE_CORRUPTION_MARKERS: tuple[str, ...] = (
     "access violation",
     "Retry(total=",
     "after connection broken",
@@ -145,7 +146,7 @@ def wait_or_kill(proc: subprocess.Popen, timeout: float) -> int:
 
 def stream_pip_with_recovery(
     python_path: Path,
-    args: List[str],
+    args: list[str],
     timeout: int = 1800,
     max_attempts: int = 2,
 ) -> Generator[str, None, subprocess.CompletedProcess]:
@@ -158,9 +159,9 @@ def stream_pip_with_recovery(
     warnings (for example ``WARNING: Ignoring invalid distribution``)
     corrupting it, and ``stderr`` holds pip's warnings and errors.
     """
-    cmd = [str(python_path), "-m", "pip"] + args
+    cmd = [str(python_path), "-m", "pip", *args]
 
-    last_proc: Optional[subprocess.CompletedProcess] = None
+    last_proc: subprocess.CompletedProcess | None = None
     for attempt in range(1, max_attempts + 1):
         use_no_cache = attempt > 1
         output_lines: list[str] = []
@@ -252,10 +253,10 @@ def stream_pip_with_recovery(
 
 def run_pip_with_recovery(
     python_path: Path,
-    args: List[str],
+    args: list[str],
     timeout: int = 1800,
     max_attempts: int = 2,
-    on_line: Optional[Callable[[str], None]] = None,
+    on_line: Callable[[str], None] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run ``python -m pip <args>`` with cache-first, no-cache-on-retry logic.
 
@@ -286,7 +287,7 @@ def run_pip_with_recovery(
 
 # ─── Cache / bytecode cleaning ──────────────────────────────────────────────
 
-def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
+def purge_project_cache(project_dir: Path) -> tuple[int, int]:
     """Purge __pycache__ and bytecode artifacts from a project directory, ignoring .venv."""
     cleaned_count = 0
     total_reclaimed = 0
@@ -323,9 +324,9 @@ def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
 # ─── Simple subprocess runner ───────────────────────────────────────────────
 
 def run_command_simple(
-    cmd: List[str],
+    cmd: list[str],
     timeout: int = 5,
-    cwd: Optional[Path] = None,
+    cwd: Path | None = None,
     use_pip_env: bool = False,
 ) -> subprocess.CompletedProcess:
     """Execute a simple subprocess with consistent timeout and capture defaults.

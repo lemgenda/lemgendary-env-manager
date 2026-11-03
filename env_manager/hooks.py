@@ -7,7 +7,6 @@ individual verification scripts.
 
 from pathlib import Path
 import subprocess
-from typing import List, Optional, Tuple
 
 from env_manager.utils import WINDOWS_NO_WINDOW
 from env_manager.workspace import workspace_root
@@ -51,9 +50,9 @@ exit 0
 
 
 def install_git_hooks(
-    base_dir: Optional[Path] = None,
-    target_project: Optional[str] = None,
-) -> List[Tuple[str, bool, str]]:
+    base_dir: Path | None = None,
+    target_project: str | None = None,
+) -> list[tuple[str, bool, str]]:
     """Install or update standardized pre-commit hooks across ecosystem projects.
 
     Returns a list of tuples: (project_name, success, message)
@@ -61,7 +60,7 @@ def install_git_hooks(
     if base_dir is None:
         base_dir = workspace_root()
 
-    results: List[Tuple[str, bool, str]] = []
+    results: list[tuple[str, bool, str]] = []
 
     # Target directories
     candidate_projects = [

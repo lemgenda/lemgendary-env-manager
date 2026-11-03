@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from env_manager._logging import get_logger
 from env_manager.system_probe import probe_metatrader5
@@ -40,10 +40,10 @@ class SoftwareUpdateInfo:
     rather than "unknown".
     """
     name: str
-    current_version: Optional[str]
-    latest_version: Optional[str]
+    current_version: str | None
+    latest_version: str | None
     update_available: bool
-    install_command: Optional[str] = None
+    install_command: str | None = None
     source_tracked: bool = True
 
 
@@ -56,24 +56,24 @@ class BootstrapStatus:
     pip_installed: bool
     venv_available: bool
     git_installed: bool
-    git_version: Optional[str]
+    git_version: str | None
     npm_installed: bool
-    npm_version: Optional[str]
+    npm_version: str | None
     mt5_installed: bool
-    mt5_version: Optional[str]
-    mt5_path: Optional[str]
-    missing_prerequisites: List[str]
-    remediation_instructions: List[str]
-    software_updates: List[SoftwareUpdateInfo]
+    mt5_version: str | None
+    mt5_path: str | None
+    missing_prerequisites: list[str]
+    remediation_instructions: list[str]
+    software_updates: list[SoftwareUpdateInfo]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
 # ─── Toolchain probes ───────────────────────────────────────────────────────
 
-def check_git() -> Tuple[bool, Optional[str]]:
+def check_git() -> tuple[bool, str | None]:
     """Check if git is installed and return version."""
     git_path = shutil.which("git")
     if not git_path:
@@ -92,7 +92,7 @@ def check_git() -> Tuple[bool, Optional[str]]:
     return False, None
 
 
-def check_npm() -> Tuple[bool, Optional[str]]:
+def check_npm() -> tuple[bool, str | None]:
     """Check if npm is installed and return version."""
     npm_path = shutil.which("npm")
     if not npm_path:
@@ -121,7 +121,7 @@ def check_venv() -> bool:
         return False
 
 
-def check_metatrader5() -> Tuple[bool, Optional[str], Optional[str]]:
+def check_metatrader5() -> tuple[bool, str | None, str | None]:
     """Detect MetaTrader 5 (returns: installed, version, path).
 
     Delegates to :func:`env_manager.system_probe.probe_metatrader5`, which
@@ -135,7 +135,7 @@ def check_metatrader5() -> Tuple[bool, Optional[str], Optional[str]]:
 
 # ─── winget invocation ─────────────────────────────────────────────────────
 
-def _winget_command_prefix() -> Optional[List[str]]:
+def _winget_command_prefix() -> list[str] | None:
     """Return the command prefix for invoking winget, or None if unavailable.
 
     On Windows, ``shutil.which("winget")`` returns the App Execution Alias
@@ -159,9 +159,9 @@ def _winget_command_prefix() -> Optional[List[str]]:
 
 
 def _run_winget(
-    args: List[str],
+    args: list[str],
     timeout: int = 30,
-) -> Optional[subprocess.CompletedProcess]:
+) -> subprocess.CompletedProcess | None:
     """Invoke winget with the correct prefix and encoding.
 
     Returns the CompletedProcess on success, or None if winget could not
@@ -205,7 +205,7 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text or "")
 
 
-def _parse_winget_list_version(stdout: str, pkg_id: str) -> Optional[str]:
+def _parse_winget_list_version(stdout: str, pkg_id: str) -> str | None:
     """Extract the installed version of ``pkg_id`` from ``winget list`` output."""
     text = _strip_ansi(stdout)
     pkg_lower = pkg_id.lower()
@@ -236,7 +236,7 @@ def _parse_winget_list_version(stdout: str, pkg_id: str) -> Optional[str]:
     return None
 
 
-def _parse_winget_show_version(stdout: str) -> Optional[str]:
+def _parse_winget_show_version(stdout: str) -> str | None:
     """Extract the ``Version: X.Y.Z`` line from ``winget show`` output."""
     text = _strip_ansi(stdout)
     for line in text.splitlines():
@@ -246,10 +246,10 @@ def _parse_winget_show_version(stdout: str) -> Optional[str]:
     return None
 
 
-def _winget_query_versions(pkg_id: str) -> Tuple[Optional[str], Optional[str]]:
+def _winget_query_versions(pkg_id: str) -> tuple[str | None, str | None]:
     """Return (installed_version, available_version) for a winget package."""
-    installed: Optional[str] = None
-    available: Optional[str] = None
+    installed: str | None = None
+    available: str | None = None
 
     list_proc = _run_winget(
         ["list", "--id", pkg_id, "--exact", "--accept-source-agreements"],
@@ -270,7 +270,7 @@ def _winget_query_versions(pkg_id: str) -> Tuple[Optional[str], Optional[str]]:
 
 # ─── winget update check ───────────────────────────────────────────────────
 
-def check_winget_updates() -> List[SoftwareUpdateInfo]:
+def check_winget_updates() -> list[SoftwareUpdateInfo]:
     """Check for available software updates via winget for Python and MetaTrader 5.
 
     For each target package:
@@ -286,7 +286,7 @@ def check_winget_updates() -> List[SoftwareUpdateInfo]:
       the package as "installed, not tracked by winget" rather than
       collapsing it to "unknown".
     """
-    updates: List[SoftwareUpdateInfo] = []
+    updates: list[SoftwareUpdateInfo] = []
     if platform.system().lower() != "windows":
         return updates
 
@@ -355,7 +355,7 @@ def check_winget_updates() -> List[SoftwareUpdateInfo]:
 
 # ─── winget install ────────────────────────────────────────────────────────
 
-def install_software(name: str) -> Tuple[bool, str]:
+def install_software(name: str) -> tuple[bool, str]:
     """Download and silently install a software package via winget."""
     if platform.system().lower() != "windows":
         return False, "Automated software installation is only supported on Windows."
@@ -380,12 +380,9 @@ def install_software(name: str) -> Tuple[bool, str]:
 
     try:
         proc = subprocess.run(
-            prefix + [
-                "install",
-                "--id", pkg_id,
-                "--silent",
-                "--accept-source-agreements",
-                "--accept-package-agreements",
+            [
+                *prefix, "install", "--id", pkg_id, "--silent",
+                "--accept-source-agreements", "--accept-package-agreements",
             ],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=900, check=False,
@@ -419,8 +416,8 @@ def verify_prerequisites() -> BootstrapStatus:
     mt5_installed, mt5_version, mt5_path = check_metatrader5()
     software_updates = check_winget_updates()
 
-    missing: List[str] = []
-    instructions: List[str] = []
+    missing: list[str] = []
+    instructions: list[str] = []
     current_os = platform.system().lower()
 
     if not python_valid:

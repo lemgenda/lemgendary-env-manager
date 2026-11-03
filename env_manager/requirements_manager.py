@@ -18,7 +18,7 @@ import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -36,21 +36,21 @@ class ParsedRequirement:
     raw_line: str
     name: str
     specifier: str
-    marker: Optional[str] = None
+    marker: str | None = None
     is_editable: bool = False
     is_index_url: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert entry to dictionary."""
         return asdict(self)
 
 
-def parse_requirements_file(file_path: Path) -> List[ParsedRequirement]:
+def parse_requirements_file(file_path: Path) -> list[ParsedRequirement]:
     """Parse requirements file into structured entries."""
     if not file_path.exists():
         return []
 
-    results: List[ParsedRequirement] = []
+    results: list[ParsedRequirement] = []
     lines = file_path.read_text(encoding="utf-8").splitlines()
 
     for line in lines:
@@ -288,7 +288,7 @@ def sync_manifest_to_project(
         return False, f"Failed to synchronize manifest: {exc}"
 
 
-def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool, str]]:
+def sync_all_manifests(base_dir: Path | None = None) -> dict[str, tuple[bool, str]]:
     """Synchronize all centralized manifests to their respective sibling projects."""
     if base_dir is None:
         base_dir = workspace_root()
@@ -303,7 +303,7 @@ def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool,
         "lemgendary-docs": manifests_dir / "requirements-documentation.txt",
     }
 
-    results: Dict[str, tuple[bool, str]] = {}
+    results: dict[str, tuple[bool, str]] = {}
     for proj_name, manifest in mapping.items():
         proj_dir = base_dir / proj_name
         if proj_dir.exists() and proj_dir.is_dir():

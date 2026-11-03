@@ -2,7 +2,6 @@
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 import uvicorn
@@ -293,7 +292,7 @@ def audit(
 
 @app.command()
 def install(
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Target specific project"),
     clean: bool = typer.Option(
         False,
         "--clean",
@@ -328,7 +327,7 @@ def install(
 
 @app.command()
 def update(
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Target specific project"),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show what would be upgraded without applying"
     ),
@@ -496,7 +495,7 @@ def _print_violations(rep: ProjectValidationReport) -> None:
 
 @app.command()
 def validate(
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Target specific project"),
 ):
     """Run full validation.
 
@@ -574,7 +573,7 @@ def validate(
 
 @app.command("clean")
 def clean_command(
-    project: Optional[str] = typer.Option(
+    project: str | None = typer.Option(
         None, "--project", "-p", help="Target specific project to clean"
     ),
 ):
@@ -618,7 +617,7 @@ def serve(
 
 @app.command(name="setup-hooks")
 def setup_hooks(
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Target specific project"),
 ):
     """Install or repair standardized pre-commit hooks across all ecosystem projects."""
     console.print(
@@ -643,7 +642,7 @@ def setup_hooks(
 
 @app.command(name="hooks")
 def hooks_command(
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
+    project: str | None = typer.Option(None, "--project", "-p", help="Target specific project"),
 ):
     """Install or repair pre-commit hooks in every ecosystem project (alias of ``setup-hooks``)."""
     setup_hooks(project=project)

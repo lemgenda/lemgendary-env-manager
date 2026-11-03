@@ -33,7 +33,7 @@ import tempfile
 import unittest
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -82,7 +82,7 @@ class FileValidationViolation:
     violation_type: str
     message: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -92,17 +92,17 @@ class ProjectValidationReport:
     """Validation report for a project."""
     project_name: str
     compiled_files_count: int
-    compile_errors: List[FileValidationViolation]
-    emoji_violations: List[FileValidationViolation]
-    lint_errors: List[FileValidationViolation]
-    yaml_errors: List[FileValidationViolation]
-    json_errors: List[FileValidationViolation]
-    html_errors: List[FileValidationViolation]
-    wcag_violations: List[FileValidationViolation]
-    domain_errors: List[FileValidationViolation]
+    compile_errors: list[FileValidationViolation]
+    emoji_violations: list[FileValidationViolation]
+    lint_errors: list[FileValidationViolation]
+    yaml_errors: list[FileValidationViolation]
+    json_errors: list[FileValidationViolation]
+    html_errors: list[FileValidationViolation]
+    wcag_violations: list[FileValidationViolation]
+    domain_errors: list[FileValidationViolation]
     passed: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -137,9 +137,9 @@ EMOJI_PATTERN = re.compile(
 
 # ─── Python compilation & emoji scan ────────────────────────────────────────
 
-def scan_file_for_emojis(file_path: Path) -> List[FileValidationViolation]:
+def scan_file_for_emojis(file_path: Path) -> list[FileValidationViolation]:
     """Audit single file for emoji presence."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
         for idx, line in enumerate(content.splitlines(), start=1):
@@ -164,7 +164,7 @@ def scan_file_for_emojis(file_path: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def compile_python_file(file_path: Path) -> Optional[FileValidationViolation]:
+def compile_python_file(file_path: Path) -> FileValidationViolation | None:
     """Compile single Python file and catch syntax errors."""
     try:
         py_compile.compile(str(file_path), doraise=True)
@@ -189,7 +189,7 @@ def compile_python_file(file_path: Path) -> Optional[FileValidationViolation]:
 
 # ─── Python-y tooling (yamllint) ────────────────────────────────────────────
 
-def _get_env_manager_python() -> Optional[str]:
+def _get_env_manager_python() -> str | None:
     """Return the path to the env-manager .venv Python executable."""
     env_mgr_dir = ENV_MANAGER_DIR
     if platform.system().lower() == "windows":
@@ -201,9 +201,9 @@ def _get_env_manager_python() -> Optional[str]:
     return sys.executable  # fallback to current interpreter
 
 
-def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
+def run_yamllint(project_dir: Path) -> list[FileValidationViolation]:
     """Run yamllint on all YAML files in the project using env-manager venv."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     python_path = _get_env_manager_python()
     if not python_path:
         return violations
@@ -290,9 +290,9 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
 
 # ─── JSON lint ──────────────────────────────────────────────────────────────
 
-def run_jsonlint(project_dir: Path) -> List[FileValidationViolation]:
+def run_jsonlint(project_dir: Path) -> list[FileValidationViolation]:
     """Audit all JSON configuration and manifest files for syntax and structure errors."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
         ".pytest_cache", "raw-sets", "checkpoints", "weights", ".agents", "data",
@@ -331,11 +331,11 @@ def run_jsonlint(project_dir: Path) -> List[FileValidationViolation]:
 # ─── Tool resolution ────────────────────────────────────────────────────────
 
 def _resolve_tool_cmd(
-    tool_name: str, npx_pkg: str, project_dir: Optional[Path] = None,
-) -> List[str]:
+    tool_name: str, npx_pkg: str, project_dir: Path | None = None,
+) -> list[str]:
     """Resolve local binary from project or env-manager node_modules/.bin, else npx."""
     mgr_dir = ENV_MANAGER_DIR
-    candidate_dirs: List[Path] = []
+    candidate_dirs: list[Path] = []
     if project_dir and (project_dir / "node_modules" / ".bin").exists():
         candidate_dirs.append(project_dir / "node_modules" / ".bin")
     candidate_dirs.append(mgr_dir / "node_modules" / ".bin")
@@ -364,9 +364,9 @@ def _resolve_tool_cmd(
 
 # ─── Markdown / ESLint / TypeScript ─────────────────────────────────────────
 
-def run_markdownlint(project_dir: Path) -> List[FileValidationViolation]:
+def run_markdownlint(project_dir: Path) -> list[FileValidationViolation]:
     """Run markdownlint-cli on Markdown files using local binary or npx."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
 
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
@@ -425,14 +425,14 @@ def run_markdownlint(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
+def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
     """Run ESLint on JS/TS source files for a Node.js project.
 
     Uses ``--format json`` so parsing is exact. The previous compact-format
     regex + broad "any line with ' error '" fallback produced false positives
     from unrelated tool output (Browserslist warnings, deprecation notices).
     """
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
 
     eslint_cfg = (
         project_dir / ".eslintrc.json",
@@ -449,7 +449,8 @@ def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
     lint_target = str(src_dir) if src_dir.exists() else str(project_dir)
 
     try:
-        cmd = _resolve_tool_cmd("eslint", "eslint", project_dir=project_dir) + [
+        cmd = [
+            *_resolve_tool_cmd("eslint", "eslint", project_dir=project_dir),
             lint_target,
             "--ext", ".js,.jsx,.ts,.tsx",
             "--format", "json",
@@ -500,16 +501,16 @@ def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def run_typescript_check(project_dir: Path) -> List[FileValidationViolation]:
+def run_typescript_check(project_dir: Path) -> list[FileValidationViolation]:
     """Run tsc --noEmit for TypeScript projects."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
 
     tsconfig = project_dir / "tsconfig.json"
     if not tsconfig.exists():
         return violations
 
     try:
-        cmd = _resolve_tool_cmd("tsc", "typescript", project_dir=project_dir) + ["--noEmit"]
+        cmd = [*_resolve_tool_cmd("tsc", "typescript", project_dir=project_dir), "--noEmit"]
         proc = subprocess.run(
             cmd,
             cwd=str(project_dir),
@@ -540,9 +541,9 @@ def run_typescript_check(project_dir: Path) -> List[FileValidationViolation]:
 
 # ─── HTML / CSS / WCAG ──────────────────────────────────────────────────────
 
-def run_html_validate(project_dir: Path) -> List[FileValidationViolation]:
+def run_html_validate(project_dir: Path) -> list[FileValidationViolation]:
     """Run html-validate (W3C HTML validator) on static HTML files."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
 
     html_files = [
         f for f in project_dir.rglob("*.html")
@@ -585,9 +586,9 @@ def run_html_validate(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
+def run_pa11y_wcag(project_dir: Path) -> list[FileValidationViolation]:
     """Run pa11y WCAG 2.2 AA accessibility audit against static HTML files."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
 
     html_files = [
         f for f in project_dir.rglob("*.html")
@@ -600,7 +601,8 @@ def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
     audit_targets = [f for f in html_files if f.name == "index.html"] or html_files[:1]
     for html_file in audit_targets:
         try:
-            cmd = _resolve_tool_cmd("pa11y", "pa11y") + [
+            cmd = [
+                *_resolve_tool_cmd("pa11y", "pa11y"),
                 "--standard", "WCAG2AA",
                 "--reporter", "cli",
                 f"file:///{html_file.as_posix()}",
@@ -616,14 +618,10 @@ def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
                 creationflags=WINDOWS_NO_WINDOW,
             )
             combined = proc.stdout + proc.stderr
-            current_issue: Optional[str] = None
-            for line in combined.splitlines():
-                line = line.strip()
-                if (
-                    line.startswith("Error:")
-                    or line.startswith("Warning:")
-                    or line.startswith("Notice:")
-                ):
+            current_issue: str | None = None
+            for raw_line in combined.splitlines():
+                line = raw_line.strip()
+                if line.startswith(("Error:", "Warning:", "Notice:")):
                     current_issue = line
                 elif current_issue and line.startswith("("):
                     violations.append(
@@ -643,7 +641,7 @@ def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
 
 # ─── PowerShell (PSScriptAnalyzer) ──────────────────────────────────────────
 
-def parse_pssa_line(line: str) -> Optional[FileValidationViolation]:
+def parse_pssa_line(line: str) -> FileValidationViolation | None:
     """Parse one tab-separated ``path, line, severity, message`` record, or return None."""
     parts = line.strip().split("\t", PSSA_FIELD_COUNT - 1)
     if len(parts) != PSSA_FIELD_COUNT:
@@ -662,7 +660,7 @@ def parse_pssa_line(line: str) -> Optional[FileValidationViolation]:
     )
 
 
-def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
+def run_psscriptanalyzer(project_dir: Path) -> list[FileValidationViolation]:
     """Run PSScriptAnalyzer on all PowerShell scripts in the project.
 
     Prefers ``pwsh`` (PowerShell 7) when available. Writes the file list to a
@@ -670,7 +668,7 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
     which was prone to hitting the Windows ``CreateProcess`` 32K-character
     limit on projects with many scripts.
     """
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     if platform.system().lower() != "windows":
         return violations
 
@@ -730,7 +728,7 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
         combined = proc.stdout + proc.stderr
         if (
             "CommandNotFoundException" in combined
-            or "Invoke-ScriptAnalyzer" in combined and "is not recognized" in combined.lower()
+            or ("Invoke-ScriptAnalyzer" in combined and "is not recognized" in combined.lower())
         ):
             _log.debug(
                 "PSScriptAnalyzer not installed. Install via: "
@@ -755,7 +753,7 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
 
 # ─── Domain verification ────────────────────────────────────────────────────
 
-def _tokenize_text(text: str) -> List[str]:
+def _tokenize_text(text: str) -> list[str]:
     text = re.sub(r"https?://\S+", "", text)
     text = re.sub(r"\$\$[\s\S]*?\$\$", " ", text)
     text = re.sub(r"\$[^\$]+?\$", " ", text)
@@ -763,13 +761,13 @@ def _tokenize_text(text: str) -> List[str]:
     return [w.lower() for w in re.findall(r"\b[a-zA-Z0-9_]{2,}\b", text)]
 
 
-def _extract_md_sections(md_text: str) -> Dict[str, str]:
+def _extract_md_sections(md_text: str) -> dict[str, str]:
     md_text = re.sub(r"<!--.*?-->", "", md_text, flags=re.DOTALL)
     md_text = re.sub(r"```.*?```", "", md_text, flags=re.DOTALL)
     md_text = re.sub(r"!\[.*?\]\(.*?\)", "", md_text)
     md_text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", md_text)
     chunks = re.split(r"\n##\s+", md_text)
-    sections: Dict[str, str] = {}
+    sections: dict[str, str] = {}
     for c in chunks[1:]:
         lines = c.split("\n")
         title = lines[0].strip()
@@ -779,8 +777,8 @@ def _extract_md_sections(md_text: str) -> Dict[str, str]:
     return sections
 
 
-def _extract_html_sections(soup: Any) -> Dict[str, str]:
-    sections: Dict[str, str] = {}
+def _extract_html_sections(soup: Any) -> dict[str, str]:
+    sections: dict[str, str] = {}
     for s in soup.find_all("section"):
         h = s.find(["h2", "h1"])
         if h:
@@ -789,9 +787,9 @@ def _extract_html_sections(soup: Any) -> Dict[str, str]:
     return sections
 
 
-def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
+def _audit_readme_changelog(project_dir: Path) -> list[FileValidationViolation]:
     """Verify that README.md has an updated changelog if any project files have been modified."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     readme_path = project_dir / "README.md"
 
     # Inspect git status of working directory
@@ -808,7 +806,7 @@ def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
             creationflags=WINDOWS_NO_WINDOW,
         )
         status_lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-        modified_files: List[str] = []
+        modified_files: list[str] = []
         for line in status_lines:
             path_part = line[2:].strip()
             if " -> " in path_part:
@@ -887,9 +885,9 @@ def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolation]:
+def _audit_manifest_synchronization(docs_dir: Path) -> list[FileValidationViolation]:
     """Check that documents.json and both canonical_capabilities files agree."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     doc_m_path = docs_dir / "manifest" / "documents.json"
     cap_j_path = docs_dir / "canonical_capabilities.json"
     cap_y_path = docs_dir / "canonical_capabilities.yaml"
@@ -924,11 +922,11 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
 
     if doc_m_path.exists() and cap_j_path.exists() and cap_y_path.exists():
         try:
-            with open(doc_m_path, "r", encoding="utf-8") as f:
+            with open(doc_m_path, encoding="utf-8") as f:
                 dj = json.load(f)
-            with open(cap_j_path, "r", encoding="utf-8") as f:
+            with open(cap_j_path, encoding="utf-8") as f:
                 cj = json.load(f)
-            with open(cap_y_path, "r", encoding="utf-8") as f:
+            with open(cap_y_path, encoding="utf-8") as f:
                 cy = yaml.safe_load(f)
 
             d_base = dj.get("document_baseline")
@@ -989,15 +987,15 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
     return violations
 
 
-def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]:
+def _audit_docs_synchronization(docs_dir: Path) -> list[FileValidationViolation]:
     """Check heading, table and length parity between each Markdown paper and its HTML twin."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     manifest_path = docs_dir / "manifest" / "documents.json"
     if not manifest_path.exists():
         return violations
 
     try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
+        with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
 
         for doc in manifest.get("documents", []):
@@ -1108,9 +1106,9 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
     return violations
 
 
-def _audit_documentation_suite(docs_dir: Path) -> List[FileValidationViolation]:
+def _audit_documentation_suite(docs_dir: Path) -> list[FileValidationViolation]:
     """Execute the comprehensive 20-rule documentation test suite in lemgendary-docs/tests."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     tests_dir = docs_dir / "tests"
     if not tests_dir.exists():
         return violations
@@ -1144,9 +1142,9 @@ def _audit_documentation_suite(docs_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]:
+def _audit_dataset_manifests(project_dir: Path) -> list[FileValidationViolation]:
     """Verify dataset manifest schema correctness and manifold metadata integrity."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     unified_yaml = project_dir / "unified_data.yaml"
     if unified_yaml.exists():
         try:
@@ -1316,9 +1314,9 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
     return violations
 
 
-def _audit_models_hub(project_dir: Path) -> List[FileValidationViolation]:
+def _audit_models_hub(project_dir: Path) -> list[FileValidationViolation]:
     """Verify model directory integrity, checkpoints, and zero residue."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     root_readme = project_dir / "README.md"
     if not root_readme.exists():
         violations.append(
@@ -1383,9 +1381,9 @@ def _audit_models_hub(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def _audit_training_suite(project_dir: Path) -> List[FileValidationViolation]:
+def _audit_training_suite(project_dir: Path) -> list[FileValidationViolation]:
     """Verify training suite configuration and neural model registry."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     v2_models = project_dir / "unified_models_v2.yaml"
     if v2_models.exists():
         try:
@@ -1420,9 +1418,9 @@ def _audit_training_suite(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
+def _audit_git_hooks(project_dir: Path) -> list[FileValidationViolation]:
     """Verify that git hooks do not reference retired scripts or nonexistent files."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     hook_dirs = [project_dir / ".githooks", project_dir / ".git" / "hooks"]
 
     retired_scripts = {
@@ -1496,9 +1494,9 @@ def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
     return violations
 
 
-def run_domain_verification(project_dir: Path) -> List[FileValidationViolation]:
+def run_domain_verification(project_dir: Path) -> list[FileValidationViolation]:
     """Execute specialized domain gate checks tailored to each repository."""
-    violations: List[FileValidationViolation] = []
+    violations: list[FileValidationViolation] = []
     p_name = project_dir.name
 
     # 1. Project-wide README changelog verification for code projects (skip asset stores)
@@ -1523,14 +1521,14 @@ def run_domain_verification(project_dir: Path) -> List[FileValidationViolation]:
 
 def validate_project(project_dir: Path, is_node_project: bool = False) -> ProjectValidationReport:
     """Execute complete validation suite across all files in a project."""
-    compile_errors: List[FileValidationViolation] = []
-    emoji_violations: List[FileValidationViolation] = []
-    lint_errors: List[FileValidationViolation] = []
-    yaml_errors: List[FileValidationViolation] = []
-    json_errors: List[FileValidationViolation] = []
-    html_errors: List[FileValidationViolation] = []
-    wcag_violations: List[FileValidationViolation] = []
-    domain_errors: List[FileValidationViolation] = []
+    compile_errors: list[FileValidationViolation] = []
+    emoji_violations: list[FileValidationViolation] = []
+    lint_errors: list[FileValidationViolation] = []
+    yaml_errors: list[FileValidationViolation] = []
+    json_errors: list[FileValidationViolation] = []
+    html_errors: list[FileValidationViolation] = []
+    wcag_violations: list[FileValidationViolation] = []
+    domain_errors: list[FileValidationViolation] = []
     compiled_count = 0
 
     scannable_extensions = {

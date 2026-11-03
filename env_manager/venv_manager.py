@@ -10,7 +10,8 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable, Generator
 
 import psutil
 
@@ -26,7 +27,7 @@ from env_manager.workspace import workspace_root
 _log = get_logger(__name__)
 
 
-OPENCV_VARIANTS: Tuple[str, ...] = (
+OPENCV_VARIANTS: tuple[str, ...] = (
     "opencv-python",
     "opencv-python-headless",
     "opencv-contrib-python",
@@ -40,15 +41,15 @@ class ProjectVenvInfo:
     name: str
     project_dir: str
     venv_dir: str
-    python_path: Optional[str]
+    python_path: str | None
     is_valid: bool
-    python_version: Optional[str] = None
+    python_version: str | None = None
     installed_packages_count: int = 0
     is_node_project: bool = False
     node_modules_present: bool = False
     has_npm_manifest: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
@@ -78,7 +79,7 @@ def is_venv_valid(project_dir: Path) -> bool:
         return False
 
 
-def get_venv_python_version(project_dir: Path) -> Optional[str]:
+def get_venv_python_version(project_dir: Path) -> str | None:
     """Return the venv interpreter version, or None when the venv is invalid."""
     if not is_venv_valid(project_dir):
         return None
@@ -123,7 +124,7 @@ def _is_inside_active_venv(venv_dir: Path) -> bool:
         return False
 
 
-def find_processes_in_venv(venv_dir: Path) -> List[Any]:
+def find_processes_in_venv(venv_dir: Path) -> list[Any]:
     """Find all active processes whose executable or working directory is inside the venv."""
     procs = []
     try:
@@ -141,7 +142,7 @@ def find_processes_in_venv(venv_dir: Path) -> List[Any]:
     return procs
 
 
-def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[bool, List[int]]:
+def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> tuple[bool, list[int]]:
     """Terminate any active processes locking files inside the virtual environment."""
     procs = find_processes_in_venv(venv_dir)
     if not procs:
@@ -191,7 +192,7 @@ def _remove_existing_venv(project_dir: Path, venv_dir: Path) -> str | None:
     return None
 
 
-def _build_venv(project_dir: Path, venv_dir: Path) -> Tuple[bool, str]:
+def _build_venv(project_dir: Path, venv_dir: Path) -> tuple[bool, str]:
     """Create ``venv_dir`` with the base interpreter and upgrade pip, wheel and setuptools."""
     base_python = getattr(sys, "_base_executable", sys.executable)
     proc = subprocess.run(
@@ -214,7 +215,7 @@ def _build_venv(project_dir: Path, venv_dir: Path) -> Tuple[bool, str]:
     return True, "Virtual environment created and upgraded successfully."
 
 
-def create_venv(project_dir: Path) -> Tuple[bool, str]:
+def create_venv(project_dir: Path) -> tuple[bool, str]:
     """(Re)create ``project_dir/.venv``; refuses to replace the running interpreter's venv."""
     venv_dir = project_dir / ".venv"
 
@@ -238,7 +239,7 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-def get_installed_packages(project_dir: Path) -> Dict[str, str]:
+def get_installed_packages(project_dir: Path) -> dict[str, str]:
     """Return ``{name: version}`` for the venv's packages, or ``{}`` when invalid."""
     if not is_venv_valid(project_dir):
         return {}
@@ -265,9 +266,9 @@ def get_installed_packages(project_dir: Path) -> Dict[str, str]:
 def stream_install_requirements(
     project_dir: Path,
     requirements_file: Path,
-    extra_index_url: Optional[str] = None,
+    extra_index_url: str | None = None,
     timeout: int = 1800,
-) -> Generator[str, None, Tuple[bool, str]]:
+) -> Generator[str, None, tuple[bool, str]]:
     """Install a requirements file into the project venv, yielding output lines in real time."""
     if not is_venv_valid(project_dir):
         return False, f"Virtual environment at {project_dir} is invalid or missing."
@@ -286,10 +287,10 @@ def stream_install_requirements(
 def install_requirements(
     project_dir: Path,
     requirements_file: Path,
-    extra_index_url: Optional[str] = None,
+    extra_index_url: str | None = None,
     timeout: int = 1800,
-    on_line: Optional[Callable[[str], None]] = None,
-) -> Tuple[bool, str]:
+    on_line: Callable[[str], None] | None = None,
+) -> tuple[bool, str]:
     """Install a requirements file into the project venv.
 
     Uses :func:`stream_install_requirements` so a corrupted download or stale
@@ -315,7 +316,7 @@ def normalize_opencv_variant(
     project_dir: Path,
     desired_variant: str,
     timeout: int = 900,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Force a single OpenCV provider inside a project venv.
 
     The uninstall + force-reinstall cycle on Windows is slow because each
@@ -365,7 +366,7 @@ def normalize_opencv_variant(
     )
 
 
-def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
+def discover_projects(base_dir: Path | None = None) -> list[ProjectVenvInfo]:
     """Find the known projects under ``base_dir`` and describe each one's environment."""
     if base_dir is None:
         base_dir = workspace_root()
@@ -378,7 +379,7 @@ def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
     ]
     node_projects = ["lemgendary-ai-studio-gui"]
 
-    discovered: List[ProjectVenvInfo] = []
+    discovered: list[ProjectVenvInfo] = []
 
     for proj_name in python_projects:
         p_dir = base_dir / proj_name

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.26-STABLE)
+# LemGendary Environment Manager (v16.9.27-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.27 - Ruff Clean
+
+- `ruff check .` reports 0 diagnostics (it reported 360). The only Ruff ignores left are the size checks `PLR0912`, `PLR0913` and `PLR0915`, which go with the module splits in step L8.
+- Annotations use built-in generics and `X | None` (`UP006`, `UP045`); `Callable`, `Generator` and friends come from `collections.abc` (`UP035`); redundant `"r"` modes are gone (`UP015`).
+- Command lists are built with unpacking (`[*prefix, "install", ...]`) instead of list concatenation (`RUF005`); `__all__` is sorted; an `else: if` in the drift matrix is an `elif`; the pa11y parser no longer rebinds its loop variable and checks prefixes with one `startswith` tuple.
+- The test stub for the pipeline `emit` callback takes `data` and `is_progress` as keyword-only arguments, like the real callback.
 
 ### v16.9.26 - Pyright Covers the Tests
 
