@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -13,6 +14,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import SELF_SERVICE_ID, ecosystem
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.workspace import ENV_MANAGER_DIR, workspace_root
 
@@ -53,88 +55,86 @@ class ManifestSaveRequest(BaseModel):
     content: str
 
 
+@dataclass(frozen=True)
+class ManifestTarget:
+    """An editable manifest: its file name, owning project and project-relative path."""
+
+    name: str
+    project: str
+    relative_path: str
+    format: str
+    description: str
+
+    def describe(self) -> dict[str, str]:
+        """The public fields listed by ``/api/manifests/registry``."""
+        return {
+            "name": self.name, "project": self.project,
+            "format": self.format, "description": self.description,
+        }
+
+
+_SERVICE_MANIFESTS: tuple[tuple[str, str, str, str], ...] = (
+    ("dataset-compiler", "unified_data.yaml", "unified_data.yaml",
+     "Authoritative dataset and source repository registry."),
+    ("training-suite", "unified_models_v2.yaml", "unified_models_v2.yaml",
+     "Neural architecture registry and training hyperparameters."),
+    ("training-suite", "config.yaml", "config.yaml",
+     "Global training execution and hardware governor configuration."),
+    ("training-suite", "presets.yaml", "presets.yaml",
+     "Canonical training and evaluation preset profiles."),
+    (SELF_SERVICE_ID, "runtime_env.yaml", "requirements/runtime_env.yaml",
+     "Runtime platform specifications and dependency matrices."),
+)
+"""Registries and configs kept by one service's project: ``(service id, name, path, text)``."""
+
+
+def manifest_targets() -> list[ManifestTarget]:
+    """Every editable manifest; project folders and manifest names come from ``ecosystem.json``."""
+    eco = ecosystem()
+    targets = [
+        ManifestTarget(
+            name, eco.require_service(service_id).project, path,
+            "yaml", description,
+        )
+        for service_id, name, path, description in _SERVICE_MANIFESTS
+    ]
+    targets.extend(
+        ManifestTarget(
+            p.requirements_manifest, p.folder, "requirements.txt", "text",
+            f"{p.display_name} Python dependency manifest.",
+        )
+        for p in eco.projects if p.requirements_manifest
+    )
+    targets.extend(
+        ManifestTarget(
+            "package.json", p.folder, "package.json", "json",
+            f"{p.display_name} npm package manifest.",
+        )
+        for p in eco.projects if p.is_node
+    )
+    return targets
+
+
 def _resolve_manifest_target(name: str) -> Path | None:
-    root = workspace_root()
-    manifest_map = {
-        "unified_data.yaml": root / "lemgendary-datasets" / "unified_data.yaml",
-        "unified_models_v2.yaml": root / "lemgendary-training-suite" / "unified_models_v2.yaml",
-        "config.yaml": root / "lemgendary-training-suite" / "config.yaml",
-        "presets.yaml": root / "lemgendary-training-suite" / "presets.yaml",
-        "runtime_env.yaml": root / "lemgendary-env-manager" / "requirements" / "runtime_env.yaml",
-        "requirements-training.txt": root / "lemgendary-training-suite" / "requirements.txt",
-        "requirements-datasets.txt": root / "lemgendary-datasets" / "requirements.txt",
-        "requirements-env-manager.txt": root / "lemgendary-env-manager" / "requirements.txt",
-        "requirements-documentation.txt": root / "lemgendary-docs" / "requirements.txt",
-        "package.json": root / "lemgendary-ai-studio-gui" / "package.json",
-    }
-    return manifest_map.get(name)
+    for target in manifest_targets():
+        if target.name == name:
+            return workspace_root() / target.project / target.relative_path
+    return None
 
 
 @router.get("/api/manifests/registry")
 async def get_manifest_registry():
     """List all manageable ecosystem manifests, locations, and formats."""
-    manifest_targets = [
-        {
-            "name": "unified_data.yaml", "project": "lemgendary-datasets",
-            "format": "yaml",
-            "description": "Authoritative dataset and source repository registry.",
-        },
-        {
-            "name": "unified_models_v2.yaml", "project": "lemgendary-training-suite",
-            "format": "yaml",
-            "description": "Neural architecture registry and training hyperparameters.",
-        },
-        {
-            "name": "config.yaml", "project": "lemgendary-training-suite",
-            "format": "yaml",
-            "description": "Global training execution and hardware governor configuration.",
-        },
-        {
-            "name": "presets.yaml", "project": "lemgendary-training-suite",
-            "format": "yaml",
-            "description": "Canonical training and evaluation preset profiles.",
-        },
-        {
-            "name": "runtime_env.yaml", "project": "lemgendary-env-manager",
-            "format": "yaml",
-            "description": "Runtime platform specifications and dependency matrices.",
-        },
-        {
-            "name": "requirements-training.txt", "project": "lemgendary-training-suite",
-            "format": "text",
-            "description": "Training suite Python dependency manifest.",
-        },
-        {
-            "name": "requirements-datasets.txt", "project": "lemgendary-datasets",
-            "format": "text",
-            "description": "Dataset compiler Python dependency manifest.",
-        },
-        {
-            "name": "requirements-env-manager.txt", "project": "lemgendary-env-manager",
-            "format": "text",
-            "description": "Environment manager Python dependency manifest.",
-        },
-        {
-            "name": "requirements-documentation.txt", "project": "lemgendary-docs",
-            "format": "text",
-            "description": "Documentation hub Python dependency manifest.",
-        },
-        {
-            "name": "package.json", "project": "lemgendary-ai-studio-gui",
-            "format": "json",
-            "description": "Desktop GUI Tauri v2 and React package manifest.",
-        },
-    ]
     items = []
-    for target in manifest_targets:
-        target_path = _resolve_manifest_target(target["name"])
-        exists = target_path.exists() if target_path else False
-        size_bytes = target_path.stat().st_size if exists and target_path else 0
+    root = workspace_root()
+    for target in manifest_targets():
+        target_path = root / target.project / target.relative_path
+        exists = target_path.exists()
         items.append({
-            **target,
+            **target.describe(),
             "exists": exists,
-            "size_bytes": size_bytes,
-            "path": str(target_path) if target_path else None,
+            "size_bytes": target_path.stat().st_size if exists else 0,
+            "path": str(target_path),
         })
     return {"manifests": items}
 

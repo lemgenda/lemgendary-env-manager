@@ -1,11 +1,20 @@
-"""Files and lines where ecosystem facts may be written out literally.
+"""Which files may hold ecosystem facts, and how strictly each file is checked.
 
-Everything else that spells out a service port, the Kaggle owner, the docs
-URL or a list of project folders should read ``ecosystem.json`` instead.
+Every scanned file gets a :class:`FileMode`:
+
+- ``SKIP``: the registry itself, its snapshots, generated schemas, lockfiles,
+  changelogs and test fixtures. Not scanned.
+- ``CONSISTENCY``: human documentation (Markdown, HTML, reStructuredText
+  outside changelogs), the model and dataset registries that cite Kaggle
+  references and docs pages, and every file of a data-only asset project.
+  A port, Kaggle owner or docs URL may be written out, but only with the
+  value from ``ecosystem.json``; a wrong value is a finding.
+- ``STRICT``: code, configuration and tests. Any literal fact is a finding.
 """
 
 import re
 from collections.abc import Iterator
+from enum import Enum
 from pathlib import PurePosixPath
 
 ALLOWED_FILES = frozenset({
@@ -32,7 +41,50 @@ TEST_DIRS = frozenset({"tests", "test", "__tests__"})
 FIXTURES_DIR = "fixtures"
 """Directory name of test fixtures (allowed below a test directory)."""
 
+DOCUMENTATION_SUFFIXES = frozenset({".md", ".markdown", ".html", ".htm", ".rst"})
+"""Suffixes of human documentation, checked for consistency only."""
+
+RECORD_FILES = frozenset({
+    "unified_data.yaml", "unified_models_v2.yaml",
+    "canonical_capabilities.json", "canonical_capabilities.yaml",
+})
+"""Registries whose records cite Kaggle references and docs pages (consistency only)."""
+
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+
+
+class FileMode(Enum):
+    """How a file is checked: not at all, for consistent values, or for any literal."""
+
+    SKIP = "skip"
+    CONSISTENCY = "consistency"
+    STRICT = "strict"
+
+
+def file_mode(relative: PurePosixPath, asset_project: bool = False) -> FileMode:
+    """The check mode of a project-relative file (see the module docstring)."""
+    if is_allowlisted(relative):
+        return FileMode.SKIP
+    if is_test_file(relative):
+        return FileMode.STRICT
+    if (
+        asset_project
+        or relative.suffix.lower() in DOCUMENTATION_SUFFIXES
+        or relative.name in RECORD_FILES
+    ):
+        return FileMode.CONSISTENCY
+    return FileMode.STRICT
+
+
+def is_test_file(relative: PurePosixPath) -> bool:
+    """True for a file below a test directory or named like a test module."""
+    name = relative.name
+    return (
+        bool(TEST_DIRS.intersection(relative.parts[:-1]))
+        or name.startswith("test_")
+        or ".test." in name
+        or ".spec." in name
+    )
 
 
 def is_allowlisted(relative: PurePosixPath) -> bool:

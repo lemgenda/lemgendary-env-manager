@@ -7,6 +7,9 @@ import yaml
 from env_manager.validation.domain.project_hygiene import audit_staging_residue
 from env_manager.validation.models import MANIFEST_READ_ERRORS, FileValidationViolation
 
+DATASET_PROJECTS = ("lemgendary-datasets", "LemGendaryDatasets")
+"""Project folders the dataset manifest gate applies to: the compiler and the manifolds repo."""
+
 MANIFOLD_PARQUET_COUNT = 8
 """Parquet shards every compiled dataset manifold must contain."""
 

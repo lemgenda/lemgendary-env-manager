@@ -11,6 +11,9 @@ import yaml
 
 from env_manager.validation.models import MANIFEST_READ_ERRORS, FileValidationViolation
 
+DOCS_HUB_PROJECTS = ("lemgendary-docs",)
+"""Project folders the documentation hub gates apply to."""
+
 DOC_LENGTH_RATIO_MIN = 0.20
 
 

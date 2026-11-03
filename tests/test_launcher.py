@@ -31,4 +31,11 @@ def test_launcher_does_not_discard_exit_codes_or_errors() -> None:
     text = _launcher_text()
     assert "SilentlyContinue" not in text
     assert "exit $LASTEXITCODE" in text
-    assert "http://127.0.0.1:8000" in text
+
+
+def test_launcher_reads_the_sidecar_address_from_the_ecosystem_file() -> None:
+    """The menu shows the address from ``ecosystem.json``, not a literal port."""
+    text = _launcher_text()
+    assert '"ecosystem.json"' in text
+    assert "$EnvService.port" in text
+    assert "http://$EnvAddress" in text

@@ -7,6 +7,12 @@ import yaml
 from env_manager.validation.domain.project_hygiene import audit_staging_residue
 from env_manager.validation.models import MANIFEST_READ_ERRORS, FileValidationViolation
 
+TRAINING_SUITE_PROJECTS = ("lemgendary-training-suite",)
+"""Project folders the training suite gate applies to."""
+
+MODELS_HUB_PROJECTS = ("LemGendaryModels",)
+"""Project folders the trained models hub gate applies to."""
+
 
 def audit_models_hub(project_dir: Path) -> list[FileValidationViolation]:
     """Verify model directory integrity, checkpoints, and zero residue."""

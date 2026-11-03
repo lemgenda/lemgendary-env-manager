@@ -4,13 +4,19 @@ To add a gate, append a ``Gate`` to ``GATES`` (or call ``register_gate``);
 the runner does not change.
 """
 
-from env_manager.validation.domain.datasets import audit_dataset_manifests
+from env_manager.validation.domain.datasets import DATASET_PROJECTS, audit_dataset_manifests
 from env_manager.validation.domain.docs_hub import (
+    DOCS_HUB_PROJECTS,
     audit_docs_synchronization,
     audit_documentation_suite,
     audit_manifest_synchronization,
 )
-from env_manager.validation.domain.models_training import audit_models_hub, audit_training_suite
+from env_manager.validation.domain.models_training import (
+    MODELS_HUB_PROJECTS,
+    TRAINING_SUITE_PROJECTS,
+    audit_models_hub,
+    audit_training_suite,
+)
 from env_manager.validation.domain.project_hygiene import (
     asset_store_folders,
     audit_git_hooks,
@@ -65,17 +71,17 @@ GATES: list[Gate] = [
     Gate("absolute-paths", Bucket.LINT, run_absolute_path_scan),
     Gate("readme-changelog", Bucket.DOMAIN, audit_readme_changelog, applies=is_code_project),
     Gate("docs-sync", Bucket.DOMAIN, audit_docs_synchronization,
-         applies=for_projects("lemgendary-docs")),
+         applies=for_projects(*DOCS_HUB_PROJECTS)),
     Gate("docs-manifests", Bucket.DOMAIN, audit_manifest_synchronization,
-         applies=for_projects("lemgendary-docs")),
+         applies=for_projects(*DOCS_HUB_PROJECTS)),
     Gate("docs-suite", Bucket.DOMAIN, audit_documentation_suite,
-         applies=for_projects("lemgendary-docs")),
+         applies=for_projects(*DOCS_HUB_PROJECTS)),
     Gate("dataset-manifests", Bucket.DOMAIN, audit_dataset_manifests,
-         applies=for_projects("lemgendary-datasets", "LemGendaryDatasets")),
+         applies=for_projects(*DATASET_PROJECTS)),
     Gate("training-suite", Bucket.DOMAIN, audit_training_suite,
-         applies=for_projects("lemgendary-training-suite")),
+         applies=for_projects(*TRAINING_SUITE_PROJECTS)),
     Gate("models-hub", Bucket.DOMAIN, audit_models_hub,
-         applies=for_projects("lemgendary-models", "LemGendaryModels")),
+         applies=for_projects(*MODELS_HUB_PROJECTS)),
     Gate("git-hooks", Bucket.DOMAIN, audit_git_hooks),
     Gate("ecosystem_ssot", Bucket.DOMAIN, run_ecosystem_ssot, severity=ECOSYSTEM_SSOT_SEVERITY),
 ]

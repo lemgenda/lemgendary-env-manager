@@ -1,5 +1,5 @@
 # ==============================================================================
-# LemGendary Environment Manager Hub (v16.9.50)
+# LemGendary Environment Manager Hub (v16.9.51)
 # Authoritative PowerShell orchestrator for cross-platform environments.
 # ==============================================================================
 
@@ -24,6 +24,12 @@ if ($IsWindows -or $env:OS -eq "Windows_NT") {
     $VenvPython = Join-Path (Join-Path $VenvDir "bin") "python"
 }
 $VenvCfg = Join-Path $VenvDir "pyvenv.cfg"
+
+# The sidecar address comes from ecosystem/ecosystem.json (the single source
+# of service ports and the bind host).
+$Ecosystem = Get-Content -Raw -Path (Join-Path (Join-Path $ScriptDir "ecosystem") "ecosystem.json") | ConvertFrom-Json
+$EnvService = $Ecosystem.services | Where-Object { $_.id -eq "env-manager" }
+$EnvAddress = "$($Ecosystem.identity.bind_host):$($EnvService.port)"
 
 function Invoke-Checked {
     # Run a native command and stop with its exit code if it fails.
@@ -134,7 +140,7 @@ do {
     $liveJob = Get-LiveServerJob $ServerJob
     if ($null -ne $liveJob) {
         if ($liveJob.State -eq "Running") {
-            Write-Host " [6] Stop API Sidecar Server (currently RUNNING on http://127.0.0.1:8000)" -ForegroundColor Green
+            Write-Host " [6] Stop API Sidecar Server (currently RUNNING on http://$EnvAddress)" -ForegroundColor Green
         } else {
             Write-Host " [6] Launch API Sidecar Server (FastAPI/WebSocket)" -ForegroundColor White
             $ServerJob = $null
@@ -184,8 +190,8 @@ do {
                 Write-Host "[OK] Server stopped." -ForegroundColor Green
             } else {
                 Write-Host "[Option 6] Launching API Sidecar Server in background..." -ForegroundColor Cyan
-                Write-Host "  REST API:  http://127.0.0.1:8000" -ForegroundColor Gray
-                Write-Host "  WebSocket: ws://127.0.0.1:8000/ws/log" -ForegroundColor Gray
+                Write-Host "  REST API:  http://$EnvAddress" -ForegroundColor Gray
+                Write-Host "  WebSocket: ws://$EnvAddress$($EnvService.websocket_path)" -ForegroundColor Gray
                 $VenvPythonLocal = $VenvPython
                 $ServerJob = Start-Job -ScriptBlock {
                     param($py)

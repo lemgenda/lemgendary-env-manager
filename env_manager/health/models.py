@@ -4,6 +4,8 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from pydantic import dataclasses as pydantic_dataclasses
+
 from env_manager.bootstrap import BootstrapStatus
 from env_manager.npm_manager import NpmPackageStatus
 from env_manager.system_probe import HardwareProfile
@@ -30,9 +32,13 @@ OPENCV_VARIANTS_NORMALIZED: set[str] = {
 }
 
 
-@dataclass
+@pydantic_dataclasses.dataclass
 class ProjectHealth:
-    """Detailed health status for a single project."""
+    """Detailed health status for a single project.
+
+    A Pydantic dataclass: it is the typed ``GET /api/projects`` item and the
+    ``ProjectHealth`` schema in ``openapi.json`` that the GUI contract mirrors.
+    """
     name: str
     project_dir: str
     venv_exists: bool

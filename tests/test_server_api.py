@@ -21,6 +21,7 @@ from env_manager.api.routes_pipeline import (
     run_pipeline_step,
 )
 from env_manager.api.routes_status import get_hardware, get_projects
+from env_manager.health.models import ProjectHealth
 from env_manager.server import app
 
 
@@ -40,11 +41,12 @@ class TestServerApi(unittest.TestCase):
         self.assertIn("recommended_torch_index", data)
 
     def test_get_projects_endpoint(self) -> None:
-        """``/api/projects`` lists the fixture workspace projects."""
+        """``/api/projects`` lists the health of the fixture workspace projects."""
         data = asyncio.run(get_projects())
         self.assertIsInstance(data, list)
         self.assertGreater(len(data), 0)
-        names = [p.get("name") for p in data]
+        self.assertTrue(all(isinstance(p, ProjectHealth) for p in data))
+        names = [p.name for p in data]
         self.assertIn("lemgendary-env-manager", names)
 
     def test_get_pipeline_status_endpoint(self) -> None:

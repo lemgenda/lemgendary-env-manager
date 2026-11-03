@@ -10,6 +10,8 @@ from fastapi import (
 
 from env_manager import __version__
 from env_manager.ecosystem import ecosystem
+from env_manager.health.models import ProjectHealth
+from env_manager.health.project import audit_project_health
 from env_manager.health_checker import run_full_health_audit
 from env_manager.npm_manager import audit_npm_workspaces
 from env_manager.system_probe import probe_hardware
@@ -129,12 +131,15 @@ async def get_hardware():
     return profile.to_dict()
 
 
-@router.get("/api/projects")
-async def get_projects():
-    """Return every discovered project with its venv state."""
+def _audit_projects() -> list[ProjectHealth]:
+    return [audit_project_health(info) for info in discover_projects()]
+
+
+@router.get("/api/projects", response_model=list[ProjectHealth])
+async def get_projects() -> list[ProjectHealth]:
+    """Return the health of every discovered project (environment and requirements)."""
     loop = asyncio.get_running_loop()
-    projects = await loop.run_in_executor(None, discover_projects)
-    return [p.to_dict() for p in projects]
+    return await loop.run_in_executor(None, _audit_projects)
 
 
 @router.get("/api/npm")

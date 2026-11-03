@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.50-STABLE)
+# LemGendary Environment Manager (v16.9.51-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -94,6 +94,13 @@ and the **LemGendary AI Studio Desktop GUI** (`lemgendary-ai-studio-gui`).
   attributes.
 - Absolute-path gate: drive-letter paths, file URLs that spell out a path, and
   POSIX home directories in source, config and documentation files.
+- Ecosystem SSOT gate (`ecosystem_ssot`, warning severity): code,
+  configuration and tests must not spell out service ports, the Kaggle
+  owner, the docs URL or project folder lists (test fixtures excepted).
+  Documentation (Markdown, HTML), the model and dataset registries and
+  asset projects may, but only with the values in `ecosystem.json`. For the
+  GUI it also checks the snapshot, CSP ports, pipeline steps and the
+  `ProjectHealth` keys against `openapi.json`.
 - Not implemented: detection of silent `except` blocks.
 - Gates are pluggable: each one is a `Gate` in
   `env_manager/validation/registry.py` with the report list it fills and a
@@ -129,7 +136,9 @@ documentation is available at `http://127.0.0.1:8000/docs`.
   declared-vs-installed coverage, and single-manifest inventory.
 - `GET /api/hardware`: Host hardware metrics (CPU, RAM, GPU, CUDA, PyTorch
   compatibility).
-- `GET /api/projects`: Discovered project list with manifest and venv status.
+- `GET /api/projects`: Health of each discovered project, typed as
+  `ProjectHealth` (environment present, Python version, required versus
+  installed packages, missing packages, healthy flag).
 - `GET /api/npm`: Audit results for NPM workspaces.
 
 ### Desktop GUI Aggregation Endpoints
@@ -300,6 +309,33 @@ python -m env_manager.cli serve
 ---
 
 ## Changelog
+
+### v16.9.51 - SSOT Gate Refinement and Typed Projects (ENV-2b)
+
+- `ecosystem_ssot` now checks each file by mode. Code, configuration and
+  tests (`STRICT`): any literal port, Kaggle owner, docs URL, project folder
+  list or legacy folder name is a finding; test literals are allowed only in
+  `fixtures` folders. Documentation (Markdown, HTML, reStructuredText), the
+  registries `unified_data.yaml`, `unified_models_v2.yaml` and
+  `canonical_capabilities.*`, and every file of a `kind: asset` project
+  (`CONSISTENCY`): facts may be written out but must equal `ecosystem.json`.
+  New findings `ssot_wrong_port` (a port next to a service name that is not
+  its port), `ssot_wrong_kaggle_owner` (an own `LemGendized*` Kaggle
+  reference or a `kaggle_username` under another owner), `ssot_wrong_docs_url`
+  (a docs-host link outside the docs base URL) and `ssot_legacy_folder`.
+- Validated projects that are not checked out (for example
+  `LemGendaryDatasets`) are logged and skipped, not reported as findings
+  (`absent_projects()`).
+- `GET /api/projects` now returns `list[ProjectHealth]` (the GUI contract);
+  `ProjectHealth` is a Pydantic dataclass, so `openapi.json` (regenerated)
+  carries its schema and the GUI `ProjectHealth` parity check runs instead of
+  being skipped.
+- The env-manager's own findings fixed: the PowerShell launcher reads the
+  sidecar address from `ecosystem.json`; the manifest registry
+  (`/api/manifests/registry`, read, validate, save) is one
+  `manifest_targets()` list built from `ecosystem.json`; domain gates declare
+  their target projects in their own modules and `for_projects` also matches
+  legacy folder names; tests derive folder names from the registry.
 
 ### v16.9.50 - Ecosystem SSOT Gate (ENV-2)
 

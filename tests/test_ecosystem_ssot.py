@@ -5,21 +5,33 @@ holds no port, owner, URL or folder list itself.
 """
 
 import json
-from dataclasses import replace
-from pathlib import Path
+import logging
+from dataclasses import fields, replace
+from pathlib import Path, PurePosixPath
 
 import pytest
 
+from env_manager import server
 from env_manager.ecosystem import REPO_ECOSYSTEM_FILE, ecosystem
+from env_manager.health.models import ProjectHealth
 from env_manager.validation import registry
 from env_manager.validation.gate import Bucket, Gate, ProjectContext, Severity
 from env_manager.validation.gates.ecosystem_ssot import (
     ECOSYSTEM_SSOT_SEVERITY,
+    absent_projects,
     run_ecosystem_ssot,
     scan_workspace,
 )
+from env_manager.validation.gates.ecosystem_ssot.allowlist import FileMode, file_mode
+from env_manager.validation.gates.ecosystem_ssot.consistency import (
+    LEGACY_FOLDER,
+    WRONG_DOCS_URL,
+    WRONG_KAGGLE_OWNER,
+    WRONG_PORT,
+)
 from env_manager.validation.gates.ecosystem_ssot.gui import (
     CSP_PORTS,
+    openapi_schema_keys,
     PIPELINE_STEPS,
     PROJECT_HEALTH,
     SKIPPED,
@@ -42,6 +54,10 @@ PORT = PORTS[0]
 FOLDERS = [p.folder for p in ECO.projects]
 GUI_FOLDER = next(p.folder for p in ECO.projects if p.is_node)
 DEV_PORT = 1420
+SERVICE = ECO.services[0]
+OTHER_PORT = next(svc.port for svc in ECO.services if svc.port != SERVICE.port)
+OWNER = ECO.identity.kaggle_owner
+ASSET = next(p for p in ECO.projects if p.kind == "asset" and p.legacy_folders)
 
 
 def _types(found: list[FileValidationViolation]) -> list[str]:
@@ -146,14 +162,14 @@ def test_fixtures_outside_tests_are_scanned(project: Path) -> None:
 
 
 def test_readme_changelog_section_is_skipped(project: Path) -> None:
-    """Only the README changelog section is history; other sections are scanned."""
+    """Only the README changelog section is history; other sections are checked."""
     readme = (
         "# Project\n\n"
-        f"Listens on port {PORT}.\n\n"
+        f"The {SERVICE.project} sidecar listens on port {OTHER_PORT}.\n\n"
         "## Changelog\n\n### v1.0.0\n\n"
-        f"- Moved to port {PORT}.\n\n"
+        f"- Moved {SERVICE.project} to port {OTHER_PORT}.\n\n"
         "## Usage\n\n"
-        f"Open http://localhost:{PORT}.\n"
+        f"Open {SERVICE.project} at http://localhost:{OTHER_PORT}.\n"
     )
     _write(project / "README.md", readme)
     assert [v.line_number for v in run_ecosystem_ssot(project)] == [3, 13]
@@ -234,7 +250,7 @@ def test_gate_is_registered_at_the_configured_severity() -> None:
 
 def test_warning_findings_do_not_fail_validation(project: Path) -> None:
     """Warning-severity findings land in ``warnings`` and the project still passes."""
-    _write(project / "a.md", f"See http://localhost:{PORT}.\n")
+    _write(project / "a.py", f'URL = "http://localhost:{PORT}"\n')
     report = validate_project(project)
     assert _types(report.warnings) == [PORT_LITERAL]
     assert not report.domain_errors
@@ -242,7 +258,7 @@ def test_warning_findings_do_not_fail_validation(project: Path) -> None:
 
 def test_error_severity_reports_into_the_domain_bucket(project: Path) -> None:
     """Switching the severity to error moves the findings into the failing bucket."""
-    _write(project / "a.md", f"See http://localhost:{PORT}.\n")
+    _write(project / "a.py", f'URL = "http://localhost:{PORT}"\n')
     gate = replace(_ssot_gate(), severity=Severity.ERROR)
     found = run_gates(ProjectContext(project), [gate])
     assert (_types(found[Bucket.DOMAIN]), found[Bucket.WARNINGS]) == ([PORT_LITERAL], [])
@@ -252,3 +268,110 @@ def test_scan_workspace_reports_each_present_project(fake_workspace: Path) -> No
     """Every validated project folder in the workspace gets an entry."""
     present = {p.folder for p in ECO.validated_projects() if (fake_workspace / p.folder).is_dir()}
     assert set(scan_workspace()) == present
+
+
+def test_absent_project_is_logged_not_a_finding(caplog: pytest.LogCaptureFixture) -> None:
+    """A validated project that is not checked out is reported in the log only."""
+    absent = absent_projects()
+    assert absent
+    with caplog.at_level(logging.WARNING):
+        results = scan_workspace()
+    assert not set(absent) & set(results)
+    assert all(folder in caplog.text for folder in absent)
+
+
+# --- file modes ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("relative", "asset", "mode"), [
+    ("ecosystem/ecosystem.json", False, FileMode.SKIP),
+    ("tests/fixtures/a.json", False, FileMode.SKIP),
+    ("README.md", False, FileMode.CONSISTENCY),
+    ("papers/manual.html", False, FileMode.CONSISTENCY),
+    ("unified_models_v2.yaml", False, FileMode.CONSISTENCY),
+    ("model/model_metadata.yaml", True, FileMode.CONSISTENCY),
+    ("config.yaml", False, FileMode.STRICT),
+    ("src/app.ts", False, FileMode.STRICT),
+    ("tests/notes.md", False, FileMode.STRICT),
+    ("src/__tests__/a.test.ts", False, FileMode.STRICT),
+    ("test_api.py", False, FileMode.STRICT),
+])
+def test_file_mode(relative: str, asset: bool, mode: FileMode) -> None:
+    """Docs and records are checked for consistency; code, config and tests strictly."""
+    assert file_mode(PurePosixPath(relative), asset) is mode
+
+
+# --- documentation and records: consistency only ------------------------------------
+
+
+def test_documentation_with_registry_values_passes(project: Path) -> None:
+    """Docs may write out the right port, owner, docs URL and folder list."""
+    folders = "\n".join(f"- `{f}`" for f in FOLDERS)
+    _write(project / "docs" / "guide.md", (
+        f"The {SERVICE.project} sidecar listens on http://127.0.0.1:{SERVICE.port}.\n"
+        f"Data: kaggle://{OWNER}/lemgendizedexample and "
+        f"https://www.kaggle.com/datasets/{OWNER}/lemgendizedexample\n"
+        f"Docs: {ECO.identity.docs_url}/index.html\n\n{folders}\n"
+    ))
+    _write(project / "unified_models_v2.yaml", f"kaggle_ref: kaggle://{OWNER}/lemgendizedx\n")
+    assert not run_ecosystem_ssot(project)
+
+
+def test_wrong_port_for_a_named_service_is_flagged(project: Path) -> None:
+    """A port next to a service name must be that service's port."""
+    _write(project / "guide.md", (
+        f"Start {SERVICE.project} (port {OTHER_PORT}).\n"
+        f"Ports {OTHER_PORT} and 1234 without a service name pass.\n"
+    ))
+    found = run_ecosystem_ssot(project)
+    assert _types(found) == [WRONG_PORT]
+    assert found[0].line_number == 1
+
+
+def test_wrong_kaggle_owner_is_flagged_but_third_party_owners_pass(project: Path) -> None:
+    """Our own datasets and the configured username must name the registry owner."""
+    _write(project / "unified_data.yaml", (
+        "kaggle_ref: kaggle://someoneelse/lemgendizedexample\n"
+        "kaggle_ref: kaggle://someoneelse/public-dataset\n"
+        "kaggle_username: someoneelse\n"
+    ))
+    assert _types(run_ecosystem_ssot(project)) == [WRONG_KAGGLE_OWNER, WRONG_KAGGLE_OWNER]
+
+
+def test_docs_host_url_outside_the_base_is_flagged(project: Path) -> None:
+    """A link to the docs host must stay under the docs base URL."""
+    _write(project / "index.html", f"<a href=\"{ECO.identity.docs_url}-old/a.html\">x</a>\n")
+    assert _types(run_ecosystem_ssot(project)) == [WRONG_DOCS_URL]
+
+
+def test_legacy_folder_name_is_flagged(project: Path) -> None:
+    """A renamed project folder is written under its current name."""
+    _write(project / "guide.md", f"Models live in `{ASSET.legacy_folders[0]}`.\n")
+    assert _types(run_ecosystem_ssot(project)) == [LEGACY_FOLDER]
+
+
+def test_asset_project_is_checked_for_consistency_only(fake_workspace: Path) -> None:
+    """Generated records in an asset project may hold the right owner and docs URL."""
+    asset = fake_workspace / ASSET.folder
+    _write(asset / "model" / "model_metadata.yaml", (
+        f"owner: {OWNER}\ndocs: {ECO.identity.docs_url}/index.html\n"
+    ))
+    assert not run_ecosystem_ssot(asset)
+    _write(asset / "model" / "model-metadata.json", '{"id": "someoneelse/lemgendizedx"}\n')
+    _write(asset / "model" / "README.md", "kaggle://someoneelse/lemgendizedx\n")
+    assert _types(run_ecosystem_ssot(asset)) == [WRONG_KAGGLE_OWNER]
+
+
+def test_literal_in_a_test_outside_fixtures_is_flagged(project: Path) -> None:
+    """Tests may hold literal facts only in fixture files."""
+    _write(project / "tests" / "test_a.py", f'URL = "http://127.0.0.1:{PORT}"\n')
+    assert _types(run_ecosystem_ssot(project)) == [PORT_LITERAL]
+
+
+# --- ProjectHealth contract -------------------------------------------------------
+
+
+def test_openapi_project_health_schema_matches_the_model() -> None:
+    """``GET /api/projects`` is typed: the OpenAPI schema lists the model's fields."""
+    keys = openapi_schema_keys(server.app.openapi(), "ProjectHealth")
+    assert keys == {field.name for field in fields(ProjectHealth)}

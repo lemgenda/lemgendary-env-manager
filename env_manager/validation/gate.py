@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from env_manager.ecosystem import ecosystem
 from env_manager.validation.models import FileValidationViolation
 
 
@@ -80,10 +81,18 @@ class Gate:
 
 
 def for_projects(*names: str) -> Callable[[ProjectContext], bool]:
-    """Return a predicate that is true for the named projects only."""
-    wanted = frozenset(names)
+    """Return a predicate that is true for the named projects only.
+
+    A project's legacy folder names (``legacy_folders`` in ``ecosystem.json``)
+    count as the project.
+    """
 
     def applies(ctx: ProjectContext) -> bool:
-        return ctx.name in wanted
+        legacy = {
+            old
+            for project in ecosystem().projects if project.folder in names
+            for old in project.legacy_folders
+        }
+        return ctx.name in names or ctx.name in legacy
 
     return applies

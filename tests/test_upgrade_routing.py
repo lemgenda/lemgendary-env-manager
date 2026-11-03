@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from env_manager.cli import app
+from env_manager.ecosystem import ecosystem
 from env_manager.dependency_resolver import OutdatedPackage
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
 from env_manager.pipeline.events import EventPublisher
@@ -45,21 +46,24 @@ class TestDiscoveryMetadata(unittest.TestCase):
 
     def test_has_npm_manifest_flag(self) -> None:
         """Discovery sets ``has_npm_manifest`` and ``is_node_project`` per project."""
+        managed = ecosystem().managed_projects()
+        dual = ecosystem().self_folder()
+        plain = next(p.folder for p in managed if not p.is_node and p.folder != dual)
+        node = next(p.folder for p in managed if p.is_node)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for name in ("lemgendary-env-manager", "lemgendary-datasets",
-                         "lemgendary-ai-studio-gui"):
+            for name in (dual, plain, node):
                 (root / name).mkdir()
-            (root / "lemgendary-env-manager" / "package.json").write_text("{}")
-            (root / "lemgendary-ai-studio-gui" / "package.json").write_text("{}")
+            (root / dual / "package.json").write_text("{}")
+            (root / node / "package.json").write_text("{}")
 
             found = {p.name: p for p in discover_projects(root)}
 
-        self.assertTrue(found["lemgendary-env-manager"].has_npm_manifest)
-        self.assertFalse(found["lemgendary-env-manager"].is_node_project)
-        self.assertFalse(found["lemgendary-datasets"].has_npm_manifest)
-        self.assertTrue(found["lemgendary-ai-studio-gui"].has_npm_manifest)
-        self.assertTrue(found["lemgendary-ai-studio-gui"].is_node_project)
+        self.assertTrue(found[dual].has_npm_manifest)
+        self.assertFalse(found[dual].is_node_project)
+        self.assertFalse(found[plain].has_npm_manifest)
+        self.assertTrue(found[node].has_npm_manifest)
+        self.assertTrue(found[node].is_node_project)
 
 
 class TestStep5Routing(unittest.TestCase):
