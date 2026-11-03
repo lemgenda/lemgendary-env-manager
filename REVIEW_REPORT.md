@@ -327,3 +327,155 @@ Ranked by priority.
 8. P2: unify versioning (R10) and fix the README, paper, HTML, and `documents.json` drift listed above, keeping MD and HTML synchronized word for word.
 9. P3: cross-platform hooks and launcher (D-18, D-19), Python version contract (D-17), and the remaining Low items in D-20.
 10. P3: decide ownership of the secrets vault and documentation hosting, and move them out of the env manager sidecar.
+
+## Remediation Status
+
+Status of every Medium and Low finding on branch `fix/review-remediation`
+as of v16.9.35. Each item is marked Fixed (with the commit), N/A (with
+the reason), or Deferred (with the reason and the step that owns it).
+Every finding was checked against the current code before it was marked,
+because the code changed a lot after the review.
+
+Totals: 41 fixed, 1 N/A, 2 deferred.
+
+### D-10 Medium: the apply phase does not honour the vetted plan
+
+- Unpinned `pip install --upgrade`: Fixed in `4d9a0d8` (v16.9.28). Each
+  candidate installs as `name==latest_version` in the CLI, the API and
+  pipeline Step 5.
+- Torch CUDA reinstall with no torch candidates: Fixed in `4d9a0d8`. It
+  runs only for torch-family candidates in the plan, pinned.
+- No rollback when the install fails part-way: Fixed in `4d9a0d8`. A
+  failed install restores the `pip freeze` snapshot, on the normal and
+  the torch CUDA path.
+- CUDA detection differs between audit and apply: Fixed in `4d9a0d8`.
+  `updater.torch_upgrade_index` is the one definition, and
+  `apply_upgrade_plan` reuses the index stored in the plan.
+
+### D-11 Medium: the drift matrix misses names with `_` or `.`
+
+- Fixed in `ccbe8b9` (v16.9.29). Installed names are normalized before
+  the lookup.
+
+### D-12 Medium: orchestrator state races
+
+- `is_running` stuck after `GeneratorExit`: Fixed in `ccbe8b9`. It is
+  cleared in a `finally` block.
+- Check-then-start race: Fixed in `ccbe8b9`. The run is claimed with
+  `try_claim` before the thread starts, under a lock shared with
+  `POST /api/update`.
+- `current_step` never updated: Fixed in `ccbe8b9`.
+- `recent_events` mutated without a lock: Fixed in `ccbe8b9`.
+- GUI requirement, every `recent_events` entry carries a `timestamp`:
+  Fixed in `ccbe8b9`. `record_event` stamps any event without one and
+  stores the same dict it broadcasts.
+
+### D-13 Medium: `clean` deletes compiled extension modules
+
+- `.pyd` treated as bytecode: Fixed in `a3599fa` (v16.9.30).
+- `/api/clean` cleans Node projects, the CLI does not: Fixed in
+  `a3599fa`. Both call `utils.purge_workspace_caches`.
+
+### D-14 Medium: subprocess timeouts do not stop hung processes
+
+- Child not killed on timeout: Fixed in `6f09c15` (v16.9.20,
+  `wait_or_kill`).
+- Timeout only starts after output ends: Fixed in `a3599fa`.
+  `utils.stream_process_lines` reads both pipes against one deadline and
+  kills the process tree. pip and npm streaming both use it.
+
+### D-15 Medium: CLI and API validate different sets
+
+- Fixed in `6e013fc` (v16.9.31). Both call
+  `validator.validate_workspace` over `VALIDATION_TARGETS`.
+
+### D-16 Medium: the validator fails open
+
+- Tool crash or missing binary reports a pass: Fixed in `6e013fc`. Every
+  external gate adds a `tool_error` violation instead.
+- `npx --yes` downloads at validation time: Fixed in `6e013fc`
+  (`npx --no`).
+- README advertises suppression detection and Pylint: Fixed in
+  `6e013fc`. The README now lists them as not implemented.
+- Missing suppression, Pylint and absolute-path gates: Deferred to step
+  L8. They are new gates and belong in the pluggable gate split (R6).
+
+### D-17 Medium: Python version contract is inconsistent
+
+- Fixed in `e84a463` (v16.9.32). `requires-python`, `MIN_PYTHON`, the
+  Ruff target and the launcher all require 3.12, and a test keeps them
+  equal.
+
+### D-18 Low: git hook template problems
+
+- Windows-only paths: Fixed in `e84a463`. The hook also looks in
+  `.venv/bin`.
+- The `.git/hooks` copy names the project `.git`: Fixed in `e84a463`.
+  The hook uses `git rev-parse --show-toplevel`.
+- Exit code of `git config core.hooksPath` ignored: Fixed in `e84a463`.
+- `HOOK_DIR` hardening claimed but absent: Fixed in `e84a463`. The
+  `git rev-parse` lookup works from either hook directory.
+
+### D-19 Low: launcher swallows errors and exit codes
+
+- `exit 0` after CLI calls: Fixed in `7f9b678` (v16.9.22).
+- `-ErrorAction SilentlyContinue`: Fixed in `7f9b678`.
+- `ValidateSet` omits `clean` and `hooks`: Fixed in `aa3758b`
+  (v16.9.33). A test compares it with the Typer commands.
+- Truncated URL `http://127.0.0`: Fixed in `aa3758b`.
+- Hardcoded `Scripts\python.exe`: Fixed in `aa3758b`. POSIX venvs use
+  `bin/python`.
+
+### D-20 Low: contract and hygiene defects
+
+- Stale `openapi.json`: Fixed in `b2c88e1` (v16.9.15). Since `0c30aad` a
+  test keeps it equal to `app.openapi()`.
+- WebSocket routes missing from `openapi.json`: N/A. OpenAPI has no
+  WebSocket operations; the README documents `/ws/log`.
+- GUI types `/api/projects` as `ProjectHealth[]`: Deferred. The type
+  lives in `../lemgendary-ai-studio-gui/src/api/envManager.ts:34`, which
+  this step may not edit; it is listed for the GUI owner below.
+- `CleanRequest` and `ValidateRequest` defined twice: Fixed in `f71f83e`
+  (v16.9.19).
+- Dead `_event_queue`: Fixed in `0085e7a` (v16.9.34).
+- Unused `create_safe_upgrade_plan`, `apply_safe_upgrades`,
+  `_pip_dry_run`: Fixed in `0085e7a`.
+- Unused imports: Fixed in `f71f83e`; Ruff reports none since `0a1b824`.
+- `start_all_services` fire-and-forget: Fixed in `0085e7a`. Its result
+  or exception is logged.
+- `server` logger outside `lem_env`: Fixed in `0085e7a`.
+- `service_manager` logger outside `lem_env`: Fixed in `f71f83e`.
+- `net_connections` `AccessDenied` on macOS: Fixed in `0085e7a`.
+- `venv_manager` mutates `sys.path`: Fixed in `6f09c15`.
+- `discover_projects` runs `python --version` three times: Fixed in
+  `0085e7a`. One run per project.
+- Hardcoded `Program Files` fallbacks: Fixed in `0085e7a`.
+- Unquoted path in PowerShell: Fixed in `0085e7a`. `ps_quote` escapes
+  `'`.
+
+### Other Remediation in This Step
+
+- R9 Ruff: `ruff check .` reports 0 diagnostics since `0a1b824`
+  (v16.9.27). Only `PLR0912`, `PLR0913` and `PLR0915` stay ignored, for
+  the module splits in step L8.
+
+### Cross-Repository Items for Step L7
+
+Left unchanged here by design. Each one is a copy that should come from
+one registry (R2).
+
+- Ports 8000, 8100 and 8200: `service_manager.SERVICE_CONFIGS`, the
+  `serve` default in `cli.py`, the launcher banner, the GUI
+  `src/api/config.ts`, the training suite `env_delegate.py`, and
+  `canonical_capabilities.yaml`.
+- Project inventory: `validator.VALIDATION_TARGETS` (now shared by
+  `validate`, `/api/validate` and the hook installer),
+  `venv_manager.discover_projects`, `updater.UPGRADE_ORDER`,
+  `requirements_manager.sync_all_manifests`, the server manifest
+  registry, `service_manager`, and the GUI `CANONICAL_PROJECT_NAMES`.
+- Model and dataset lists: the domain gates in `validator.py` (for
+  example `LemGendizedForexUniverseLarge` and `MANIFOLD_PARQUET_COUNT`)
+  encode sibling-repo rules.
+- Online docs URL: `server.py` and the GUI `src/api/client.ts`.
+- GUI `/api/projects` type: `ProjectHealth[]` in the GUI against
+  `ProjectVenvInfo` here (D-20, deferred above).
