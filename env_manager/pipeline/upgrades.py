@@ -13,9 +13,9 @@ from env_manager.dependency_resolver import (
 from env_manager.pipeline.events import Emit, PipelineEvent
 from env_manager.system_probe import HardwareProfile
 from env_manager.updater import (
-    _apply_batch_with_rollback,
-    _apply_npm_update,
-    _find_npm_outdated,
+    apply_batch_with_rollback,
+    apply_npm_update,
+    find_npm_outdated,
     pinned_specs,
     sync_manifests_from_venvs,
     torch_upgrade_index,
@@ -65,7 +65,7 @@ def _upgrade_npm_dependencies(
 ) -> Generator[PipelineEvent, None, None]:
     """Run ``npm update`` for a project with outdated npm packages."""
     p_dir = Path(p.project_dir)
-    outdated = _find_npm_outdated(p_dir)
+    outdated = find_npm_outdated(p_dir)
     if not outdated:
         yield emit(
             "success",
@@ -77,7 +77,7 @@ def _upgrade_npm_dependencies(
         "info",
         f"UPGRADING: {p.name} (npm) - updating {len(outdated)} package(s)...",
     )
-    npm_ok, npm_msg = _apply_npm_update(p_dir)
+    npm_ok, npm_msg = apply_npm_update(p_dir)
     if npm_ok:
         yield emit(
             "success",
@@ -139,7 +139,7 @@ def _upgrade_python_dependencies(
         f"UPGRADING: {p.name} - applying {len(safe)} safe upgrade(s)...",
     )
 
-    upgraded_ok, upgrade_msg, rolled_back = _apply_batch_with_rollback(
+    upgraded_ok, upgrade_msg, rolled_back = apply_batch_with_rollback(
         p_dir,
         pinned_specs(safe),
         extra_index_url=torch_upgrade_index(hw),

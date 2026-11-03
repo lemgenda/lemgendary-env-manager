@@ -11,11 +11,12 @@ from env_manager.system_probe import HardwareProfile
 from env_manager.updater import (
     EcosystemUpgradePlan,
     ProjectUpgradePlan,
-    _apply_batch_with_rollback,
+    apply_batch_with_rollback,
     apply_upgrade_plan,
     torch_upgrade_index,
 )
 
+APPLY = "env_manager.upgrade.apply"
 CUDA_INDEX = "https://download.pytorch.org/whl/cu126"
 
 
@@ -38,15 +39,15 @@ class TestApplyUpgradePlan(unittest.TestCase):
 
     def setUp(self) -> None:
         self.batch = patch(
-            "env_manager.updater._apply_batch_with_rollback", return_value=(True, "ok", False),
+            f"{APPLY}.apply_batch_with_rollback", return_value=(True, "ok", False),
         ).start()
         self.torch = patch(
-            "env_manager.updater._apply_torch_cuda_upgrade", return_value=(True, "ok"),
+            f"{APPLY}._apply_torch_cuda_upgrade", return_value=(True, "ok"),
         ).start()
-        patch("env_manager.updater._snapshot_freeze", return_value="torch==2.14.0\n").start()
-        patch("env_manager.updater._pip_check", return_value=(True, "ok")).start()
-        patch("env_manager.updater._torch_installed", return_value=True).start()
-        patch("env_manager.updater._verify_torch_cuda_runtime", return_value=(True, "ok")).start()
+        patch(f"{APPLY}._snapshot_freeze", return_value="torch==2.14.0\n").start()
+        patch(f"{APPLY}._pip_check", return_value=(True, "ok")).start()
+        patch(f"{APPLY}.torch_installed", return_value=True).start()
+        patch(f"{APPLY}.verify_torch_cuda_runtime", return_value=(True, "ok")).start()
 
     def tearDown(self) -> None:
         patch.stopall()
@@ -84,7 +85,7 @@ class TestApplyUpgradePlan(unittest.TestCase):
         self.torch.return_value = (False, "boom")
         plan = _plan([OutdatedPackage("torch", "2.14.0", "2.15.0+cu126", "wheel-cuda")],
                      CUDA_INDEX)
-        with patch("env_manager.updater._restore_freeze", return_value=(True, "ok")) as restore:
+        with patch(f"{APPLY}._restore_freeze", return_value=(True, "ok")) as restore:
             events = list(apply_upgrade_plan(plan, Path("ws")))
         restore.assert_called_once()
         failed = [e for e in events if e.package == "torch-family"]
@@ -92,15 +93,15 @@ class TestApplyUpgradePlan(unittest.TestCase):
 
 
 class TestBatchRollback(unittest.TestCase):
-    """``_apply_batch_with_rollback`` restores the snapshot on any failure."""
+    """``apply_batch_with_rollback`` restores the snapshot on any failure."""
 
     def test_install_failure_rolls_back(self) -> None:
         """A pip install that fails part-way is rolled back."""
-        with patch("env_manager.updater._snapshot_freeze", return_value="rich==13.0.0\n"), \
-                patch("env_manager.updater._apply_pip_upgrade", return_value=(False, "boom")), \
-                patch("env_manager.updater._restore_freeze",
+        with patch(f"{APPLY}._snapshot_freeze", return_value="rich==13.0.0\n"), \
+                patch(f"{APPLY}._apply_pip_upgrade", return_value=(False, "boom")), \
+                patch(f"{APPLY}._restore_freeze",
                       return_value=(True, "ok")) as restore:
-            ok, msg, rolled_back = _apply_batch_with_rollback(Path("ws"), ["rich==13.1.0"])
+            ok, msg, rolled_back = apply_batch_with_rollback(Path("ws"), ["rich==13.1.0"])
         self.assertFalse(ok)
         self.assertTrue(rolled_back)
         self.assertIn("pip install failed", msg)

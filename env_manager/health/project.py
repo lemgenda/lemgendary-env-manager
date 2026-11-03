@@ -18,7 +18,7 @@ from env_manager.health.models import (
 )
 from env_manager.health.npm import read_json_object, read_node_modules_versions
 from env_manager.requirements_manager import parse_requirements_file
-from env_manager.updater import _check_torch_cuda_upgrades
+from env_manager.updater import check_torch_cuda_upgrades
 from env_manager.venv_manager import (
     ProjectVenvInfo,
     get_installed_packages,
@@ -33,7 +33,7 @@ def _classify_torch_via_cuda_index(
     cuda_index_url: str,
 ) -> dict[str, UpgradeStatus]:
     """Resolve torch-family upgrade candidates against the CUDA index."""
-    candidates, reason = _check_torch_cuda_upgrades(
+    candidates, reason = check_torch_cuda_upgrades(
         project_dir, cuda_index_url, current_state,
     )
     if not candidates:

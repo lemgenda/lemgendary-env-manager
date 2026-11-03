@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.39-STABLE)
+# LemGendary Environment Manager (v16.9.40-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.40 - Updater Split
+
+- `env_manager/updater.py` (790 lines) is split into the `env_manager/upgrade/` package: `models.py` (plan records, `UPGRADE_ORDER`, name helpers), `torch_cuda.py` (GPU index choice, CUDA runtime check, torch-family CUDA dry-run), `npm.py` (`npm outdated` / `npm update`), `plan.py` (`build_upgrade_plan`), `apply.py` (pinned installs, `pip check`, freeze snapshots, rollback, `apply_upgrade_plan`) and `manifest_sync.py` (`sync_manifests_from_venvs`). `updater.py` is now a 66-line facade that re-exports the public names, so existing imports keep working. Behaviour is unchanged.
+- The three long functions are broken into single-purpose helpers: `build_upgrade_plan` plans each Node or Python project separately, `apply_upgrade_plan` applies each project through `_apply_node_project` / `_apply_python_project`, and the manifest sync re-pins one line at a time (`_synced_line`) from a module-level `PROJECT_TO_MANIFEST` table. None of them exceeds the default branch, statement or local-variable limits any more.
+- Helpers used across the new modules lost their leading underscore (for example `_check_torch_cuda_upgrades` is `check_torch_cuda_upgrades`, `_apply_batch_with_rollback` is `apply_batch_with_rollback`). Tests patch them in `env_manager.upgrade.apply` and `env_manager.upgrade.plan`.
 
 ### v16.9.39 - Health Checker Split
 

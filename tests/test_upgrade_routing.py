@@ -80,10 +80,10 @@ class TestStep5Routing(unittest.TestCase):
         self.pip_pkg = OutdatedPackage("rich", "13.0.0", "13.1.0", "pip")
         self.npm_pkg = OutdatedPackage("eslint", "9.0.0", "9.1.0", "npm")
         self.npm_outdated = patch(
-            "env_manager.pipeline.upgrades._find_npm_outdated", return_value=[self.npm_pkg]
+            "env_manager.pipeline.upgrades.find_npm_outdated", return_value=[self.npm_pkg]
         ).start()
         self.npm_update = patch(
-            "env_manager.pipeline.upgrades._apply_npm_update", return_value=(True, "ok")
+            "env_manager.pipeline.upgrades.apply_npm_update", return_value=(True, "ok")
         ).start()
         self.pkg_count = patch(
             "env_manager.pipeline.upgrades.venv_package_count", return_value=5
@@ -96,7 +96,7 @@ class TestStep5Routing(unittest.TestCase):
             return_value=([self.pip_pkg], []),
         ).start()
         self.pip_apply = patch(
-            "env_manager.pipeline.upgrades._apply_batch_with_rollback",
+            "env_manager.pipeline.upgrades.apply_batch_with_rollback",
             return_value=(True, "ok", False),
         ).start()
         self.sync = patch("env_manager.pipeline.upgrades.sync_manifests_from_venvs").start()
@@ -199,7 +199,7 @@ class TestUpdateCommandScope(unittest.TestCase):
     def test_unknown_project_rejected_by_plan_builder(self) -> None:
         """The plan builder raises ValueError for an unknown project."""
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("env_manager.updater._detect_cuda", return_value=(None, "none")):
+                patch("env_manager.upgrade.plan.detect_cuda", return_value=(None, "none")):
             with self.assertRaises(ValueError):
                 build_upgrade_plan(Path(tmp), project="nope")
 
