@@ -84,7 +84,7 @@ from env_manager.service_manager import start_all_services, start_service, stop_
 from env_manager.system_probe import probe_hardware
 from env_manager.update_jobs import UpdateAlreadyRunningError, UpdateJobManager, run_safe_update
 from env_manager.updater import UPGRADE_ORDER, build_upgrade_plan
-from env_manager.utils import purge_project_cache
+from env_manager.utils import purge_workspace_caches
 from env_manager.validator import validate_project
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import ENV_MANAGER_DIR, workspace_root
@@ -810,18 +810,10 @@ async def get_docs_status():
 @app.post("/api/clean")
 async def clean_artifacts(request: CleanRequest | None = None):
     """Purge bytecode caches and build artifacts; report the space reclaimed."""
-    base_dir = workspace_root()
-    projects = discover_projects(base_dir)
     target_name = request.project if request else None
-
-    total_reclaimed = 0
-    cleaned_count = 0
-
-    target_projects = [p for p in projects if target_name is None or p.name == target_name]
-    for p in target_projects:
-        cnt, reclaimed = purge_project_cache(Path(p.project_dir))
-        cleaned_count += cnt
-        total_reclaimed += reclaimed
+    cleaned_count, total_reclaimed = await run_in_threadpool(
+        lambda: purge_workspace_caches(discover_projects(workspace_root()), target_name)
+    )
 
     return {
         "status": "success",

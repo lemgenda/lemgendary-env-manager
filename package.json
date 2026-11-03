@@ -1,6 +1,6 @@
 {
   "name": "lemgendary-env-manager",
-  "version": "16.9.29",
+  "version": "16.9.30",
   "description": "LemGendary Environment Manager - Authoritative Toolchain and Validation Hub",
   "private": true,
   "scripts": {

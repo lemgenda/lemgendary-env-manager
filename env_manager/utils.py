@@ -10,9 +10,12 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
-from typing import IO
-from collections.abc import Callable, Generator
+from typing import IO, Any
+from collections.abc import Callable, Generator, Iterable
+
+import psutil
 
 from env_manager._logging import get_logger
 
@@ -144,6 +147,64 @@ def wait_or_kill(proc: subprocess.Popen, timeout: float) -> int:
         raise
 
 
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill ``proc`` and its descendants, which may hold its output pipes open."""
+    try:
+        children = psutil.Process(proc.pid).children(recursive=True)
+    except psutil.Error as exc:
+        _log.debug("Cannot list children of PID %d: %s", proc.pid, exc)
+        children = []
+    for child in children:
+        try:
+            child.kill()
+        except psutil.Error as exc:
+            _log.debug("Cannot kill child PID %d: %s", child.pid, exc)
+    proc.kill()
+    proc.wait()
+
+
+MIN_EXIT_GRACE_S = 1.0
+"""Least time a child gets to exit after closing its output, even at the deadline."""
+
+
+def stream_process_lines(
+    proc: subprocess.Popen,
+    timeout: float,
+) -> Generator[tuple[str, str], None, int]:
+    """Yield ``(stream, line)`` from ``proc``'s stdout and stderr, then reap it.
+
+    ``stream`` is ``"stdout"`` or ``"stderr"``. Both pipes drain on reader
+    threads, so a child that hangs without writing or closing its output is
+    still caught: the whole run must finish within ``timeout`` seconds, or the
+    child is killed and ``subprocess.TimeoutExpired`` is raised. Returns the
+    exit code.
+    """
+    deadline = time.monotonic() + timeout
+    sink: queue.Queue[tuple[str, str | None]] = queue.Queue()
+    readers = [
+        threading.Thread(target=_pump_stream, args=(stream, tag, sink), daemon=True)
+        for stream, tag in ((proc.stdout, _STDOUT), (proc.stderr, _STDERR))
+        if stream is not None
+    ]
+    for reader in readers:
+        reader.start()
+    open_streams = len(readers)
+    while open_streams:
+        try:
+            tag, line = sink.get(timeout=max(deadline - time.monotonic(), 0))
+        except queue.Empty:
+            _log.warning("Killing PID %d and its children after %ss timeout", proc.pid, timeout)
+            _kill_tree(proc)
+            raise subprocess.TimeoutExpired(proc.args, timeout) from None
+        if line is None:
+            open_streams -= 1
+            continue
+        yield tag, line
+    for reader in readers:
+        reader.join()
+    return wait_or_kill(proc, max(deadline - time.monotonic(), MIN_EXIT_GRACE_S))
+
+
 def stream_pip_with_recovery(
     python_path: Path,
     args: list[str],
@@ -179,20 +240,7 @@ def stream_pip_with_recovery(
                 env=cmd_env,
                 creationflags=WINDOWS_NO_WINDOW,
             ) as proc:
-                sink: queue.Queue[tuple[str, str | None]] = queue.Queue()
-                readers = [
-                    threading.Thread(target=_pump_stream, args=(stream, tag, sink), daemon=True)
-                    for stream, tag in ((proc.stdout, _STDOUT), (proc.stderr, _STDERR))
-                    if stream is not None
-                ]
-                for reader in readers:
-                    reader.start()
-                open_streams = len(readers)
-                while open_streams:
-                    tag, line = sink.get()
-                    if line is None:
-                        open_streams -= 1
-                        continue
+                for tag, line in stream_process_lines(proc, timeout):
                     if tag == _STDOUT:
                         # Keep stdout byte-for-byte (minus the newline) so JSON
                         # documents stay intact.
@@ -202,9 +250,6 @@ def stream_pip_with_recovery(
                     stripped = line.strip()
                     if stripped:
                         yield stripped
-                for reader in readers:
-                    reader.join()
-                wait_or_kill(proc, timeout)
                 completed = subprocess.CompletedProcess(
                     args=cmd,
                     returncode=proc.returncode,
@@ -287,8 +332,15 @@ def run_pip_with_recovery(
 
 # ─── Cache / bytecode cleaning ──────────────────────────────────────────────
 
+BYTECODE_SUFFIXES = (".pyc", ".pyo")
+"""Files ``clean`` deletes. Not ``.pyd``: those are compiled extension modules."""
+
+
 def purge_project_cache(project_dir: Path) -> tuple[int, int]:
-    """Purge __pycache__ and bytecode artifacts from a project directory, ignoring .venv."""
+    """Purge __pycache__ and bytecode (.pyc, .pyo) from a project directory, ignoring .venv.
+
+    Returns ``(items_removed, bytes_reclaimed)``.
+    """
     cleaned_count = 0
     total_reclaimed = 0
 
@@ -308,7 +360,7 @@ def purge_project_cache(project_dir: Path) -> tuple[int, int]:
                 dirs.remove(d)
 
         for f in files:
-            if f.endswith((".pyc", ".pyo", ".pyd")):
+            if f.endswith(BYTECODE_SUFFIXES):
                 item = Path(root) / f
                 try:
                     size = item.stat().st_size
@@ -318,6 +370,24 @@ def purge_project_cache(project_dir: Path) -> tuple[int, int]:
                 except OSError as exc:
                     _log.warning("Failed to remove bytecode file %s: %s", item, exc)
 
+    return cleaned_count, total_reclaimed
+
+
+def purge_workspace_caches(projects: Iterable[Any], target: str | None = None) -> tuple[int, int]:
+    """Purge bytecode caches of the Python projects, or only of ``target``.
+
+    Node projects are skipped. This is the one implementation behind both
+    ``lem-env clean`` and ``POST /api/clean``. Returns
+    ``(items_removed, bytes_reclaimed)``.
+    """
+    cleaned_count = 0
+    total_reclaimed = 0
+    for p in projects:
+        if p.is_node_project or (target is not None and p.name != target):
+            continue
+        cnt, reclaimed = purge_project_cache(Path(p.project_dir))
+        cleaned_count += cnt
+        total_reclaimed += reclaimed
     return cleaned_count, total_reclaimed
 
 

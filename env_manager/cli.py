@@ -22,7 +22,7 @@ from env_manager.orchestrator import PipelineOrchestrator
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
 from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
-from env_manager.utils import purge_project_cache
+from env_manager.utils import purge_workspace_caches
 from env_manager.validator import ProjectValidationReport, validate_project
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import workspace_root
@@ -580,16 +580,7 @@ def clean_command(
     base_dir = workspace_root()
     projects = discover_projects(base_dir)
 
-    total_reclaimed = 0
-    cleaned_count = 0
-
-    target_projects = [p for p in projects if project is None or p.name == project]
-    for p in target_projects:
-        if p.is_node_project:
-            continue
-        cnt, reclaimed = purge_project_cache(Path(p.project_dir))
-        cleaned_count += cnt
-        total_reclaimed += reclaimed
+    cleaned_count, total_reclaimed = purge_workspace_caches(projects, project)
 
     reclaimed_mb = total_reclaimed / (1024 * 1024)
     console.print(

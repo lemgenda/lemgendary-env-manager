@@ -13,7 +13,7 @@ from typing import Any
 from collections.abc import Callable, Generator
 
 from env_manager._logging import get_logger
-from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, wait_or_kill
+from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, stream_process_lines
 from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
@@ -137,16 +137,11 @@ def stream_npm_install(
             creationflags=WINDOWS_NO_WINDOW,
         ) as proc:
             lines: list[str] = []
-            if proc.stdout:
-                try:
-                    for raw_line in iter(proc.stdout.readline, ""):
-                        stripped = raw_line.strip()
-                        if stripped:
-                            lines.append(stripped)
-                            yield stripped
-                finally:
-                    proc.stdout.close()
-            wait_or_kill(proc, timeout)
+            for _, raw_line in stream_process_lines(proc, timeout):
+                stripped = raw_line.strip()
+                if stripped:
+                    lines.append(stripped)
+                    yield stripped
             if proc.returncode == 0:
                 return True, "\n".join(lines) or "ok"
             return False, "\n".join(lines) or "NPM install failed."

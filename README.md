@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.29-STABLE)
+# LemGendary Environment Manager (v16.9.30-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.30 - Enforced Subprocess Timeouts and a Safe Clean (D-13, D-14)
+
+- New `utils.stream_process_lines(proc, timeout)` drains stdout and stderr on reader threads against one deadline. A child that hangs, with or without output, is now killed when the timeout expires, together with its child processes, instead of blocking on `readline()` until it closes its pipes. pip (`stream_pip_with_recovery`) and `npm install` (`stream_npm_install`) both use it, which also removes their duplicated drain loop.
+- `clean` no longer deletes `.pyd` files: they are compiled extension modules, not bytecode. It removes `__pycache__`, `.pyc` and `.pyo` only.
+- `lem-env clean` and `POST /api/clean` share `utils.purge_workspace_caches`, so both skip Node projects. The API now runs the purge off the event loop.
+- New tests: `tests/test_process_and_clean.py`.
 
 ### v16.9.29 - Pipeline State and Drift Matrix Fixes (D-11, D-12)
 
