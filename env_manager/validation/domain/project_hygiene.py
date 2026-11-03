@@ -103,79 +103,86 @@ def audit_readme_changelog(project_dir: Path) -> list[FileValidationViolation]:
     return violations
 
 
+RETIRED_HOOK_SCRIPTS = frozenset({
+    "verify_training.py",
+    "verify_datasets.py",
+    "verify_docs.py",
+    "verify_gui.py",
+    "verify_manifold_datasets.py",
+    "verify_models.py",
+    "verify_env_manager.py",
+})
+"""Per-project verification scripts replaced by ``lem-env validate``."""
+
+
+def _hook_files(project_dir: Path) -> list[Path]:
+    """Return the git hook files in ``.githooks`` and ``.git/hooks``, each real file once."""
+    seen: set[Path] = set()
+    hooks: list[Path] = []
+    for h_dir in (project_dir / ".githooks", project_dir / ".git" / "hooks"):
+        if not h_dir.is_dir():
+            continue
+        for hook_file in h_dir.iterdir():
+            if not hook_file.is_file() or hook_file.name.endswith(".sample"):
+                continue
+            try:
+                canon = hook_file.resolve()
+            except (OSError, RuntimeError) as exc:
+                _log.warning("Cannot resolve git hook path %s: %s", hook_file, exc)
+                canon = hook_file
+            if canon not in seen:
+                seen.add(canon)
+                hooks.append(hook_file)
+    return hooks
+
+
+def _hook_line_violations(
+    project_dir: Path, hook_file: Path, idx: int, line: str,
+) -> list[FileValidationViolation]:
+    """Flag retired scripts and missing Python targets on one non-comment hook line."""
+    violations = [
+        FileValidationViolation(
+            file_path=str(hook_file),
+            line_number=idx,
+            violation_type="retired_git_hook_script",
+            message=(
+                f"Hook invokes retired verification script '{retired}'. "
+                "Pre-commit hooks must delegate to "
+                f"'lem-env validate --project {project_dir.name}'."
+            ),
+        )
+        for retired in RETIRED_HOOK_SCRIPTS if retired in line
+    ]
+    violations += [
+        FileValidationViolation(
+            file_path=str(hook_file),
+            line_number=idx,
+            violation_type="missing_git_hook_target",
+            message=f"Hook references nonexistent script '{py_script}'.",
+        )
+        for py_script in _HOOK_PY_SCRIPT_RE.findall(line)
+        if not (project_dir / py_script).resolve().exists()
+    ]
+    return violations
+
+
 def audit_git_hooks(project_dir: Path) -> list[FileValidationViolation]:
     """Verify that git hooks do not reference retired scripts or nonexistent files."""
     violations: list[FileValidationViolation] = []
-    hook_dirs = [project_dir / ".githooks", project_dir / ".git" / "hooks"]
-
-    retired_scripts = {
-        "verify_training.py",
-        "verify_datasets.py",
-        "verify_docs.py",
-        "verify_gui.py",
-        "verify_manifold_datasets.py",
-        "verify_models.py",
-        "verify_env_manager.py",
-    }
-
-    checked_hooks = set()
-    for h_dir in hook_dirs:
-        if not h_dir.exists() or not h_dir.is_dir():
+    for hook_file in _hook_files(project_dir):
+        try:
+            content = hook_file.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            violations.append(FileValidationViolation(
+                file_path=str(hook_file),
+                line_number=0,
+                violation_type="git_hook_read_error",
+                message=f"Failed reading git hook: {exc}",
+            ))
             continue
-        for hook_file in h_dir.iterdir():
-            if hook_file.is_file() and not hook_file.name.endswith(".sample"):
-                try:
-                    canon = hook_file.resolve()
-                except (OSError, RuntimeError) as exc:
-                    _log.warning("Cannot resolve git hook path %s: %s", hook_file, exc)
-                    canon = hook_file
-                if canon in checked_hooks:
-                    continue
-                checked_hooks.add(canon)
-                try:
-                    content = hook_file.read_text(encoding="utf-8", errors="replace")
-                    for idx, line in enumerate(content.splitlines(), start=1):
-                        line_clean = line.strip()
-                        if line_clean.startswith("#"):
-                            continue
-                        for retired in retired_scripts:
-                            if retired in line:
-                                violations.append(
-                                    FileValidationViolation(
-                                        file_path=str(hook_file),
-                                        line_number=idx,
-                                        violation_type="retired_git_hook_script",
-                                        message=(
-                                            "Hook invokes retired verification script "
-                                            f"'{retired}'. "
-                                            f"Pre-commit hooks must delegate to "
-                                            f"'lem-env validate --project {project_dir.name}'."
-                                        ),
-                                    )
-                                )
-                        py_matches = _HOOK_PY_SCRIPT_RE.findall(line)
-                        for py_script in py_matches:
-                            script_path = (project_dir / py_script).resolve()
-                            if not script_path.exists():
-                                violations.append(
-                                    FileValidationViolation(
-                                        file_path=str(hook_file),
-                                        line_number=idx,
-                                        violation_type="missing_git_hook_target",
-                                        message=(
-                                            f"Hook references nonexistent script '{py_script}'."
-                                        ),
-                                    )
-                                )
-                except OSError as exc:
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=str(hook_file),
-                            line_number=0,
-                            violation_type="git_hook_read_error",
-                            message=f"Failed reading git hook: {exc}",
-                        )
-                    )
+        for idx, line in enumerate(content.splitlines(), start=1):
+            if not line.strip().startswith("#"):
+                violations += _hook_line_violations(project_dir, hook_file, idx, line)
     return violations
 
 

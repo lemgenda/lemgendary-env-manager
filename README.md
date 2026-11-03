@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.44-STABLE)
+# LemGendary Environment Manager (v16.9.45-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.45 - Validation and Drift Helpers
+
+- `validation/domain/datasets.audit_dataset_manifests` (21 branches) checks each YAML manifest through one helper, `_yaml_mapping_violations` (parse error, non-mapping root, missing keys), and each manifold directory through `_manifold_violations`. The required files, the Forex manifold name and the shard count are module constants. Violation types and messages are unchanged.
+- `validation/domain/project_hygiene.audit_git_hooks` (7 nested blocks) is split into `_hook_files` (each real hook file once) and `_hook_line_violations`; the retired scripts are the constant `RETIRED_HOOK_SCRIPTS`.
+- `health/drift.compute_version_drift` (14 branches, 23 locals) builds one entry per shared package with `_drift_entry` and `_pin_info`.
 
 ### v16.9.44 - Install Step, pip Streaming and Bootstrap Cleanup
 

@@ -18,6 +18,51 @@ from env_manager.health.models import (
 from env_manager.health.project import _classify_project_upgrades
 
 
+def _pin_info(pin: PinInfo | None, installed_ver: str | None) -> PinInfo:
+    """Return the project's pin for a package: declared, transitive or absent."""
+    if pin is not None:
+        return PinInfo(pin_type=pin.pin_type, specifier=pin.specifier, installed=installed_ver)
+    if installed_ver:
+        return PinInfo(pin_type="transitive", specifier="", installed=installed_ver)
+    return PinInfo(pin_type="absent", specifier="", installed=None)
+
+
+def _drift_entry(
+    pkg: str,
+    project_pins: dict[str, dict[str, PinInfo]],
+    installed_by_project: dict[str, dict[str, str]],
+    upgrade_map: dict[str, dict[str, UpgradeStatus]],
+) -> VersionDriftEntry:
+    """Compare one shared package across every project.
+
+    ``upgrade_map`` is empty when safety classification is off; every
+    project then gets an "unknown" upgrade status.
+    """
+    versions: dict[str, str | None] = {}
+    pins: dict[str, PinInfo] = {}
+    upgrades: dict[str, UpgradeStatus] = {}
+    for name, installed in installed_by_project.items():
+        installed_ver = installed.get(pkg) or None
+        pins[name] = _pin_info(project_pins.get(name, {}).get(pkg), installed_ver)
+        versions[name] = installed_ver
+        upgrades[name] = upgrade_map.get(name, {}).get(pkg) or UpgradeStatus(
+            current=installed_ver, latest=None, safe=False, reason=None,
+        )
+    declared_types = {
+        pin.pin_type for pin in pins.values()
+        if pin.pin_type not in ("transitive", "absent")
+    }
+    return VersionDriftEntry(
+        package_name=pkg,
+        versions=versions,
+        pins=pins,
+        upgrades=upgrades,
+        has_drift=len({v for v in versions.values() if v}) > 1,
+        has_pin_mismatch=len(declared_types) > 1,
+        projects_declared=sum(1 for pins_of in project_pins.values() if pkg in pins_of),
+    )
+
+
 def compute_version_drift(
     projects: list[ProjectHealth],
     cuda_index_url: str | None = None,
@@ -55,64 +100,10 @@ def compute_version_drift(
         for p in projects
     }
 
-    entries: list[VersionDriftEntry] = []
-    for pkg in shared_packages:
-        versions: dict[str, str | None] = {}
-        pins: dict[str, PinInfo] = {}
-        upgrades: dict[str, UpgradeStatus] = {}
-        pin_types: set[str] = set()
-        observed_versions: set[str] = set()
-
-        for p in projects:
-            pin = project_pins.get(p.name, {}).get(pkg)
-            installed_ver = installed_by_project[p.name].get(pkg) or None
-
-            if pin is not None:
-                pins[p.name] = PinInfo(
-                    pin_type=pin.pin_type,
-                    specifier=pin.specifier,
-                    installed=installed_ver,
-                )
-                pin_types.add(pin.pin_type)
-            elif installed_ver:
-                pins[p.name] = PinInfo(
-                    pin_type="transitive", specifier="", installed=installed_ver,
-                )
-            else:
-                pins[p.name] = PinInfo(
-                    pin_type="absent", specifier="", installed=None,
-                )
-
-            versions[p.name] = installed_ver
-            if installed_ver:
-                observed_versions.add(installed_ver)
-
-            if include_safety:
-                status = upgrade_map.get(p.name, {}).get(pkg)
-                upgrades[p.name] = status or UpgradeStatus(
-                    current=installed_ver, latest=None, safe=False, reason=None,
-                )
-            else:
-                upgrades[p.name] = UpgradeStatus(
-                    current=installed_ver, latest=None, safe=False, reason=None,
-                )
-
-        has_drift = len(observed_versions) > 1
-        has_pin_mismatch = len({t for t in pin_types if t != "transitive"}) > 1
-
-        entries.append(
-            VersionDriftEntry(
-                package_name=pkg,
-                versions=versions,
-                pins=pins,
-                upgrades=upgrades,
-                has_drift=has_drift,
-                has_pin_mismatch=has_pin_mismatch,
-                projects_declared=declaration_counts.get(pkg, 0),
-            )
-        )
-
-    return entries
+    return [
+        _drift_entry(pkg, project_pins, installed_by_project, upgrade_map)
+        for pkg in shared_packages
+    ]
 
 
 def compute_manifest_coverage(
