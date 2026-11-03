@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.36-STABLE)
+# LemGendary Environment Manager (v16.9.37-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.37 - Orchestrator Split, One Implementation per Pipeline Step
+
+- `env_manager/orchestrator.py` (1151 lines) kept two copies of every step: one inside `run_clean_install_pipeline` and one per `_single_step_*` method. Both runs now execute the same step generators from the new `env_manager/pipeline/` package: `events.py` (`PipelineEvent`, the pip progress parser rules, `EventPublisher` and the per-step `StepEmitter`), `steps.py` (the seven steps and `PipelineRun`, the state they share), `install.py` (step 4 installs), `upgrades.py` (step 5 safe upgrades) and `venvs.py` (running-venv and `node_modules` helpers). `orchestrator.py` (189 lines) keeps the run state, the claim lock and the event wiring, and its public names.
+- The full run probes the hardware and discovers projects once and passes them to later steps, as before; a single-step run computes only what its step needs, as before.
+- Message wording that differed between the two copies now follows the full run: step 3 says "Purging existing node_modules ... (clean install)" and "will be installed freshly", the active-venv warning says "cannot delete the venv currently executing this pipeline", and step 7 starts with "Generating final ecosystem health report...". The step 7 summary still starts with "Pipeline execution completed." for a full run and "Step 7 completed." for a single step.
+- Step emitters are bound to their step: `parse_pip_line_to_event` and `execute_safe_upgrades` take an `Emit` called as `emit(status, msg, *, data=None, is_progress=False)` instead of a six-argument callback.
 
 ### v16.9.36 - Validator Split into Pluggable Gates, New Gates (R6, D-16)
 

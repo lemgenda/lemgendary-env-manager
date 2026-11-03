@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator, PipProgress
 
-
 LAST_STEP_UNDER_TEST = 3
 """Step 3 (virtual environments) is the last step these tests drive."""
 
@@ -44,10 +43,10 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertFalse(orchestrator.is_running)
         self.assertEqual(orchestrator.last_status, "idle")
 
-    @patch("env_manager.orchestrator.probe_hardware")
-    @patch("env_manager.orchestrator.verify_prerequisites")
-    @patch("env_manager.orchestrator.sync_all_manifests")
-    @patch("env_manager.orchestrator.discover_projects")
+    @patch("env_manager.pipeline.steps.probe_hardware")
+    @patch("env_manager.pipeline.steps.verify_prerequisites")
+    @patch("env_manager.pipeline.steps.sync_all_manifests")
+    @patch("env_manager.pipeline.steps.discover_projects")
     def test_pipeline_step_event_emission(
         self,
         _mock_discover: MagicMock,
@@ -83,14 +82,13 @@ class TestPipelineOrchestrator(unittest.TestCase):
     def test_pip_progress_parsing(self) -> None:
         """Verify pip output lines are correctly parsed into live progress events."""
         def emit_dummy(
-            step_num: int, step_name: str, status: str, msg: str,
-            *, data=None, is_progress=False,
+            status: str, msg: str, *, data=None, is_progress=False,
         ) -> PipelineEvent:
             return PipelineEvent(
                 timestamp="2026-10-18T00:00:00Z",
-                step_number=step_num,
+                step_number=4,
                 total_steps=7,
-                step_name=step_name,
+                step_name="Package Installation",
                 status=status,
                 message=msg,
                 data=data,
@@ -158,16 +156,16 @@ class TestPipelineDestructiveOptIn(unittest.TestCase):
         hw.accelerators = []
         hw.to_dict.return_value = {}
         boot = MagicMock(python_valid=True, git_installed=True)
-        patch("env_manager.orchestrator.probe_hardware", return_value=hw).start()
-        patch("env_manager.orchestrator.verify_prerequisites", return_value=boot).start()
-        patch("env_manager.orchestrator.discover_projects", return_value=self.projects).start()
-        patch("env_manager.orchestrator.is_venv_valid", return_value=True).start()
-        patch("env_manager.orchestrator._get_active_venv", return_value=None).start()
+        patch("env_manager.pipeline.steps.probe_hardware", return_value=hw).start()
+        patch("env_manager.pipeline.steps.verify_prerequisites", return_value=boot).start()
+        patch("env_manager.pipeline.steps.discover_projects", return_value=self.projects).start()
+        patch("env_manager.pipeline.steps.is_venv_valid", return_value=True).start()
+        patch("env_manager.orchestrator.get_active_venv", return_value=None).start()
         self.mock_create_venv = patch(
-            "env_manager.orchestrator.create_venv", return_value=(True, "ok")
+            "env_manager.pipeline.steps.create_venv", return_value=(True, "ok")
         ).start()
-        self.mock_rmtree = patch("env_manager.orchestrator.shutil.rmtree").start()
-        self.mock_sync = patch("env_manager.orchestrator.sync_all_manifests").start()
+        self.mock_rmtree = patch("env_manager.pipeline.venvs.shutil.rmtree").start()
+        self.mock_sync = patch("env_manager.pipeline.steps.sync_all_manifests").start()
 
     def tearDown(self) -> None:
         patch.stopall()

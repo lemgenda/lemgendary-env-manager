@@ -12,9 +12,9 @@ All upgrade functions are mocked; no real pip or npm command runs.
 import shutil
 import tempfile
 import unittest
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -27,20 +27,23 @@ from env_manager.updater import (
     ProjectUpgradePlan,
     build_upgrade_plan,
 )
-from env_manager.venv_manager import discover_projects
+from env_manager.venv_manager import ProjectVenvInfo, discover_projects
 
 
-def _emit(step: int, name: str, status: str, message: str, **kwargs: object) -> PipelineEvent:
+def _emit(
+    status: str, msg: str, *, data: dict[str, Any] | None = None, is_progress: bool = False,
+) -> PipelineEvent:
     return PipelineEvent(
-        timestamp=datetime.now(UTC).isoformat(), step_number=step, total_steps=7,
-        step_name=name, status=status, message=message,
-        is_progress=bool(kwargs.get("is_progress", False)),
+        timestamp=datetime.now(UTC).isoformat(), step_number=5, total_steps=7,
+        step_name="Dependency Upgrades", status=status, message=msg, data=data,
+        is_progress=is_progress,
     )
 
 
-def _project(name: str, root: Path, *, is_node: bool, has_npm: bool) -> SimpleNamespace:
-    return SimpleNamespace(
-        name=name, project_dir=str(root / name),
+def _project(name: str, root: Path, *, is_node: bool, has_npm: bool) -> ProjectVenvInfo:
+    return ProjectVenvInfo(
+        name=name, project_dir=str(root / name), venv_dir=str(root / name / ".venv"),
+        python_path=None, is_valid=True, python_version=None,
         is_node_project=is_node, has_npm_manifest=has_npm,
     )
 
@@ -77,31 +80,31 @@ class TestStep5Routing(unittest.TestCase):
         self.pip_pkg = OutdatedPackage("rich", "13.0.0", "13.1.0", "pip")
         self.npm_pkg = OutdatedPackage("eslint", "9.0.0", "9.1.0", "npm")
         self.npm_outdated = patch(
-            "env_manager.orchestrator._find_npm_outdated", return_value=[self.npm_pkg]
+            "env_manager.pipeline.upgrades._find_npm_outdated", return_value=[self.npm_pkg]
         ).start()
         self.npm_update = patch(
-            "env_manager.orchestrator._apply_npm_update", return_value=(True, "ok")
+            "env_manager.pipeline.upgrades._apply_npm_update", return_value=(True, "ok")
         ).start()
         self.pkg_count = patch(
-            "env_manager.orchestrator.venv_package_count", return_value=5
+            "env_manager.pipeline.upgrades.venv_package_count", return_value=5
         ).start()
         self.pip_outdated = patch(
-            "env_manager.orchestrator.find_outdated_packages", return_value=[self.pip_pkg]
+            "env_manager.pipeline.upgrades.find_outdated_packages", return_value=[self.pip_pkg]
         ).start()
         patch(
-            "env_manager.orchestrator.classify_safe_upgrades",
+            "env_manager.pipeline.upgrades.classify_safe_upgrades",
             return_value=([self.pip_pkg], []),
         ).start()
         self.pip_apply = patch(
-            "env_manager.orchestrator._apply_batch_with_rollback",
+            "env_manager.pipeline.upgrades._apply_batch_with_rollback",
             return_value=(True, "ok", False),
         ).start()
-        self.sync = patch("env_manager.orchestrator.sync_manifests_from_venvs").start()
+        self.sync = patch("env_manager.pipeline.upgrades.sync_manifests_from_venvs").start()
 
     def tearDown(self) -> None:
         patch.stopall()
 
-    def _run(self, project: SimpleNamespace) -> list[PipelineEvent]:
+    def _run(self, project: ProjectVenvInfo) -> list[PipelineEvent]:
         orchestrator = PipelineOrchestrator(base_dir=self.root)
         hw = MagicMock(recommended_torch_index=None)
         return list(orchestrator.execute_safe_upgrades([project], hw, _emit))
