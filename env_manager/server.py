@@ -28,6 +28,7 @@ import urllib.request
 from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any
@@ -128,6 +129,39 @@ MAX_RECENT_EVENTS = 200
 """Pipeline events kept in memory for status and WebSocket replay."""
 
 recent_events: deque[dict[str, Any]] = deque(maxlen=MAX_RECENT_EVENTS)
+_events_lock = threading.Lock()
+_operation_lock = threading.Lock()
+"""Held while checking and claiming the pipeline or the update job, so the two never overlap."""
+
+
+def stamp_event(ev_dict: dict[str, Any]) -> dict[str, Any]:
+    """Return ``ev_dict`` with a ``timestamp``, adding the current UTC time if it has none."""
+    if ev_dict.get("timestamp"):
+        return ev_dict
+    return {**ev_dict, "timestamp": datetime.now(UTC).isoformat()}
+
+
+def record_event(ev_dict: dict[str, Any]) -> dict[str, Any]:
+    """Add an event to ``recent_events``; every stored entry carries a ``timestamp``.
+
+    Returns the stored dict, so the same timestamp is broadcast and replayed.
+    """
+    stamped = stamp_event(ev_dict)
+    with _events_lock:
+        recent_events.append(stamped)
+    return stamped
+
+
+def recent_events_snapshot(limit: int) -> list[dict[str, Any]]:
+    """Return the newest ``limit`` recorded events, oldest first."""
+    with _events_lock:
+        return list(recent_events)[-limit:]
+
+
+def _publish_pipeline_event(ev_dict: dict[str, Any], loop: asyncio.AbstractEventLoop) -> None:
+    """Record a pipeline event and broadcast it to WebSocket clients."""
+    stamped = record_event(ev_dict)
+    asyncio.run_coroutine_threadsafe(manager.broadcast(stamped), loop)
 _event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 orchestrator = PipelineOrchestrator()
 
@@ -340,7 +374,7 @@ async def get_pipeline_status():
         "is_running": orchestrator.is_running,
         "last_status": orchestrator.last_status,
         "last_run_timestamp": orchestrator.last_run_timestamp,
-        "recent_events": list(recent_events)[-50:],
+        "recent_events": recent_events_snapshot(50),
     }
 
 
@@ -349,22 +383,32 @@ def _run_pipeline_worker(
     clean: bool,
     loop: asyncio.AbstractEventLoop,
 ):
-    for event in orchestrator.run_clean_install_pipeline(
-        target_project=target_project,
-        clean=clean,
-    ):
-        ev_dict = event.to_dict()
-        recent_events.append(ev_dict)
-        asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
+    try:
+        for event in orchestrator.run_clean_install_pipeline(
+            target_project=target_project,
+            clean=clean,
+        ):
+            _publish_pipeline_event(event.to_dict(), loop)
+    finally:
+        orchestrator.release()
+
+
+def _claim_pipeline(busy_message: str) -> str | None:
+    """Claim the orchestrator for a new run; return why it cannot start, or None."""
+    with _operation_lock:
+        if update_jobs.is_running:
+            return "A package update is running."
+        if not orchestrator.try_claim():
+            return busy_message
+    return None
 
 
 @app.post("/api/pipeline/run")
 async def run_pipeline(request: RunPipelineRequest):
     """Start the full pipeline on a background thread."""
-    if orchestrator.is_running:
-        return {"status": "error", "message": "Pipeline is already running."}
-    if update_jobs.is_running:
-        return {"status": "error", "message": "A package update is running."}
+    refusal = _claim_pipeline("Pipeline is already running.")
+    if refusal is not None:
+        return {"status": "error", "message": refusal}
 
     loop = asyncio.get_running_loop()
     thread = threading.Thread(
@@ -382,28 +426,28 @@ def _run_step_worker(
     clean: bool,
     loop: asyncio.AbstractEventLoop,
 ):
-    for event in orchestrator.run_pipeline_single_step(
-        step_number=step_number,
-        target_project=target_project,
-        clean=clean,
-    ):
-        ev_dict = event.to_dict()
-        recent_events.append(ev_dict)
-        asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
+    try:
+        for event in orchestrator.run_pipeline_single_step(
+            step_number=step_number,
+            target_project=target_project,
+            clean=clean,
+        ):
+            _publish_pipeline_event(event.to_dict(), loop)
+    finally:
+        orchestrator.release()
 
 
 @app.post("/api/pipeline/run-step")
 async def run_pipeline_step(request: RunStepRequest):
     """Run one pipeline step on a background thread."""
-    if orchestrator.is_running:
-        return {"status": "error", "message": "Pipeline or step is already running."}
-    if update_jobs.is_running:
-        return {"status": "error", "message": "A package update is running."}
     if not 1 <= request.step_number <= orchestrator.total_steps:
         return {
             "status": "error",
             "message": f"Invalid step number: {request.step_number}. Must be between 1 and 7.",
         }
+    refusal = _claim_pipeline("Pipeline or step is already running.")
+    if refusal is not None:
+        return {"status": "error", "message": refusal}
 
     loop = asyncio.get_running_loop()
     thread = threading.Thread(
@@ -422,7 +466,7 @@ def _broadcast_from_thread(loop: asyncio.AbstractEventLoop):
     """Return a sink that worker threads use to publish WebSocket events."""
 
     def _publish(ev_dict: dict[str, Any]) -> None:
-        asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
+        asyncio.run_coroutine_threadsafe(manager.broadcast(stamp_event(ev_dict)), loop)
 
     return _publish
 
@@ -456,17 +500,17 @@ async def run_update(request: UpdateRequest | None = None):
             return {"status": "up_to_date", "message": "All packages are up to date.", "events": []}
         return {"status": "dry_run", "plan": plan.to_dict()}
 
-    if orchestrator.is_running:
-        raise HTTPException(
-            status_code=409,
-            detail="The pipeline is running. Wait for it to finish before updating packages.",
-        )
-
     publish = _broadcast_from_thread(asyncio.get_running_loop())
-    try:
-        job = update_jobs.start(request.project, publish)
-    except UpdateAlreadyRunningError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    with _operation_lock:
+        if orchestrator.is_running:
+            raise HTTPException(
+                status_code=409,
+                detail="The pipeline is running. Wait for it to finish before updating packages.",
+            )
+        try:
+            job = update_jobs.start(request.project, publish)
+        except UpdateAlreadyRunningError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     scope = request.project or "all projects"
     return {
@@ -976,7 +1020,7 @@ async def websocket_logs(websocket: WebSocket):
     """Replay recent events to a new client, then keep the socket open for broadcasts."""
     await manager.connect(websocket)
     try:
-        for ev in list(recent_events)[-20:]:
+        for ev in recent_events_snapshot(20):
             await websocket.send_json(ev)
         while True:
             await websocket.receive_text()

@@ -457,6 +457,13 @@ def compute_version_drift(
                 p, cuda_index_url=cuda_index_url,
             )
 
+    # Manifest names are PEP 503-normalized; pip reports raw names
+    # (``pydantic_core``), so normalize the installed keys the same way.
+    installed_by_project = {
+        p.name: {normalize_package_name(k): v for k, v in p.installed_packages.items()}
+        for p in projects
+    }
+
     entries: list[VersionDriftEntry] = []
     for pkg in shared_packages:
         versions: dict[str, str | None] = {}
@@ -467,7 +474,7 @@ def compute_version_drift(
 
         for p in projects:
             pin = project_pins.get(p.name, {}).get(pkg)
-            installed_ver = p.installed_packages.get(pkg) or None
+            installed_ver = installed_by_project[p.name].get(pkg) or None
 
             if pin is not None:
                 pins[p.name] = PinInfo(

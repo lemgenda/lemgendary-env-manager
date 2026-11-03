@@ -7,6 +7,7 @@ and streams real-time telemetry events to CLI, WebSocket, and GUI clients.
 import re
 import shutil
 import sys
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, UTC
 from pathlib import Path
@@ -226,6 +227,24 @@ class PipelineOrchestrator:
         self.last_status = "idle"
         self.last_run_timestamp: str | None = None
         self.last_report: HealthAuditReport | None = None
+        self._claim_lock = threading.Lock()
+
+    def try_claim(self) -> bool:
+        """Mark the orchestrator running if it is idle; return False if a run is active.
+
+        Callers that start a run on another thread claim it first, so two
+        requests arriving together cannot both start a pipeline.
+        """
+        with self._claim_lock:
+            if self.is_running:
+                return False
+            self.is_running = True
+            return True
+
+    def release(self) -> None:
+        """Mark the orchestrator idle (the run ended or never started)."""
+        with self._claim_lock:
+            self.is_running = False
 
     @property
     def base_dir(self) -> Path:
@@ -260,6 +279,8 @@ class PipelineOrchestrator:
             data: dict[str, Any] | None = None,
             is_progress: bool = False,
         ) -> PipelineEvent:
+            if 1 <= step_num <= self.total_steps:
+                self.current_step = step_num
             ev = PipelineEvent(
                 timestamp=datetime.now(UTC).isoformat(),
                 step_number=step_num,
@@ -481,15 +502,16 @@ class PipelineOrchestrator:
                 data=final_report.to_dict(),
             )
 
-            self.is_running = False
             return final_report
 
         except Exception as exc:
-            self.is_running = False
             self.last_status = "failed"
             yield emit(0, "Pipeline Error", "error",
                        f"Unhandled pipeline exception: {exc}")
             raise
+        finally:
+            # Also runs on GeneratorExit when a consumer closes the run early.
+            self.release()
 
     def run_pipeline_single_step(
         self,
@@ -564,7 +586,7 @@ class PipelineOrchestrator:
                        f"Unhandled exception during step {step_number}: {exc}")
             raise
         finally:
-            self.is_running = False
+            self.release()
 
     def _single_step_hardware_discovery(
         self, ctx: _StepContext,

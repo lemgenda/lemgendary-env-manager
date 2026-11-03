@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.28-STABLE)
+# LemGendary Environment Manager (v16.9.29-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,15 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.29 - Pipeline State and Drift Matrix Fixes (D-11, D-12)
+
+- Every entry in `recent_events` (`GET /api/pipeline/status`, WebSocket replay) now carries a `timestamp`. Events go through `server.record_event`, which adds the current UTC time when an event has none and stores the same dict that is broadcast, so the GUI's timestamp-based de-duplication sees one identity per event. Update-job events are stamped the same way before broadcast.
+- `recent_events` is read and written under a lock; worker threads no longer mutate it while a request copies it.
+- The pipeline is claimed before its worker thread starts (`PipelineOrchestrator.try_claim`), under one lock shared with `POST /api/update`, so two fast `POST /api/pipeline/run` requests start one pipeline and a pipeline and an update can no longer start together.
+- `is_running` is cleared in a `finally` block, so a run whose consumer stops early (`GeneratorExit`) no longer leaves the orchestrator busy. `current_step` now follows the full pipeline's progress.
+- The drift matrix normalizes pip's raw package names (`pydantic_core`) before looking them up, so packages with `_` or `.` in their names show their installed versions.
+- New tests: `tests/test_pipeline_state.py`, `tests/test_drift_normalization.py`.
 
 ### v16.9.28 - Apply Exactly the Vetted Plan (D-10)
 
