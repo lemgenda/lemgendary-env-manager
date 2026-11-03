@@ -7,7 +7,7 @@ POSIX home directories in text files. References must resolve relative to the pr
 import re
 from pathlib import Path
 
-from env_manager.validation.files import iter_project_files
+from env_manager.validation.files import TEXT_FILE_EXTENSIONS, iter_project_files
 from env_manager.validation.models import FileValidationViolation, read_error
 
 ABSOLUTE_PATH = "absolute_path"
@@ -19,11 +19,7 @@ _ABSOLUTE_PATH = re.compile(
     r"|(?<![\w.~-])/(?:home|Users)/[A-Za-z0-9_.-]+"          # POSIX home directory
 )
 
-PATH_SCAN_EXTENSIONS = frozenset({
-    ".py", ".ps1", ".psm1", ".sh", ".bat", ".cmd", ".ts", ".tsx", ".js", ".jsx", ".mjs",
-    ".cjs", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".html", ".css",
-    ".ipynb", ".rs",
-})
+PATH_SCAN_EXTENSIONS = TEXT_FILE_EXTENSIONS
 """Text file types checked for absolute paths."""
 
 

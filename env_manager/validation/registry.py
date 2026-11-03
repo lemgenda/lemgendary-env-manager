@@ -19,6 +19,10 @@ from env_manager.validation.domain.project_hygiene import (
 from env_manager.validation.gate import Bucket, Gate, ProjectContext, for_projects
 from env_manager.validation.gates.absolute_paths import run_absolute_path_scan
 from env_manager.validation.gates.data_formats import run_jsonlint, run_yamllint
+from env_manager.validation.gates.ecosystem_ssot import (
+    ECOSYSTEM_SSOT_SEVERITY,
+    run_ecosystem_ssot,
+)
 from env_manager.validation.gates.node_linters import (
     run_eslint,
     run_markdownlint,
@@ -73,6 +77,7 @@ GATES: list[Gate] = [
     Gate("models-hub", Bucket.DOMAIN, audit_models_hub,
          applies=for_projects("lemgendary-models", "LemGendaryModels")),
     Gate("git-hooks", Bucket.DOMAIN, audit_git_hooks),
+    Gate("ecosystem_ssot", Bucket.DOMAIN, run_ecosystem_ssot, severity=ECOSYSTEM_SSOT_SEVERITY),
 ]
 """Gates in run order. The compile and emoji walk runs before all of them."""
 

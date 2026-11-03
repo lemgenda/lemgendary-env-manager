@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.49-STABLE)
+# LemGendary Environment Manager (v16.9.50-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -300,6 +300,31 @@ python -m env_manager.cli serve
 ---
 
 ## Changelog
+
+### v16.9.50 - Ecosystem SSOT Gate (ENV-2)
+
+- New validation gate `ecosystem_ssot` (package
+  `env_manager/validation/gates/ecosystem_ssot/`), registered in
+  `validation/registry.py` at warning severity. Per project it reports
+  literal service ports, the Kaggle owner, the docs URL and lists of three or
+  more project folders that are not read from `ecosystem.json`. Allowlisted:
+  the ecosystem file and schema, the GUI `src/generated/ecosystem.json` and
+  `src-tauri/tauri.conf.json`, README changelog sections, `CHANGELOG*`
+  files, `REVIEW_REPORT.md`, `openapi.json`, lockfiles and `fixtures`
+  folders under a test folder.
+- For the Tauri GUI it also checks: the snapshot equals the env-manager
+  source file; the `csp` and `devCsp` `connect-src` ports equal the service
+  ports (the dev server port is ignored); the pipeline step count (skipped
+  with an `ssot_skipped` note while the GUI keeps its own `PIPELINE_STEPS`
+  table); and the `ProjectHealth` TypeScript keys equal the env OpenAPI
+  `ProjectHealth` schema (skipped with a note when either is missing).
+- Gates now carry a `severity`. Warning gates report into the new
+  `warnings` list of `ProjectValidationReport`, which never fails a project;
+  `lem-env validate` shows a Warnings column and the first warnings.
+  Setting `ECOSYSTEM_SSOT_SEVERITY = Severity.ERROR` makes the gate fail
+  validation.
+- The shared text file type set moved to `validation/files.py`
+  (`TEXT_FILE_EXTENSIONS`); new `tests/test_ecosystem_ssot.py`.
 
 ### v16.9.49 - Ecosystem Registry (ENV-1)
 

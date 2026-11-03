@@ -24,6 +24,13 @@ SCANNABLE_EXTENSIONS = frozenset({
 })
 """Text file types that the source-text gates read."""
 
+TEXT_FILE_EXTENSIONS = frozenset({
+    ".py", ".ps1", ".psm1", ".sh", ".bat", ".cmd", ".ts", ".tsx", ".js", ".jsx", ".mjs",
+    ".cjs", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".html", ".css",
+    ".ipynb", ".rs",
+})
+"""Every text file type that the whole-project text scans read (code, config and docs)."""
+
 
 def iter_project_files(project_dir: Path) -> Iterator[Path]:
     """Yield every file under ``project_dir`` that a per-file gate may read.

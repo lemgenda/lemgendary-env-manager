@@ -21,6 +21,15 @@ class Bucket(StrEnum):
     HTML = "html_errors"
     WCAG = "wcag_violations"
     DOMAIN = "domain_errors"
+    WARNINGS = "warnings"
+    """Findings of warning-severity gates; they never fail a report."""
+
+
+class Severity(StrEnum):
+    """Whether a gate's findings fail validation or are reported as warnings."""
+
+    ERROR = "error"
+    WARNING = "warning"
 
 
 @dataclass(frozen=True)
@@ -46,7 +55,9 @@ class Gate:
     """One validation check.
 
     ``external`` marks gates that shell out to a tool that may be absent,
-    so tests can run without it.
+    so tests can run without it. A ``Severity.WARNING`` gate reports into
+    ``Bucket.WARNINGS`` instead of its own bucket, so it never fails a
+    project.
     """
 
     name: str
@@ -54,6 +65,12 @@ class Gate:
     check: Callable[[Path], list[FileValidationViolation]]
     applies: Callable[[ProjectContext], bool] = always
     external: bool = False
+    severity: Severity = Severity.ERROR
+
+    @property
+    def target_bucket(self) -> Bucket:
+        """The bucket this gate's findings go into, given its severity."""
+        return self.bucket if self.severity is Severity.ERROR else Bucket.WARNINGS
 
     def run(self, ctx: ProjectContext) -> list[FileValidationViolation]:
         """Run the check when it applies to ``ctx``, else return no violations."""

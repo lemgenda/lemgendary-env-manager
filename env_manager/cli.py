@@ -15,7 +15,12 @@ from env_manager.cli_views.probe import (
     print_software_updates,
 )
 from env_manager.cli_views.update import event_line, plan_table, validation_lines
-from env_manager.cli_views.validate import print_violations, summary_row, summary_table
+from env_manager.cli_views.validate import (
+    print_violations,
+    print_warnings,
+    summary_row,
+    summary_table,
+)
 from env_manager.ecosystem import SELF_SERVICE_ID, ecosystem
 from env_manager.health_checker import run_full_health_audit
 from env_manager.hooks import install_git_hooks
@@ -214,6 +219,7 @@ def validate(
         table.add_row(*summary_row(proj_name, rep, proj_name in node_projects))
         if not rep.passed:
             print_violations(console, rep)
+        print_warnings(console, rep)
     console.print(table)
 
     if not all(rep.passed for rep in reports.values()):

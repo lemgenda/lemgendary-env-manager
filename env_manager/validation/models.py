@@ -1,7 +1,7 @@
 """Violation and report records shared by every validation gate, plus the fail-closed helpers."""
 
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +47,8 @@ class ProjectValidationReport:
     wcag_violations: list[FileValidationViolation]
     domain_errors: list[FileValidationViolation]
     passed: bool
+    warnings: list[FileValidationViolation] = field(default_factory=list)
+    """Findings of warning-severity gates; they do not affect ``passed``."""
 
     def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""

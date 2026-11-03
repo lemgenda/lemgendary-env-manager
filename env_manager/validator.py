@@ -43,7 +43,7 @@ def run_gates(
     """Run every applicable gate on ``ctx`` and group the violations by bucket."""
     found: dict[Bucket, list[FileValidationViolation]] = {bucket: [] for bucket in Bucket}
     for gate in registry.GATES if gates is None else gates:
-        found[gate.bucket].extend(gate.run(ctx))
+        found[gate.target_bucket].extend(gate.run(ctx))
     return found
 
 
@@ -82,7 +82,7 @@ def validate_project(project_dir: Path, is_node_project: bool = False) -> Projec
     passed = (
         not scan.compile_errors
         and not scan.emoji_violations
-        and not any(found.values())
+        and not any(v for bucket, v in found.items() if bucket is not Bucket.WARNINGS)
     )
     return ProjectValidationReport(
         project_name=project_dir.name,
@@ -96,6 +96,7 @@ def validate_project(project_dir: Path, is_node_project: bool = False) -> Projec
         wcag_violations=found[Bucket.WCAG],
         domain_errors=found[Bucket.DOMAIN],
         passed=passed,
+        warnings=found[Bucket.WARNINGS],
     )
 
 
