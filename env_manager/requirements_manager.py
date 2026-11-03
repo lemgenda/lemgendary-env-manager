@@ -25,6 +25,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from env_manager._logging import get_logger
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -290,7 +291,7 @@ def sync_manifest_to_project(
 def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool, str]]:
     """Synchronize all centralized manifests to their respective sibling projects."""
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
     env_mgr_dir = base_dir / "lemgendary-env-manager"
     manifests_dir = env_mgr_dir / "requirements"

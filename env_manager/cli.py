@@ -26,6 +26,7 @@ from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
 from env_manager.utils import purge_project_cache
 from env_manager.validator import validate_project
 from env_manager.venv_manager import discover_projects
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -321,7 +322,7 @@ def update(
     With ``--project`` only that project is planned and upgraded.
     """
     console.print("[bold cyan]Building ecosystem upgrade plan...[/bold cyan]")
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    base_dir = workspace_root()
     try:
         plan = build_upgrade_plan(base_dir, project=project)
     except ValueError as exc:
@@ -431,7 +432,7 @@ def update(
 
     if all_valid:
         console.print("[bold green]All projects passed validation. Syncing manifests...[/bold green]")
-        sync_results = sync_all_manifests()
+        sync_results = sync_all_manifests(base_dir)
         for name, (ok, msg) in sync_results.items():
             tag = "[green][OK][/green]" if ok else "[red][FAIL][/red]"
             console.print(f"{tag} {name}: {msg}")
@@ -460,7 +461,7 @@ def validate(
         console.print(f"[bold cyan]Validating project '{project}' (full compliance suite)...[/bold cyan]")
     else:
         console.print("[bold cyan]Validating all projects (full compliance suite)...[/bold cyan]")
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    base_dir = workspace_root()
 
     all_project_dirs = [
         ("lemgendary-training-suite", False),
@@ -545,7 +546,7 @@ def clean_command(
 ):
     """Reclaim disk space by purging bytecode caches and temporary artifacts."""
     console.print("[bold cyan]Reclaiming cache and temporary build artifacts...[/bold cyan]")
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    base_dir = workspace_root()
     projects = discover_projects(base_dir)
 
     total_reclaimed = 0
@@ -581,7 +582,7 @@ def setup_hooks(
 ):
     """Install or repair standardized pre-commit hooks across all ecosystem projects."""
     console.print("[bold cyan]Configuring standardized pre-commit hooks across projects...[/bold cyan]")
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    base_dir = workspace_root()
     results = install_git_hooks(base_dir=base_dir, target_project=project)
     all_ok = True
     for proj_name, ok, msg in results:

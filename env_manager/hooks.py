@@ -10,6 +10,7 @@ import subprocess
 from typing import List, Optional, Tuple
 
 from env_manager.utils import WINDOWS_NO_WINDOW
+from env_manager.workspace import workspace_root
 
 PRE_COMMIT_TEMPLATE = """#!/bin/sh
 # LemGendary Ecosystem Pre-Commit Hook
@@ -58,7 +59,7 @@ def install_git_hooks(
     Returns a list of tuples: (project_name, success, message)
     """
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
     results: List[Tuple[str, bool, str]] = []
 

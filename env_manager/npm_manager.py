@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Generator, List, Optional
 
 from env_manager._logging import get_logger
 from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, wait_or_kill
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -172,7 +173,7 @@ def run_npm_install(
 def audit_npm_workspaces(base_dir: Optional[Path] = None) -> List[NpmPackageStatus]:
     """Audit all known NPM package directories in the LemGendary ecosystem."""
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
     target_dirs = [
         base_dir / "lemgendary-env-manager",

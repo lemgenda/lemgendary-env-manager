@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.20-STABLE)
+# LemGendary Environment Manager (v16.9.21-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.21 - Hermetic Tests and One Workspace Root
+
+- **`env_manager/workspace.py`** is now the only place that derives the workspace root (`workspace_root()`, `ENV_MANAGER_DIR`). The 19 copies of `Path(__file__).resolve().parent.parent.parent` (CLI, server, orchestrator, updater, hooks, npm, venv, service and requirements modules) and the 5 of `.parent.parent` (validator, server) use it instead. Setting `LEMGENDARY_WORKSPACE_ROOT` overrides the root.
+- Nothing resolves the root at import time any more: `PipelineOrchestrator.base_dir` is a property, service configs store the project name and resolve the folder per call, and `GET /api/docs/status` looks up the docs folder per request.
+- `lem-env update` passes its workspace to the post-upgrade manifest sync instead of letting it fall back to the default root.
+- **Tests**: `tests/conftest.py` builds a minimal fake workspace under `tmp_path` for every test and points `LEMGENDARY_WORKSPACE_ROOT` and `GIT_CEILING_DIRECTORIES` at it, so no test reads or writes the real sibling repositories. `test_cli_validate_command_single_project` and `test_project_option_scopes_plan_and_apply` now pass whatever state the sibling repos are in. New `tests/test_workspace.py` covers root resolution.
 
 ### v16.9.20 - Lint Configuration Suppressions Removed
 

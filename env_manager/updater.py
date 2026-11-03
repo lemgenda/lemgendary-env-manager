@@ -51,6 +51,7 @@ from env_manager.venv_manager import (
     get_venv_python_path,
     is_venv_valid,
 )
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -415,7 +416,7 @@ def build_upgrade_plan(
     ValueError if that project is not found under ``base_dir``.
     """
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
     cuda_index_url, cuda_desc = _detect_cuda()
     cuda_ok = cuda_index_url is not None
@@ -537,7 +538,7 @@ def apply_upgrade_plan(
 ) -> Generator[UpgradeEvent, None, None]:
     """Apply the plan bottom-up and yield telemetry events."""
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
     cuda_index_url, _ = _detect_cuda()
 
@@ -697,7 +698,7 @@ def sync_manifests_from_venvs(
     install-time drift from permanently corrupting a manifest.
     """
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
     env_mgr_dir = base_dir / "lemgendary-env-manager"
     manifests_dir = env_mgr_dir / "requirements"

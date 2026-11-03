@@ -38,6 +38,7 @@ from env_manager.venv_manager import (
     normalize_opencv_variant,
     stream_install_requirements,
 )
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -212,10 +213,7 @@ class PipelineOrchestrator:
     """Orchestrates end-to-end environment creation, installation, and auditing."""
 
     def __init__(self, base_dir: Path | None = None):
-        if base_dir is None:
-            self.base_dir = Path(__file__).resolve().parent.parent.parent
-        else:
-            self.base_dir = base_dir
+        self._base_dir = base_dir
 
         self.current_step = 0
         self.total_steps = 7
@@ -223,6 +221,11 @@ class PipelineOrchestrator:
         self.last_status = "idle"
         self.last_run_timestamp: str | None = None
         self.last_report: HealthAuditReport | None = None
+
+    @property
+    def base_dir(self) -> Path:
+        """Workspace this orchestrator manages: the injected one, else the current root."""
+        return self._base_dir if self._base_dir is not None else workspace_root()
 
     def run_clean_install_pipeline(
         self,

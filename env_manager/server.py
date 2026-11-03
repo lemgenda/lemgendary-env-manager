@@ -83,6 +83,7 @@ from env_manager.updater import UPGRADE_ORDER, build_upgrade_plan
 from env_manager.utils import purge_project_cache
 from env_manager.validator import validate_project
 from env_manager.venv_manager import discover_projects
+from env_manager.workspace import ENV_MANAGER_DIR, workspace_root
 
 # Failures a WebSocket send/receive raises once the peer has gone away:
 # starlette's disconnect signal, RuntimeError for a closed socket, and
@@ -408,12 +409,8 @@ def _broadcast_from_thread(loop: asyncio.AbstractEventLoop):
     return _publish
 
 
-def _workspace_dir() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
 update_jobs = UpdateJobManager(
-    runner=lambda project, emit: run_safe_update(project, emit, _workspace_dir()),
+    runner=lambda project, emit: run_safe_update(project, emit, workspace_root()),
 )
 
 
@@ -433,7 +430,7 @@ async def run_update(request: Optional[UpdateRequest] = None):
         loop = asyncio.get_running_loop()
         try:
             plan = await loop.run_in_executor(
-                None, lambda: build_upgrade_plan(_workspace_dir(), project=request.project)
+                None, lambda: build_upgrade_plan(workspace_root(), project=request.project)
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -471,7 +468,7 @@ async def get_update_status():
 
 @app.get("/api/manifests")
 async def get_manifests():
-    env_mgr_dir = Path(__file__).resolve().parent.parent
+    env_mgr_dir = ENV_MANAGER_DIR
     manifests_dir = env_mgr_dir / "requirements"
     manifests = {}
     if manifests_dir.exists():
@@ -498,12 +495,8 @@ class ManifestSaveRequest(BaseModel):
     content: str
 
 
-def _get_workspace_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
 def _resolve_manifest_target(name: str) -> Optional[Path]:
-    root = _get_workspace_root()
+    root = workspace_root()
     manifest_map = {
         "unified_data.yaml": root / "lemgendary-datasets" / "unified_data.yaml",
         "unified_models_v2.yaml": root / "lemgendary-training-suite" / "unified_models_v2.yaml",
@@ -615,7 +608,7 @@ async def save_manifest_content(req: ManifestSaveRequest):
 
 def _secrets_vault() -> SecretsVault:
     """Vault rooted at the workspace; Kaggle CLI config lives in the user home."""
-    return SecretsVault(_get_workspace_root(), Path.home() / ".kaggle")
+    return SecretsVault(workspace_root(), Path.home() / ".kaggle")
 
 
 @app.get("/api/secrets", response_model=SecretsListResponse)
@@ -650,7 +643,7 @@ async def save_secrets(payload: SecretsPayload) -> SecretsSaveResponse:
 
 def _bug_report_service() -> BugReportService:
     """Service rooted at the workspace, using the real mail client and file manager."""
-    return BugReportService(_get_workspace_root(), BUG_REPORT_SETTINGS, SystemPlatformAdapter())
+    return BugReportService(workspace_root(), BUG_REPORT_SETTINGS, SystemPlatformAdapter())
 
 
 @app.post(
@@ -685,17 +678,20 @@ async def submit_bug_report(
 
 # ─── Documentation Hub Offline & Online Metadata ─────────────────────────────
 
-DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "lemgendary-docs"
-if DOCS_DIR.exists():
+def _docs_dir() -> Path:
+    return workspace_root() / "lemgendary-docs"
+
+
+if _docs_dir().exists():
     from starlette.staticfiles import StaticFiles
-    app.mount("/documentation-hub", StaticFiles(directory=str(DOCS_DIR), html=True), name="documentation_hub")
+    app.mount("/documentation-hub", StaticFiles(directory=str(_docs_dir()), html=True), name="documentation_hub")
 
 
 @app.get("/api/docs/status")
 async def get_docs_status():
     """Report offline documentation hub availability and official online links."""
     return {
-        "offline_available": DOCS_DIR.exists(),
+        "offline_available": _docs_dir().exists(),
         "local_url": "http://127.0.0.1:8000/documentation-hub/index.html",
         "online_url": "https://lemgenda.github.io/ai-training-whitepapers/index.html",
     }
@@ -703,7 +699,7 @@ async def get_docs_status():
 
 @app.post("/api/clean")
 async def clean_artifacts(request: Optional[CleanRequest] = None):
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    base_dir = workspace_root()
     projects = discover_projects(base_dir)
     target_name = request.project if request else None
 
@@ -726,7 +722,7 @@ async def clean_artifacts(request: Optional[CleanRequest] = None):
 
 @app.post("/api/validate")
 async def validate_codebase(request: Optional[ValidateRequest] = None):
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    base_dir = workspace_root()
     projects = discover_projects(base_dir)
     target_name = request.project if request else None
 
@@ -754,7 +750,7 @@ class HooksInstallRequest(BaseModel):
 @app.post("/api/hooks/install")
 async def install_hooks_endpoint(request: Optional[HooksInstallRequest] = None):
     """Install or repair standardized pre-commit hooks across all ecosystem projects."""
-    base_dir = Path(__file__).resolve().parent.parent.parent
+    base_dir = workspace_root()
     target_project = request.project if request else None
 
     loop = asyncio.get_running_loop()

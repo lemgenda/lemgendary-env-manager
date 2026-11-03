@@ -21,6 +21,7 @@ from env_manager.utils import (
     run_pip_with_recovery,
     stream_pip_with_recovery,
 )
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -361,7 +362,7 @@ def normalize_opencv_variant(
 
 def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
     python_projects = [
         "lemgendary-env-manager",

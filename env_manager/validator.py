@@ -39,6 +39,7 @@ import yaml
 
 from env_manager._logging import get_logger
 from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
+from env_manager.workspace import ENV_MANAGER_DIR
 
 _log = get_logger(__name__)
 
@@ -165,7 +166,7 @@ def compile_python_file(file_path: Path) -> Optional[FileValidationViolation]:
 
 def _get_env_manager_python() -> Optional[str]:
     """Return the path to the env-manager .venv Python executable."""
-    env_mgr_dir = Path(__file__).resolve().parent.parent
+    env_mgr_dir = ENV_MANAGER_DIR
     if platform.system().lower() == "windows":
         py = env_mgr_dir / ".venv" / "Scripts" / "python.exe"
     else:
@@ -199,7 +200,7 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
     if not yaml_files:
         return violations
 
-    mgr_dir = Path(__file__).resolve().parent.parent
+    mgr_dir = ENV_MANAGER_DIR
     cfg = None
     for candidate in [
         project_dir / ".yamllint.yaml",
@@ -306,7 +307,7 @@ def _resolve_tool_cmd(
     tool_name: str, npx_pkg: str, project_dir: Optional[Path] = None,
 ) -> List[str]:
     """Resolve local binary from project or env-manager node_modules/.bin, else npx."""
-    mgr_dir = Path(__file__).resolve().parent.parent
+    mgr_dir = ENV_MANAGER_DIR
     candidate_dirs: List[Path] = []
     if project_dir and (project_dir / "node_modules" / ".bin").exists():
         candidate_dirs.append(project_dir / "node_modules" / ".bin")
@@ -352,7 +353,7 @@ def run_markdownlint(project_dir: Path) -> List[FileValidationViolation]:
     if not md_files:
         return violations
 
-    mgr_dir = Path(__file__).resolve().parent.parent
+    mgr_dir = ENV_MANAGER_DIR
     cfg = None
     for candidate in [
         project_dir / ".markdownlint.json",

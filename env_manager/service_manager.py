@@ -23,16 +23,15 @@ import psutil
 
 from env_manager._logging import get_logger
 from env_manager.venv_manager import get_venv_python_path
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
-
-WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 
 SERVICE_CONFIGS: dict[str, dict[str, Any]] = {
     "dataset-compiler": {
         "canonical_name": "LemGendary Dataset Compiler Suite",
         "aliases": ["dataset-compiler", "lemgendary-datasets", "datasets"],
-        "project_dir": WORKSPACE_ROOT / "lemgendary-datasets",
+        "project": "lemgendary-datasets",
         "port": 8100,
         "health_url": "http://127.0.0.1:8100/api/health",
         "log_folder": ".lgd_server",
@@ -42,7 +41,7 @@ SERVICE_CONFIGS: dict[str, dict[str, Any]] = {
     "training-suite": {
         "canonical_name": "LemGendary Model Training Suite",
         "aliases": ["training-suite", "lemgendary-training-suite", "training"],
-        "project_dir": WORKSPACE_ROOT / "lemgendary-training-suite",
+        "project": "lemgendary-training-suite",
         "port": 8200,
         "health_url": "http://127.0.0.1:8200/api/health",
         "log_folder": ".lemtrain_server",
@@ -52,7 +51,7 @@ SERVICE_CONFIGS: dict[str, dict[str, Any]] = {
     "env-manager": {
         "canonical_name": "LemGendary Environment Manager",
         "aliases": ["env-manager", "lemgendary-env-manager", "env"],
-        "project_dir": WORKSPACE_ROOT / "lemgendary-env-manager",
+        "project": "lemgendary-env-manager",
         "port": 8000,
         "health_url": "http://127.0.0.1:8000/api/health",
         "log_folder": ".env_server",
@@ -60,6 +59,11 @@ SERVICE_CONFIGS: dict[str, dict[str, Any]] = {
         "app_import": "env_manager.server:app",
     },
 }
+
+
+def _project_dir(cfg: dict[str, Any]) -> Path:
+    """Return the service's project folder inside the current workspace."""
+    return workspace_root() / cfg["project"]
 
 
 def _resolve_service_key(service_id: str) -> str | None:
@@ -109,7 +113,7 @@ def _preflight_service(key: str, cfg: dict[str, Any]) -> dict[str, Any] | None:
     """Return a response when the service must not be launched, else None."""
     port = cfg["port"]
     name = cfg["canonical_name"]
-    proj_dir: Path = cfg["project_dir"]
+    proj_dir: Path = _project_dir(cfg)
     if key == "env-manager":
         return {
             "status": "already_running",
@@ -209,7 +213,7 @@ def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
     """Spawn the service detached from any console and wait for it to come up."""
     port = cfg["port"]
     name = cfg["canonical_name"]
-    proj_dir: Path = cfg["project_dir"]
+    proj_dir: Path = _project_dir(cfg)
 
     log_dir = proj_dir / cfg["log_folder"]
     try:
@@ -286,7 +290,7 @@ def start_service(service_id: str) -> dict[str, Any]:
     blocked = _preflight_service(key, cfg)
     if blocked is not None:
         return blocked
-    python_exe = _resolve_service_python(cfg["project_dir"])
+    python_exe = _resolve_service_python(_project_dir(cfg))
     if not python_exe.exists():
         return {
             "status": "error",
@@ -345,7 +349,7 @@ def stop_service(service_id: str) -> dict[str, Any]:
     cfg = SERVICE_CONFIGS[key]
     name = cfg["canonical_name"]
     port = cfg["port"]
-    proj_dir: Path = cfg["project_dir"]
+    proj_dir: Path = _project_dir(cfg)
 
     if key == "env-manager":
         def _terminate_self() -> None:

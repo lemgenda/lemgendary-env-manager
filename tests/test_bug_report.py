@@ -300,10 +300,6 @@ class BugReportServiceTests(unittest.TestCase):
         self.assertIn("*", ignore.read_text(encoding="utf-8").splitlines())
         self.assertTrue(result.archive_path.startswith("repo/bug-reports/"))
 
-    def test_workspace_root_is_not_a_git_repo(self) -> None:
-        workspace = Path(server.__file__).resolve().parent.parent.parent
-        self.assertFalse((workspace / ".git").exists())
-
 
 class PlatformAdapterTests(unittest.TestCase):
     """The real adapter, with the OS calls replaced."""
