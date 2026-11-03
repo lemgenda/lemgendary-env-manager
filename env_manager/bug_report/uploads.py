@@ -35,7 +35,7 @@ def _is_png(data: bytes) -> bool:
 
 
 def _is_webp(data: bytes) -> bool:
-    return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
 
 
 def _is_webm(data: bytes) -> bool:
@@ -43,7 +43,7 @@ def _is_webm(data: bytes) -> bool:
 
 
 def _is_mp4(data: bytes) -> bool:
-    return len(data) >= 8 and data[4:8] == b"ftyp"
+    return data[4:8] == b"ftyp"
 
 
 @dataclass(frozen=True)

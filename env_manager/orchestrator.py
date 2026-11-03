@@ -42,6 +42,9 @@ from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
+UPGRADE_SUMMARY_SIZE = 5
+"""Upgraded packages named in the step summary before "+N more"."""
+
 
 # Which OpenCV provider each project should end up with.
 # The datasets project needs mediapipe's contrib modules (SIFT, aruco,
@@ -1108,9 +1111,9 @@ class PipelineOrchestrator:
         )
 
         if upgraded_ok:
-            upgraded_list = ", ".join(f"{pkg.name} ({pkg.latest_version})" for pkg in safe[:5])
-            if len(safe) > 5:
-                upgraded_list += f", +{len(safe) - 5} more"
+            upgraded_list = ", ".join(f"{pkg.name} ({pkg.latest_version})" for pkg in safe[:UPGRADE_SUMMARY_SIZE])
+            if len(safe) > UPGRADE_SUMMARY_SIZE:
+                upgraded_list += f", +{len(safe) - UPGRADE_SUMMARY_SIZE} more"
             yield emit(
                 5, "Dependency Upgrades", "success",
                 f"{p.name}: Upgraded {len(safe)} package(s) safely [{upgraded_list}].",

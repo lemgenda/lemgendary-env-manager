@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.22-STABLE)
+# LemGendary Environment Manager (v16.9.23-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.23 - Magic Numbers Named (Ruff PLR2004)
+
+- `PLR2004` is removed from the Ruff `ignore` list; its 27 hits are fixed. Thresholds are named module constants with a one-line docstring (`MIN_PYTHON`, `PLAN_PREVIEW_SIZE`, `MIN_SHARED_DECLARATIONS`, `UPGRADE_SUMMARY_SIZE`, `STARTUP_TIMEOUT_S`, `ESLINT_SEVERITY_ERROR`, `DOC_LENGTH_RATIO_MIN/MAX`, `MANIFOLD_PARQUET_COUNT`, ...). HTTP checks compare against `HTTPStatus.OK`; the pipeline step check uses `orchestrator.total_steps`.
+- `select_cuda_torch_index` reads its driver-to-wheel mapping from `CUDA_INDEX_BY_MIN_DRIVER`, and the `nvidia-smi` query is built from `NVIDIA_SMI_FIELDS`.
+- The server keeps recent pipeline events in a `deque(maxlen=MAX_RECENT_EVENTS)` instead of trimming a list by hand.
+- PSScriptAnalyzer results are emitted tab-separated and parsed by the new `validator.parse_pssa_line`, which replaces the colon-splitting code that had to special-case Windows drive letters.
+- Still ignored until the module splits in step L8: `PLR0912`, `PLR0913`, `PLR0915` (size checks).
 
 ### v16.9.22 - Launcher Error Handling (D-19)
 

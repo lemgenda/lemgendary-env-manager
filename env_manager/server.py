@@ -24,10 +24,12 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Deque, Dict, List, Optional
 
 import yaml
 
@@ -117,7 +119,10 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
-recent_events: List[Dict[str, Any]] = []
+MAX_RECENT_EVENTS = 200
+"""Pipeline events kept in memory for status and WebSocket replay."""
+
+recent_events: Deque[Dict[str, Any]] = deque(maxlen=MAX_RECENT_EVENTS)
 _event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 orchestrator = PipelineOrchestrator()
 
@@ -320,7 +325,7 @@ async def get_pipeline_status():
         "is_running": orchestrator.is_running,
         "last_status": orchestrator.last_status,
         "last_run_timestamp": orchestrator.last_run_timestamp,
-        "recent_events": recent_events[-50:],
+        "recent_events": list(recent_events)[-50:],
     }
 
 
@@ -335,8 +340,6 @@ def _run_pipeline_worker(
     ):
         ev_dict = event.to_dict()
         recent_events.append(ev_dict)
-        if len(recent_events) > 200:
-            recent_events.pop(0)
         asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
 
 
@@ -370,8 +373,6 @@ def _run_step_worker(
     ):
         ev_dict = event.to_dict()
         recent_events.append(ev_dict)
-        if len(recent_events) > 200:
-            recent_events.pop(0)
         asyncio.run_coroutine_threadsafe(manager.broadcast(ev_dict), loop)
 
 
@@ -381,7 +382,7 @@ async def run_pipeline_step(request: RunStepRequest):
         return {"status": "error", "message": "Pipeline or step is already running."}
     if update_jobs.is_running:
         return {"status": "error", "message": "A package update is running."}
-    if request.step_number < 1 or request.step_number > 7:
+    if not 1 <= request.step_number <= orchestrator.total_steps:
         return {
             "status": "error",
             "message": f"Invalid step number: {request.step_number}. Must be between 1 and 7.",
@@ -777,7 +778,7 @@ def _probe_sidecar(url: str, timeout: float = 1.5) -> Dict[str, Any]:
     req = urllib.request.Request(url, headers={"User-Agent": "LemGendary-Env-Manager"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if resp.status == 200:
+            if resp.status == HTTPStatus.OK:
                 body = resp.read().decode("utf-8")
                 try:
                     data = json.loads(body)
@@ -906,7 +907,7 @@ async def graceful_shutdown():
 async def websocket_logs(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        for ev in recent_events[-20:]:
+        for ev in list(recent_events)[-20:]:
             await websocket.send_json(ev)
         while True:
             await websocket.receive_text()

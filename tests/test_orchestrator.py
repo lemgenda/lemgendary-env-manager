@@ -12,6 +12,10 @@ from unittest.mock import MagicMock, patch
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator, PipProgress
 
 
+LAST_STEP_UNDER_TEST = 3
+"""Step 3 (virtual environments) is the last step these tests drive."""
+
+
 class TestPipelineOrchestrator(unittest.TestCase):
     """Verifies PipelineOrchestrator lifecycle, telemetry events, and step transitions."""
 
@@ -177,7 +181,7 @@ class TestPipelineDestructiveOptIn(unittest.TestCase):
             gen = orchestrator.run_clean_install_pipeline(clean=clean)
         events: list[PipelineEvent] = []
         for event in gen:
-            if event.step_number >= 4:
+            if event.step_number > LAST_STEP_UNDER_TEST:
                 break
             events.append(event)
         gen.close()

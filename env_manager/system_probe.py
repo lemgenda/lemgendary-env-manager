@@ -32,6 +32,18 @@ from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
 
 _log = get_logger(__name__)
 
+NVIDIA_SMI_FIELDS = ("index", "name", "memory.total", "driver_version")
+"""Columns requested from ``nvidia-smi --query-gpu``, in output order."""
+
+CUDA_INDEX_BY_MIN_DRIVER = (
+    (560, "https://download.pytorch.org/whl/cu126"),
+    (535, "https://download.pytorch.org/whl/cu121"),
+)
+"""PyTorch wheel index for each minimum NVIDIA driver major version, newest first."""
+
+CUDA_FALLBACK_INDEX = "https://download.pytorch.org/whl/cu118"
+"""Wheel index for drivers older than every entry in ``CUDA_INDEX_BY_MIN_DRIVER``."""
+
 
 @dataclass
 class AcceleratorDevice:
@@ -94,7 +106,7 @@ def probe_nvidia_smi() -> List[AcceleratorDevice]:
 
     query_cmd = [
         nvidia_smi_path,
-        "--query-gpu=index,name,memory.total,driver_version",
+        "--query-gpu=" + ",".join(NVIDIA_SMI_FIELDS),
         "--format=csv,noheader,nounits",
     ]
     try:
@@ -107,7 +119,7 @@ def probe_nvidia_smi() -> List[AcceleratorDevice]:
         if proc.returncode == 0:
             for line in proc.stdout.strip().splitlines():
                 parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 4:
+                if len(parts) >= len(NVIDIA_SMI_FIELDS):
                     try:
                         idx = int(parts[0])
                         name = parts[1]
@@ -451,11 +463,10 @@ def select_cuda_torch_index(driver_version: Optional[str]) -> str:
         return "https://download.pytorch.org/whl/cu126"
     try:
         major = int(driver_version.split(".")[0])
-        if major >= 560:
-            return "https://download.pytorch.org/whl/cu126"
-        if major >= 535:
-            return "https://download.pytorch.org/whl/cu121"
-        return "https://download.pytorch.org/whl/cu118"
+        for min_driver, index_url in CUDA_INDEX_BY_MIN_DRIVER:
+            if major >= min_driver:
+                return index_url
+        return CUDA_FALLBACK_INDEX
     except ValueError as exc:
         _log.warning("Unparsable NVIDIA driver version %r, defaulting to cu126: %s",
                      driver_version, exc)

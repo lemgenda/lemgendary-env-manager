@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,9 @@ from env_manager.venv_manager import get_venv_python_path
 from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
+
+STARTUP_TIMEOUT_S = 20.0
+"""Seconds a sidecar may take to report healthy; PyTorch/CUDA suites need most of it."""
 
 SERVICE_CONFIGS: dict[str, dict[str, Any]] = {
     "dataset-compiler": {
@@ -90,7 +94,7 @@ def is_service_healthy(health_url: str, timeout: float = 1.0) -> bool:
             headers={"User-Agent": "LemGendary-EnvManager/1.0"},
         )
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            return response.status == 200
+            return response.status == HTTPStatus.OK
     except (OSError, http.client.HTTPException) as exc:
         # URLError and socket timeouts are OSError subclasses. An offline
         # service is an expected state, so this is debug-level.
@@ -162,14 +166,14 @@ def _read_log_tail(path: Path, limit: int = 500) -> str:
 def _await_service_health(
     cfg: dict[str, Any], proc: subprocess.Popen, stderr_path: Path,
 ) -> dict[str, Any]:
-    """Poll the health endpoint up to 20 s; report started, exited or still starting.
+    """Poll the health endpoint up to ``STARTUP_TIMEOUT_S``; report started, exited or still starting.
 
-    The 20 s window lets PyTorch/CUDA model suites initialise.
+    The window lets PyTorch/CUDA model suites initialise.
     """
     port = cfg["port"]
     name = cfg["canonical_name"]
     start_time = time.time()
-    while time.time() - start_time < 20.0:
+    while time.time() - start_time < STARTUP_TIMEOUT_S:
         time.sleep(0.5)
         if is_service_healthy(cfg["health_url"]):
             return {

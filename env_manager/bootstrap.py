@@ -21,6 +21,12 @@ from env_manager.utils import WINDOWS_NO_WINDOW, run_command_simple
 
 _log = get_logger(__name__)
 
+MIN_PYTHON = (3, 10)
+"""Oldest Python the ecosystem supports."""
+
+WINERROR_ALIAS_RESOLUTION = 1920
+"""WinError raised when an App Execution Alias such as winget cannot be resolved."""
+
 
 @dataclass
 class SoftwareUpdateInfo:
@@ -177,7 +183,7 @@ def _run_winget(
         )
     except OSError as exc:
         winerror = getattr(exc, "winerror", None)
-        if winerror == 1920:
+        if winerror == WINERROR_ALIAS_RESOLUTION:
             _log.debug(
                 "winget subprocess returned WinError 1920 (alias resolution "
                 "failure) for args=%s.",
@@ -403,7 +409,7 @@ def verify_prerequisites() -> BootstrapStatus:
     minor = sys.version_info.minor
     patch = sys.version_info.micro
     v_str = f"{major}.{minor}.{patch}"
-    python_valid = (major == 3 and minor >= 10)
+    python_valid = sys.version_info[:2] >= MIN_PYTHON
 
     pip_installed = shutil.which("pip") is not None
     venv_available = check_venv()

@@ -68,9 +68,9 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
             inst_ver = None
             # Scoped packages live under node_modules/@scope/name.
             if name.startswith("@"):
-                parts = name.split("/", 1)
-                if len(parts) == 2:
-                    pkg_nm_json = nm_dir / parts[0] / parts[1] / "package.json"
+                scope, sep, short_name = name.partition("/")
+                if sep:
+                    pkg_nm_json = nm_dir / scope / short_name / "package.json"
                 else:
                     pkg_nm_json = nm_dir / name / "package.json"
             else:

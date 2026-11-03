@@ -30,6 +30,9 @@ from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
+PLAN_PREVIEW_SIZE = 3
+"""Safe packages listed per project in the upgrade-plan table."""
+
 
 def _configure_windows_console() -> None:
     """Switch the Windows console streams to UTF-8 so rich output never crashes.
@@ -350,10 +353,10 @@ def update(
 
         preview = ", ".join(
             f"{p.name} ({p.current_version}->{p.latest_version})"
-            for p in proj_plan.safe_packages[:3]
+            for p in proj_plan.safe_packages[:PLAN_PREVIEW_SIZE]
         )
-        if safe_count > 3:
-            preview += f" ... (+{safe_count - 3} more)"
+        if safe_count > PLAN_PREVIEW_SIZE:
+            preview += f" ... (+{safe_count - PLAN_PREVIEW_SIZE} more)"
         if not preview:
             preview = "[dim](none)[/dim]"
 

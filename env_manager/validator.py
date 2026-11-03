@@ -43,6 +43,19 @@ from env_manager.workspace import ENV_MANAGER_DIR
 
 _log = get_logger(__name__)
 
+ESLINT_SEVERITY_ERROR = 2
+"""ESLint message severity for errors (1 is a warning)."""
+
+PSSA_FIELD_COUNT = 4
+"""Fields per PSScriptAnalyzer record: path, line, severity, message."""
+
+DOC_LENGTH_RATIO_MIN = 0.20
+DOC_LENGTH_RATIO_MAX = 3.0
+"""Allowed Markdown-to-HTML length ratio for a paper and its HTML companion."""
+
+MANIFOLD_PARQUET_COUNT = 8
+"""Parquet shards every compiled dataset manifold must contain."""
+
 # Failures reading a JSON/YAML manifest and walking it: unreadable file
 # (OSError), invalid JSON or encoding (ValueError), invalid YAML
 # (yaml.YAMLError), and a document whose shape differs from the expected
@@ -459,8 +472,7 @@ def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
         for entry in data:
             file_path = entry.get("filePath", str(project_dir))
             for msg in entry.get("messages", []):
-                # severity: 1 = warning, 2 = error
-                if msg.get("severity") == 2:
+                if msg.get("severity") == ESLINT_SEVERITY_ERROR:
                     violations.append(
                         FileValidationViolation(
                             file_path=file_path,
@@ -617,6 +629,25 @@ def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
 
 # ─── PowerShell (PSScriptAnalyzer) ──────────────────────────────────────────
 
+def parse_pssa_line(line: str) -> Optional[FileValidationViolation]:
+    """Parse one tab-separated ``path, line, severity, message`` record, or return None."""
+    parts = line.strip().split("\t", PSSA_FIELD_COUNT - 1)
+    if len(parts) != PSSA_FIELD_COUNT:
+        return None
+    file_path, line_text, severity, message = parts
+    try:
+        line_number = int(line_text)
+    except ValueError as exc:
+        _log.debug("Unparsable PSScriptAnalyzer line %r: %s", line, exc)
+        return None
+    return FileValidationViolation(
+        file_path=file_path,
+        line_number=line_number,
+        violation_type=f"pssa_{severity.strip().lower()}",
+        message=message.strip(),
+    )
+
+
 def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
     """Run PSScriptAnalyzer on all PowerShell scripts in the project.
 
@@ -653,7 +684,7 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
             "        Invoke-ScriptAnalyzer -Path $file -Severity Warning,Error "
             "    } "
             "} | ForEach-Object { "
-            "    \"$($_.ScriptPath):$($_.Line):$($_.Severity):$($_.Message)\" "
+            "    \"$($_.ScriptPath)`t$($_.Line)`t$($_.Severity)`t$($_.Message)\" "
             "}"
         )
 
@@ -694,37 +725,9 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
             return violations
 
         for line in combined.splitlines():
-            # Format: path:line:severity:message
-            parts = line.strip().split(":", 3)
-            if len(parts) >= 4:
-                try:
-                    file_path = parts[0]
-                    # Windows paths contain 'C:' so the first split is off by
-                    # one. Re-join the first two parts before parsing the rest.
-                    if len(parts[0]) == 1 and parts[1].startswith(("\\", "/")):
-                        file_path = f"{parts[0]}:{parts[1]}"
-                        rest = line.strip()[len(file_path) + 1:].split(":", 2)
-                        if len(rest) < 3:
-                            continue
-                        line_num = int(rest[0])
-                        severity = rest[1].strip().lower()
-                        message = rest[2].strip()
-                    else:
-                        line_num = int(parts[1])
-                        severity = parts[2].strip().lower()
-                        message = parts[3].strip()
-
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=file_path,
-                            line_number=line_num,
-                            violation_type=f"pssa_{severity}",
-                            message=message,
-                        )
-                    )
-                except (ValueError, IndexError) as exc:
-                    _log.debug("Unparsable PSScriptAnalyzer line %r: %s", line, exc)
-                    continue
+            violation = parse_pssa_line(line)
+            if violation is not None:
+                violations.append(violation)
     except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("PSScriptAnalyzer execution failed: %s", exc)
     finally:
@@ -1050,7 +1053,7 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
 
             # 3. Length ratio bounds
             ratio = len(m_raw) / len(h_raw) if len(h_raw) > 0 else 0
-            if ratio < 0.20 or ratio > 3.0:
+            if not DOC_LENGTH_RATIO_MIN <= ratio <= DOC_LENGTH_RATIO_MAX:
                 violations.append(
                     FileValidationViolation(
                         file_path=str(hp),
@@ -1243,13 +1246,16 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
                     )
                 )
             parquets = list(manifold.glob("*.parquet"))
-            if len(parquets) != 8:
+            if len(parquets) != MANIFOLD_PARQUET_COUNT:
                 violations.append(
                     FileValidationViolation(
                         file_path=str(manifold),
                         line_number=1,
                         violation_type="manifold_parquet_count",
-                        message=f"{manifold.name} expected 8 Parquet files, found {len(parquets)}",
+                        message=(
+                            f"{manifold.name} expected {MANIFOLD_PARQUET_COUNT} Parquet files, "
+                            f"found {len(parquets)}"
+                        ),
                     )
                 )
 

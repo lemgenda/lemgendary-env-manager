@@ -182,8 +182,7 @@ def _verify_torch_cuda_runtime(project_dir: Path) -> tuple[bool, str]:
         if proc.returncode != 0:
             return False, (proc.stderr or "torch import failed").strip()[:200]
         lines = (proc.stdout or "").strip().splitlines()
-        version = lines[-2] if len(lines) >= 2 else "?"
-        cuda_flag = lines[-1] if lines else "0"
+        *_, version, cuda_flag = ["?", "?", *lines]
         if cuda_flag == "1":
             return True, f"torch {version} CUDA runtime verified"
         return False, f"torch {version} reports cuda.is_available() == False"

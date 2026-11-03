@@ -38,6 +38,9 @@ from env_manager.venv_manager import (
 
 _log = get_logger(__name__)
 
+MIN_SHARED_DECLARATIONS = 2
+"""A package counts as shared, and is drift-checked, when this many manifests declare it."""
+
 # Packages that exist in every fresh venv; excluded from coverage math.
 _BOOTSTRAP_NORMALIZED: Set[str] = {"pip", "wheel", "setuptools", "pkg-resources"}
 
@@ -434,7 +437,7 @@ def compute_version_drift(
             declaration_counts[name] = declaration_counts.get(name, 0) + 1
 
     shared_packages = sorted(
-        name for name, count in declaration_counts.items() if count >= 2
+        name for name, count in declaration_counts.items() if count >= MIN_SHARED_DECLARATIONS
     )
 
     upgrade_map: Dict[str, Dict[str, UpgradeStatus]] = {}
@@ -676,7 +679,9 @@ def compute_npm_drift(base_dir: Path) -> List[NpmDriftEntry]:
         for name in spec_map:
             declaration_counts[name] = declaration_counts.get(name, 0) + 1
 
-    shared = sorted(name for name, count in declaration_counts.items() if count >= 2)
+    shared = sorted(
+        name for name, count in declaration_counts.items() if count >= MIN_SHARED_DECLARATIONS
+    )
 
     entries: List[NpmDriftEntry] = []
     for pkg in shared:
