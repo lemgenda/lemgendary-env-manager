@@ -62,9 +62,14 @@ def test_eslint_without_report_fails(tmp_path: Path) -> None:
 
 
 def test_npx_fallback_never_downloads(tmp_path: Path) -> None:
-    """The npx fallback uses ``--no``, so validation never installs packages."""
+    """The npx fallback uses ``--no``, so validation never installs packages.
+
+    The env-manager folder is pointed at ``tmp_path`` so a local
+    ``node_modules/.bin`` install does not take precedence over npx.
+    """
     (tmp_path / "a.md").write_text("# A\n", encoding="utf-8")
-    with patch("shutil.which", return_value=None), \
+    with patch("env_manager.validation.tooling.ENV_MANAGER_DIR", tmp_path), \
+            patch("shutil.which", return_value=None), \
             patch("subprocess.run") as run:
         run.return_value.returncode = 0
         run.return_value.stdout = ""

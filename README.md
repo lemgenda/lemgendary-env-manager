@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.53-STABLE)
+# LemGendary Environment Manager (v16.9.54-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -347,6 +347,13 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.54 - npx Fallback Test Isolated from Local Tools
+
+- `test_npx_fallback_never_downloads` failed once the env-manager
+  `node_modules` was installed, because the local `markdownlint` binary took
+  precedence over npx. The test now points the env-manager folder at a
+  temporary directory, so it checks the npx fallback on any machine.
 
 ### v16.9.53 - PSScriptAnalyzer Gate Runs Again; Test Temp Workspace
 
