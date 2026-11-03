@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.38-STABLE)
+# LemGendary Environment Manager (v16.9.39-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,11 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.39 - Health Checker Split
+
+- `env_manager/health_checker.py` (945 lines) is split into the `env_manager/health/` package: `models.py` (audit records, package-name normalization and the package-family sets), `manifests.py` (reading requirements pins with environment markers), `project.py` (per-project audit and upgrade classification), `drift.py` (version drift, manifest coverage, single-manifest packages), `npm.py` (npm drift) and `render.py` (the Rich tables). `health_checker.py` keeps `run_full_health_audit` (111 lines) and re-exports the names the CLI and tests import. Behaviour is unchanged.
+- Helpers used across the new modules lost their leading underscore (for example `normalize_package_name` stays, `_load_project_pins` is `load_project_pins`, `_OPENCV_VARIANTS_NORMALIZED` is `OPENCV_VARIANTS_NORMALIZED`).
 
 ### v16.9.38 - Server Split into Routers
 

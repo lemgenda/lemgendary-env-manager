@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from env_manager.health_checker import (
-    _OPENCV_VARIANTS_NORMALIZED,
+    OPENCV_VARIANTS_NORMALIZED,
     ManifestCoverageEntry,
     PinInfo,
     ProjectHealth,
@@ -84,10 +84,10 @@ class TestHealthChecker(unittest.TestCase):
 
     def test_opencv_variant_coverage(self) -> None:
         """Verify that opencv-contrib-python satisfies an opencv-python declaration."""
-        self.assertIn("opencv-python", _OPENCV_VARIANTS_NORMALIZED)
-        self.assertIn("opencv-contrib-python", _OPENCV_VARIANTS_NORMALIZED)
-        self.assertIn("opencv-python-headless", _OPENCV_VARIANTS_NORMALIZED)
-        self.assertIn("opencv-contrib-python-headless", _OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-python", OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-contrib-python", OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-python-headless", OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-contrib-python-headless", OPENCV_VARIANTS_NORMALIZED)
 
 
 if __name__ == "__main__":
