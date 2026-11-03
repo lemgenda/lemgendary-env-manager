@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.54-STABLE)
+# LemGendary Environment Manager (v16.9.55-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -347,6 +347,19 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.55 - Launcher Script Passes PSScriptAnalyzer
+
+- `lemgendary_env_manager.ps1` had 42 PSScriptAnalyzer warnings, hidden
+  until the gate fix in v16.9.53. All are fixed at the source:
+  - `Write-Host` (39 calls) is replaced by `Write-Ui`, which writes to the
+    information stream (shown by default, capturable with `6>`) and colours
+    the line with ANSI codes for the named console colour.
+  - `Stop-ServerJob` supports `ShouldProcess` (`-WhatIf`, `-Confirm`).
+  - The sidecar job reads the interpreter path with `$using:` instead of a
+    job parameter.
+  - Comment rules use ASCII dashes, so the file is plain ASCII and needs no
+    BOM for Windows PowerShell 5.1.
 
 ### v16.9.54 - npx Fallback Test Isolated from Local Tools
 
