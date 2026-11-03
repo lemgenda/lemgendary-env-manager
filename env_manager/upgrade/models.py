@@ -4,9 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from env_manager.dependency_resolver import (
-    OutdatedPackage,
-)
+from env_manager.resolver.models import OutdatedPackage, normalize
 from env_manager.venv_manager import (
     get_installed_packages,
 )
@@ -87,11 +85,6 @@ class UpgradeEvent:
     def to_dict(self) -> dict[str, Any]:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
-
-
-def normalize(name: str) -> str:
-    """Return the PEP 503-style key used to compare package names."""
-    return name.lower().replace("-", "_").replace(".", "_")
 
 
 def is_torch_family(name: str) -> bool:

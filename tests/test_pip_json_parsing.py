@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from env_manager import dependency_resolver as dr
 from env_manager import utils
+from env_manager.resolver import classify, dry_run, pip_json, reverse_deps
 
 _WARNING = "WARNING: Ignoring invalid distribution ~orch (.venv\\lib\\site-packages)"
 _PIP_LIST = [{"name": "numpy", "version": "2.5.4"}, {"name": "pip", "version": "26.0"}]
@@ -50,8 +51,12 @@ class TestPipStreamsAreSeparated(unittest.TestCase):
 class _VenvPatched(unittest.TestCase):
     def setUp(self) -> None:
         self.project = Path("fake-project")
-        for target, value in (("is_venv_valid", True), ("get_venv_python_path", Path("python"))):
-            p = patch.object(dr, target, return_value=value)
+        patches = [patch.object(pip_json, "get_venv_python_path", return_value=Path("python"))]
+        patches += [
+            patch.object(module, "is_venv_valid", return_value=True)
+            for module in (pip_json, reverse_deps, dry_run, classify)
+        ]
+        for p in patches:
             p.start()
             self.addCleanup(p.stop)
 
@@ -60,9 +65,9 @@ class TestInstalledStateParsing(_VenvPatched):
     """Reading installed packages from ``pip list`` JSON."""
     def test_stderr_warning_is_logged_and_json_still_parsed(self) -> None:
         """A stderr warning is logged and the stdout JSON is still parsed."""
-        with patch.object(dr, "run_pip_with_recovery",
+        with patch.object(pip_json, "run_pip_with_recovery",
                           return_value=_completed(json.dumps(_PIP_LIST), _WARNING)), \
-                self.assertLogs("lem_env.dependency_resolver", level="WARNING") as logs:
+                self.assertLogs("lem_env.resolver", level="WARNING") as logs:
             versions = dr.installed_package_versions(self.project)
 
         self.assertEqual(versions, {"numpy": "2.5.4", "pip": "26.0"})
@@ -70,14 +75,14 @@ class TestInstalledStateParsing(_VenvPatched):
 
     def test_invalid_json_raises(self) -> None:
         """Output that is not JSON raises instead of yielding an empty list."""
-        with patch.object(dr, "run_pip_with_recovery",
+        with patch.object(pip_json, "run_pip_with_recovery",
                           return_value=_completed(_WARNING + "\n" + json.dumps(_PIP_LIST))):
             with self.assertRaises(dr.PipJsonError):
                 dr.installed_package_versions(self.project)
 
     def test_empty_package_list_raises(self) -> None:
         """An empty package list is treated as an error."""
-        with patch.object(dr, "run_pip_with_recovery", return_value=_completed("[]")):
+        with patch.object(pip_json, "run_pip_with_recovery", return_value=_completed("[]")):
             with self.assertRaises(dr.PipJsonError):
                 dr.installed_package_versions(self.project)
 
@@ -93,8 +98,8 @@ class TestClassifierFailsClosed(_VenvPatched):
 
     def test_unparseable_pip_list_blocks_every_candidate(self) -> None:
         """Unparsable ``pip list`` output blocks every candidate."""
-        with patch.object(dr, "run_pip_with_recovery", return_value=_completed("not json")), \
-                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
+        with patch.object(pip_json, "run_pip_with_recovery", return_value=_completed("not json")), \
+                self.assertLogs("lem_env.resolver", level="ERROR"):
             safe, blocked = dr.classify_safe_upgrades(self.project, self.candidates)
 
         self.assertEqual(safe, [])
@@ -104,8 +109,8 @@ class TestClassifierFailsClosed(_VenvPatched):
     def test_failed_pip_inspect_blocks_every_candidate(self) -> None:
         """A failed ``pip inspect`` blocks every candidate."""
         responses = [_completed(json.dumps(_PIP_LIST)), _completed("", "ERROR: boom", returncode=1)]
-        with patch.object(dr, "run_pip_with_recovery", side_effect=responses), \
-                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
+        with patch.object(pip_json, "run_pip_with_recovery", side_effect=responses), \
+                self.assertLogs("lem_env.resolver", level="ERROR"):
             safe, blocked = dr.classify_safe_upgrades(self.project, self.candidates)
 
         self.assertEqual(safe, [])
@@ -113,9 +118,9 @@ class TestClassifierFailsClosed(_VenvPatched):
 
     def test_unparseable_dry_run_report_is_a_failure(self) -> None:
         """An unparsable dry-run report counts as a failed dry run."""
-        with patch.object(dr, "run_pip_with_recovery",
+        with patch.object(pip_json, "run_pip_with_recovery",
                           return_value=_completed("Would install numpy-2.6.0", _WARNING)), \
-                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
+                self.assertLogs("lem_env.resolver", level="ERROR"):
             ok, changed, msg = dr.constraint_preserving_dry_run(
                 self.project, ["numpy"], current_state={"numpy": "2.5.4", "pip": "26.0"},
             )
@@ -126,8 +131,8 @@ class TestClassifierFailsClosed(_VenvPatched):
 
     def test_empty_installed_state_aborts_dry_run(self) -> None:
         """The dry run aborts when the installed state comes back empty."""
-        with patch.object(dr, "run_pip_with_recovery") as runner, \
-                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
+        with patch.object(pip_json, "run_pip_with_recovery") as runner, \
+                self.assertLogs("lem_env.resolver", level="ERROR"):
             ok, _, _ = dr.constraint_preserving_dry_run(self.project, ["numpy"], current_state={})
 
         self.assertFalse(ok)
@@ -136,7 +141,7 @@ class TestClassifierFailsClosed(_VenvPatched):
     def test_dry_run_report_with_stderr_warning_is_parsed(self) -> None:
         """A dry-run report is parsed even when pip also wrote a stderr warning."""
         report = {"install": [{"metadata": {"name": "numpy", "version": "2.6.0"}}]}
-        with patch.object(dr, "run_pip_with_recovery",
+        with patch.object(pip_json, "run_pip_with_recovery",
                           return_value=_completed(json.dumps(report), _WARNING)):
             ok, changed, _ = dr.constraint_preserving_dry_run(
                 self.project, ["numpy"], current_state={"numpy": "2.5.4", "pip": "26.0"},

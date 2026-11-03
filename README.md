@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.41-STABLE)
+# LemGendary Environment Manager (v16.9.42-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.42 - Dependency Resolver Split
+
+- `env_manager/dependency_resolver.py` (585 lines) is split into the `env_manager/resolver/` package: `models.py` (`OutdatedPackage`, `normalize`, marker checks), `pip_json.py` (pip JSON queries, `PipJsonError`, `find_outdated_packages`), `reverse_deps.py` (`pip inspect` reverse dependencies and the PyPI pinned-reason diagnosis), `dry_run.py` (`constraint_preserving_dry_run`) and `classify.py` (`classify_safe_upgrades`). `dependency_resolver.py` is a 29-line facade that keeps every public import working. Behaviour is unchanged.
+- `classify_safe_upgrades` (27 branches) becomes a short driver over `_reverse_dep_survivors`, `_vet_normal` (batch dry-run with per-package fallback) and `_vet_torch`; the pydantic lockstep pairs are the module constant `CO_DEPENDENT_PAIRS`.
+- All resolver pip calls go through one helper, `pip_json.run_pip`, which looks up the venv interpreter and logs stderr. The two copies of the "parse requirement, skip extras, check marker" loop are one generator, `models.active_requirements`. `upgrade.models` reuses `resolver.models.normalize` instead of its own copy.
+- `constraint_preserving_dry_run` loses its never-used `timeout` argument; the limit is the constant `DRY_RUN_TIMEOUT` (300 s, as before).
+- Tests patch pip in `env_manager.resolver.pip_json` and assert on the `lem_env.resolver` logger.
 
 ### v16.9.41 - CLI Split into Views and Services
 
