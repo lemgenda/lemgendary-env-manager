@@ -8,7 +8,7 @@ from env_manager.orchestrator import PipelineOrchestrator
 from env_manager.system_probe import probe_hardware
 from env_manager.validator import validate_project
 
-__version__ = "16.9.51"
+__version__ = "16.9.52"
 __author__ = "LemGendary AI"
 
 __all__ = [

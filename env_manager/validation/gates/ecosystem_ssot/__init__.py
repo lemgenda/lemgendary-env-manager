@@ -9,9 +9,12 @@ documentation and generated records. For the Tauri GUI it also checks that
 the snapshot, the CSP ports, the pipeline steps and the ``ProjectHealth``
 type agree with the env-manager's files in the same workspace (:mod:`.gui`).
 
-``ECOSYSTEM_SSOT_SEVERITY`` is the one setting that decides whether the
-findings fail validation (``Severity.ERROR``) or are only reported
-(``Severity.WARNING``).
+``ECOSYSTEM_SSOT_SEVERITY`` (``Severity.ERROR``) is the one setting that
+decides whether the findings fail validation or are only reported
+(``Severity.WARNING``). Checks that cannot run because an optional input is
+absent (a GUI that keeps its own step table, a missing OpenAPI file) leave an
+``ssot_skipped`` note that is logged and never fails; a source file that
+exists but cannot be parsed is an ``ssot_unreadable`` finding and fails.
 """
 
 from pathlib import Path
@@ -20,6 +23,7 @@ from env_manager._logging import get_logger
 from env_manager.ecosystem import Ecosystem, ecosystem
 from env_manager.validation.gate import Severity
 from env_manager.validation.gates.ecosystem_ssot.gui import (
+    SKIPPED,
     GuiContext,
     is_tauri_gui,
     run_gui_checks,
@@ -30,8 +34,8 @@ from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
-ECOSYSTEM_SSOT_SEVERITY = Severity.WARNING
-"""Set to ``Severity.ERROR`` to make ``ecosystem_ssot`` findings fail validation."""
+ECOSYSTEM_SSOT_SEVERITY = Severity.ERROR
+"""``Severity.ERROR`` makes findings fail validation; ``WARNING`` only reports them."""
 
 
 def is_asset_project(project_dir: Path, eco: Ecosystem) -> bool:
@@ -43,14 +47,27 @@ def is_asset_project(project_dir: Path, eco: Ecosystem) -> bool:
     )
 
 
-def run_ecosystem_ssot(project_dir: Path) -> list[FileValidationViolation]:
-    """Return every ecosystem single-source-of-truth finding for one project."""
+def collect_ssot_findings(project_dir: Path) -> list[FileValidationViolation]:
+    """Return every finding and ``ssot_skipped`` note for one project."""
     eco = ecosystem()
     found = scan_project_literals(project_dir, eco, is_asset_project(project_dir, eco))
     if is_tauri_gui(project_dir):
         env_dir = workspace_root() / eco.self_folder()
         found.extend(run_gui_checks(GuiContext(project_dir, env_dir, eco)))
     return found
+
+
+def run_ecosystem_ssot(project_dir: Path) -> list[FileValidationViolation]:
+    """Return the failing single-source-of-truth findings for one project.
+
+    ``ssot_skipped`` notes are logged and left out: a skipped optional check
+    is not a failure.
+    """
+    found = collect_ssot_findings(project_dir)
+    for note in found:
+        if note.violation_type == SKIPPED:
+            _log.info("ecosystem_ssot: %s", note.message)
+    return [f for f in found if f.violation_type != SKIPPED]
 
 
 def absent_projects(root: Path | None = None) -> list[str]:
@@ -78,6 +95,7 @@ def scan_workspace(root: Path | None = None) -> dict[str, list[FileValidationVio
 __all__ = [
     "ECOSYSTEM_SSOT_SEVERITY",
     "absent_projects",
+    "collect_ssot_findings",
     "is_asset_project",
     "run_ecosystem_ssot",
     "scan_workspace",

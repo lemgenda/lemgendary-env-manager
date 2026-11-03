@@ -19,6 +19,7 @@ from env_manager.validation.gate import Bucket, Gate, ProjectContext, Severity
 from env_manager.validation.gates.ecosystem_ssot import (
     ECOSYSTEM_SSOT_SEVERITY,
     absent_projects,
+    collect_ssot_findings,
     run_ecosystem_ssot,
     scan_workspace,
 )
@@ -38,6 +39,7 @@ from env_manager.validation.gates.ecosystem_ssot.gui import (
     SNAPSHOT_MISMATCH,
     SNAPSHOT_PATH,
     TAURI_CONFIG_PATH,
+    UNREADABLE,
 )
 from env_manager.validation.gates.ecosystem_ssot.literals import (
     DOCS_URL_LITERAL,
@@ -205,7 +207,7 @@ def test_own_pipeline_table_is_skipped_and_reported(gui: Path) -> None:
     """While the GUI keeps its own step table the count check is skipped with a note."""
     table = "export const PIPELINE_STEPS: Step[] = [\n  {\n    num: 1,\n  },\n];\n"
     _write(gui / "src" / "components" / "Steps.tsx", table)
-    found = run_ecosystem_ssot(gui)
+    found = collect_ssot_findings(gui)
     assert _types(found) == [SKIPPED]
     assert "own PIPELINE_STEPS table (1 steps" in found[0].message
 
@@ -230,7 +232,7 @@ def test_project_health_key_drift_is_flagged(gui: Path) -> None:
 def test_missing_openapi_schema_is_skipped_and_reported(gui: Path, fake_workspace: Path) -> None:
     """Without a ``ProjectHealth`` schema the check is skipped with a note."""
     _write(fake_workspace / ECO.self_folder() / "openapi.json", "{}")
-    found = run_ecosystem_ssot(gui)
+    found = collect_ssot_findings(gui)
     assert _types(found) == [SKIPPED]
     assert "no ProjectHealth schema" in found[0].message
 
@@ -243,17 +245,44 @@ def _ssot_gate() -> Gate:
 
 
 def test_gate_is_registered_at_the_configured_severity() -> None:
-    """The registry entry carries the one severity setting (warning for now)."""
-    assert ECOSYSTEM_SSOT_SEVERITY is Severity.WARNING
+    """The registry entry carries the one severity setting (error)."""
+    assert ECOSYSTEM_SSOT_SEVERITY is Severity.ERROR
     assert _ssot_gate().severity is ECOSYSTEM_SSOT_SEVERITY
 
 
-def test_warning_findings_do_not_fail_validation(project: Path) -> None:
-    """Warning-severity findings land in ``warnings`` and the project still passes."""
+def test_findings_fail_validation_at_error_severity(project: Path) -> None:
+    """At error severity the findings land in the failing domain bucket."""
     _write(project / "a.py", f'URL = "http://localhost:{PORT}"\n')
     report = validate_project(project)
-    assert _types(report.warnings) == [PORT_LITERAL]
-    assert not report.domain_errors
+    assert _types(report.domain_errors) == [PORT_LITERAL]
+    assert not report.warnings
+
+
+def test_skip_notes_do_not_fail_the_gate(gui: Path) -> None:
+    """The gate drops ``ssot_skipped`` notes; only the unfiltered collector shows them."""
+    table = "export const PIPELINE_STEPS: Step[] = [\n  {\n    num: 1,\n  },\n];\n"
+    _write(gui / "src" / "components" / "Steps.tsx", table)
+    assert _types(collect_ssot_findings(gui)) == [SKIPPED]
+    assert not run_ecosystem_ssot(gui)
+
+
+def test_unparseable_tauri_config_fails(gui: Path) -> None:
+    """A Tauri config that exists but is not JSON is a failing finding, not a skip."""
+    _write(gui / TAURI_CONFIG_PATH, "{ not json")
+    assert _types(run_ecosystem_ssot(gui)) == [UNREADABLE]
+
+
+def test_unparseable_openapi_fails(gui: Path, fake_workspace: Path) -> None:
+    """An OpenAPI file that exists but is not JSON is a failing finding."""
+    _write(fake_workspace / ECO.self_folder() / "openapi.json", "{ not json")
+    assert _types(run_ecosystem_ssot(gui)) == [UNREADABLE]
+
+
+def test_missing_openapi_file_is_only_a_note(gui: Path, fake_workspace: Path) -> None:
+    """An absent OpenAPI file is optional: a skip note, no failure."""
+    (fake_workspace / ECO.self_folder() / "openapi.json").unlink()
+    assert _types(collect_ssot_findings(gui)) == [SKIPPED]
+    assert not run_ecosystem_ssot(gui)
 
 
 def test_error_severity_reports_into_the_domain_bucket(project: Path) -> None:

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.51-STABLE)
+# LemGendary Environment Manager (v16.9.52-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -306,9 +306,58 @@ python -m env_manager.cli serve
   code. Other repositories and the GUI read the same file (or
   `GET /api/ecosystem`).
 
+## Ecosystem SSOT Gate
+
+The `ecosystem_ssot` validation gate fails validation (severity `error`,
+`ECOSYSTEM_SSOT_SEVERITY` in `validation/gates/ecosystem_ssot/__init__.py`)
+when a repository spells out a fact that belongs to a single source.
+
+Single-source files:
+
+- Env-manager `ecosystem/ecosystem.json`: service ports and paths, the
+  Kaggle owner, the docs URL, the bind host, the project list and the
+  pipeline steps.
+- Datasets `task_taxonomy.json` (task ids and strategies) and
+  `unified_data.yaml` (dataset registry records).
+- Training `unified_models_v2.yaml` (model registry records).
+- GUI snapshot `src/generated/ecosystem.json`: a copy of the env-manager
+  file that must equal it.
+
+Allowlist (`allowlist.py`): the files above, the ecosystem schema,
+`src-tauri/tauri.conf.json` (its CSP ports are checked against the
+services), `openapi.json`, lockfiles, `REVIEW_REPORT.md`, `CHANGELOG*`,
+README changelog sections and `fixtures` folders below a test folder are
+not scanned. Documentation and registry files may name a port, owner or
+URL, but only with the registry value. Everything else (code, configuration,
+tests) may not.
+
+Skips and failures: a check that cannot run because an optional input is
+absent (a sibling project not checked out, a GUI that keeps its own step
+table, a missing OpenAPI file) leaves a logged `ssot_skipped` note and does
+not fail. A source file that exists but cannot be parsed is an
+`ssot_unreadable` finding and fails.
+
+To fix a finding: replace the literal with a read from `ecosystem.json`
+(`env_manager.ecosystem.ecosystem()` in Python, the generated snapshot in
+the GUI); for a stale snapshot, copy the env-manager file over
+`src/generated/ecosystem.json`; for a wrong value in documentation, correct
+it to the registry value. Do not add an allowlist entry for a real
+duplicate. Run `lem-env validate` to check.
+
 ---
 
 ## Changelog
+
+### v16.9.52 - SSOT Gate at Error Severity (ENV-3)
+
+- `ECOSYSTEM_SSOT_SEVERITY` is now `Severity.ERROR`: findings fail
+  validation. The real workspace scans with 0 findings in every present
+  project.
+- `ssot_skipped` notes (optional inputs absent) are logged and never fail
+  (`collect_ssot_findings` still returns them); a file that exists but cannot
+  be parsed is a failing `ssot_unreadable` finding.
+- README documents the single-source files, the allowlist and how to fix a
+  finding.
 
 ### v16.9.51 - SSOT Gate Refinement and Typed Projects (ENV-2b)
 

@@ -25,6 +25,7 @@ CSP_PORTS = "ssot_csp_ports"
 PIPELINE_STEPS = "ssot_pipeline_steps"
 PROJECT_HEALTH = "ssot_project_health"
 SKIPPED = "ssot_skipped"
+UNREADABLE = "ssot_unreadable"
 
 SNAPSHOT_PATH = Path("src") / "generated" / "ecosystem.json"
 """The GUI's committed copy of the ecosystem file."""
@@ -80,6 +81,13 @@ def _finding(path: Path, kind: str, message: str, line: int = 0) -> FileValidati
 
 def _skip(path: Path, reason: str) -> list[FileValidationViolation]:
     return [_finding(path, SKIPPED, f"Check skipped: {reason}")]
+
+
+def _unreadable(path: Path, exc: Exception) -> list[FileValidationViolation]:
+    """A source file that exists but cannot be parsed is a finding; a missing one is a skip."""
+    if isinstance(exc, FileNotFoundError):
+        return _skip(path, f"{path.name} is not present")
+    return [_finding(path, UNREADABLE, f"Cannot parse {path.name}: {exc}")]
 
 
 def _read_json(path: Path) -> Any:
@@ -145,7 +153,7 @@ def check_csp_ports(ctx: GuiContext) -> list[FileValidationViolation]:
         config = json.loads(text)
         security = config.get("app", {}).get("security", {})
     except MANIFEST_READ_ERRORS as exc:
-        return _skip(path, f"cannot parse Tauri config: {exc}")
+        return _unreadable(path, exc)
     expected = {svc.port for svc in ctx.eco.services}
     ignored = dev_server_ports(config)
     found: list[FileValidationViolation] = []
@@ -182,7 +190,7 @@ def check_pipeline_steps(ctx: GuiContext) -> list[FileValidationViolation]:
     try:
         steps = _read_json(snapshot)["pipeline_steps"]
     except (*MANIFEST_READ_ERRORS, KeyError) as exc:
-        return _skip(snapshot, f"no readable pipeline steps in the GUI snapshot: {exc}")
+        return _unreadable(snapshot, exc)
     if len(steps) == expected:
         return []
     return [_finding(
@@ -215,7 +223,7 @@ def check_project_health(ctx: GuiContext) -> list[FileValidationViolation]:
     try:
         api_keys = openapi_schema_keys(_read_json(ctx.openapi_file), "ProjectHealth")
     except MANIFEST_READ_ERRORS as exc:
-        return _skip(ctx.openapi_file, f"cannot read OpenAPI schema: {exc}")
+        return _unreadable(ctx.openapi_file, exc)
     if api_keys is None:
         return _skip(ctx.openapi_file, "no ProjectHealth schema in the env OpenAPI document")
     if gui_keys == api_keys:
