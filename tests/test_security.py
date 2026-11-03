@@ -14,11 +14,10 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from env_manager.security import (
-    ALLOWED_HEADERS,
-    ALLOWED_METHODS,
     ALLOWED_ORIGINS,
     CLIENT_HEADER,
     CLIENT_HEADER_VALUE,
+    install_browser_guard,
     origin_guard_middleware,
 )
 from env_manager.server import app as server_app
@@ -45,14 +44,7 @@ def _build_app() -> FastAPI:
         await websocket.send_json({"ok": True})
         await websocket.close()
 
-    test_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(ALLOWED_ORIGINS),
-        allow_credentials=False,
-        allow_methods=list(ALLOWED_METHODS),
-        allow_headers=list(ALLOWED_HEADERS),
-    )
-    test_app.add_middleware(origin_guard_middleware)
+    install_browser_guard(test_app)
     return test_app
 
 

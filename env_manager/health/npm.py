@@ -76,63 +76,52 @@ def read_package_json_specifiers(
     return specifiers, dev_names
 
 
+def _installed_workspaces(base_dir: Path) -> list[Path]:
+    """Return workspace folders that have both a package.json and node_modules."""
+    if not base_dir or not base_dir.is_dir():
+        return []
+    return [
+        child
+        for child in base_dir.iterdir()
+        if child.is_dir()
+        and (child / "package.json").is_file()
+        and (child / "node_modules").is_dir()
+    ]
+
+
+def _drift_entry(
+    pkg: str,
+    workspaces: list[Path],
+    installed: dict[str, dict[str, str]],
+    declared: dict[str, tuple[dict[str, str], set[str]]],
+) -> NpmDriftEntry:
+    """Build the drift row for one package across every workspace."""
+    versions = {ws.name: installed[ws.name].get(pkg) for ws in workspaces}
+    observed = {ver for ver in versions.values() if ver}
+    return NpmDriftEntry(
+        package_name=pkg,
+        versions=versions,
+        specifiers={ws.name: declared[ws.name][0].get(pkg) for ws in workspaces},
+        has_drift=len(observed) > 1,
+        is_dev_dependency=any(pkg in declared[ws.name][1] for ws in workspaces),
+    )
+
+
 def compute_npm_drift(base_dir: Path) -> list[NpmDriftEntry]:
     """Identify version drift for npm packages across workspaces."""
-    workspaces: list[Path] = []
-    if base_dir and base_dir.is_dir():
-        for child in base_dir.iterdir():
-            if not child.is_dir():
-                continue
-            if (child / "package.json").is_file() and (child / "node_modules").is_dir():
-                workspaces.append(child)
-
+    workspaces = _installed_workspaces(base_dir)
     if not workspaces:
         return []
 
-    workspace_versions: dict[str, dict[str, str]] = {}
-    workspace_specifiers: dict[str, dict[str, str]] = {}
-    workspace_dev: dict[str, set[str]] = {}
-
-    for ws in workspaces:
-        workspace_versions[ws.name] = read_node_modules_versions(ws)
-        specifiers, dev_names = read_package_json_specifiers(ws)
-        workspace_specifiers[ws.name] = specifiers
-        workspace_dev[ws.name] = dev_names
+    installed = {ws.name: read_node_modules_versions(ws) for ws in workspaces}
+    declared = {ws.name: read_package_json_specifiers(ws) for ws in workspaces}
 
     declaration_counts: dict[str, int] = {}
-    for spec_map in workspace_specifiers.values():
+    for spec_map, _dev in declared.values():
         for name in spec_map:
             declaration_counts[name] = declaration_counts.get(name, 0) + 1
 
     shared = sorted(
         name for name, count in declaration_counts.items() if count >= MIN_SHARED_DECLARATIONS
     )
-
-    entries: list[NpmDriftEntry] = []
-    for pkg in shared:
-        versions: dict[str, str | None] = {}
-        specs: dict[str, str | None] = {}
-        observed: set[str] = set()
-        is_dev = False
-
-        for ws in workspaces:
-            ver = workspace_versions.get(ws.name, {}).get(pkg)
-            spec = workspace_specifiers.get(ws.name, {}).get(pkg)
-            versions[ws.name] = ver
-            specs[ws.name] = spec
-            if ver:
-                observed.add(ver)
-            if pkg in workspace_dev.get(ws.name, set()):
-                is_dev = True
-
-        entries.append(
-            NpmDriftEntry(
-                package_name=pkg,
-                versions=versions,
-                specifiers=specs,
-                has_drift=len(observed) > 1,
-                is_dev_dependency=is_dev,
-            )
-        )
-
-    return entries
+    return [_drift_entry(pkg, workspaces, installed, declared) for pkg in shared]

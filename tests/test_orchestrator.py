@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator, PipProgress
+from env_manager.pipeline.events import EventPublisher
 
 LAST_STEP_UNDER_TEST = 3
 """Step 3 (virtual environments) is the last step these tests drive."""
@@ -81,19 +82,7 @@ class TestPipelineOrchestrator(unittest.TestCase):
 
     def test_pip_progress_parsing(self) -> None:
         """Verify pip output lines are correctly parsed into live progress events."""
-        def emit_dummy(
-            status: str, msg: str, *, data=None, is_progress=False,
-        ) -> PipelineEvent:
-            return PipelineEvent(
-                timestamp="2026-10-18T00:00:00Z",
-                step_number=4,
-                total_steps=7,
-                step_name="Package Installation",
-                status=status,
-                message=msg,
-                data=data,
-                is_progress=is_progress,
-            )
+        emit_dummy = EventPublisher(total_steps=7).step(4, "Package Installation")
 
         # 1. Collecting line
         res = PipelineOrchestrator.parse_pip_line_to_event(

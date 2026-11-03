@@ -21,6 +21,8 @@ from __future__ import annotations
 import logging
 from typing import Final
 
+from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -118,3 +120,19 @@ def origin_guard_middleware(
         await send({"type": "websocket.close", "code": _WS_POLICY_VIOLATION})
 
     return guard
+
+
+def install_browser_guard(app: Starlette) -> None:
+    """Add the closed CORS allow-list and, outermost, the origin guard to ``app``.
+
+    The guard is added last, so it runs first: it refuses foreign origins
+    before CORS or routing see the request.
+    """
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(ALLOWED_ORIGINS),
+        allow_credentials=False,
+        allow_methods=list(ALLOWED_METHODS),
+        allow_headers=list(ALLOWED_HEADERS),
+    )
+    app.add_middleware(origin_guard_middleware)

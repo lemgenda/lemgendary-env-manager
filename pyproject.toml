@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lemgendary-env-manager"
-version = "16.9.45"
+version = "16.9.46"
 description = "Centralized environment and dependency manager for LemGendary projects"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -50,9 +50,4 @@ select = [
     "UP",  # pyupgrade (Python 3.12 modern idioms)
     "PL",  # Pylint parity rules (PLC, PLE, PLR, PLW)
     "RUF", # Ruff-specific clean code checks
-]
-ignore = [
-    "PLR0912",  # Too many branches
-    "PLR0913",  # Too many arguments in function definition
-    "PLR0915",  # Too many statements
 ]

@@ -119,55 +119,58 @@ def _classify_project_upgrades(
     return result
 
 
-def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
-    """Audit single project virtual environment and requirements."""
+def _node_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
+    """Health of a Node workspace: declared dependencies versus node_modules."""
     p_dir = Path(project_info.project_dir)
-    req_file = p_dir / "requirements.txt"
-    installed = get_installed_packages(p_dir) if project_info.is_valid else {}
-    canonical_installed = {
-        normalize_package_name(k): v for k, v in installed.items()
-    }
+    pkg_json = p_dir / "package.json"
+    total_req = 0
+    if pkg_json.is_file():
+        data = read_json_object(pkg_json)
+        total_req = len(data.get("dependencies") or {}) + len(data.get("devDependencies") or {})
+    node_mods = read_node_modules_versions(p_dir) if project_info.node_modules_present else {}
+    return ProjectHealth(
+        name=project_info.name,
+        project_dir=project_info.project_dir,
+        venv_exists=project_info.node_modules_present,
+        python_version=None,
+        total_required=total_req,
+        total_installed=len(node_mods),
+        missing_packages=[] if project_info.node_modules_present else ["node_modules"],
+        installed_packages=node_mods,
+        is_healthy=project_info.node_modules_present,
+    )
 
+
+def _missing_requirements(req_file: Path, installed: dict[str, str]) -> tuple[int, list[str]]:
+    """Count the active requirements in ``req_file`` and list those not installed."""
+    if not req_file.exists():
+        return 0, []
+    canonical_installed = {normalize_package_name(k) for k in installed}
+    has_installed_opencv = any(v in canonical_installed for v in OPENCV_VARIANTS_NORMALIZED)
     missing: list[str] = []
     total_required = 0
+    for entry in parse_requirements_file(req_file):
+        if entry.is_index_url:
+            continue
+        if entry.marker and not marker_matches(entry.marker):
+            continue
+        total_required += 1
+        pkg_name = normalize_package_name(entry.name)
+        if pkg_name in OPENCV_VARIANTS_NORMALIZED and has_installed_opencv:
+            continue
+        if pkg_name not in canonical_installed:
+            missing.append(entry.name)
+    return total_required, missing
 
+
+def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
+    """Audit single project virtual environment and requirements."""
     if project_info.is_node_project:
-        pkg_json = p_dir / "package.json"
-        total_req = 0
-        if pkg_json.is_file():
-            data = read_json_object(pkg_json)
-            total_req = len(data.get("dependencies") or {}) + len(data.get("devDependencies") or {})
-        node_mods = read_node_modules_versions(p_dir) if project_info.node_modules_present else {}
-        return ProjectHealth(
-            name=project_info.name,
-            project_dir=project_info.project_dir,
-            venv_exists=project_info.node_modules_present,
-            python_version=None,
-            total_required=total_req,
-            total_installed=len(node_mods),
-            missing_packages=[] if project_info.node_modules_present else ["node_modules"],
-            installed_packages=node_mods,
-            is_healthy=project_info.node_modules_present,
-        )
+        return _node_project_health(project_info)
 
-    if req_file.exists():
-        parsed = parse_requirements_file(req_file)
-        has_installed_opencv = any(
-            v in canonical_installed for v in OPENCV_VARIANTS_NORMALIZED
-        )
-        for entry in parsed:
-            if entry.is_index_url:
-                continue
-            if entry.marker and not marker_matches(entry.marker):
-                continue
-            total_required += 1
-            pkg_name = normalize_package_name(entry.name)
-            if pkg_name in OPENCV_VARIANTS_NORMALIZED and has_installed_opencv:
-                continue
-            if pkg_name not in canonical_installed:
-                missing.append(entry.name)
-
-    is_healthy = project_info.is_valid and len(missing) == 0
+    p_dir = Path(project_info.project_dir)
+    installed = get_installed_packages(p_dir) if project_info.is_valid else {}
+    total_required, missing = _missing_requirements(p_dir / "requirements.txt", installed)
 
     return ProjectHealth(
         name=project_info.name,
@@ -178,5 +181,5 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
         total_installed=len(installed),
         missing_packages=missing,
         installed_packages=installed,
-        is_healthy=is_healthy,
+        is_healthy=project_info.is_valid and len(missing) == 0,
     )

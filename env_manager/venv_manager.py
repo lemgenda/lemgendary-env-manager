@@ -18,6 +18,7 @@ import psutil
 from env_manager._logging import get_logger
 from env_manager.utils import (
     WINDOWS_NO_WINDOW,
+    drain_lines,
     run_command_simple,
     run_pip_with_recovery,
     stream_pip_with_recovery,
@@ -301,19 +302,15 @@ def install_requirements(
     cache entry triggers an automatic purge-and-retry rather than a
     hard failure.
     """
-    gen = stream_install_requirements(
-        project_dir,
-        requirements_file,
-        extra_index_url=extra_index_url,
-        timeout=timeout,
+    return drain_lines(
+        stream_install_requirements(
+            project_dir,
+            requirements_file,
+            extra_index_url=extra_index_url,
+            timeout=timeout,
+        ),
+        on_line,
     )
-    try:
-        while True:
-            line = next(gen)
-            if on_line:
-                on_line(line)
-    except StopIteration as stop:
-        return stop.value
 
 
 def normalize_opencv_variant(

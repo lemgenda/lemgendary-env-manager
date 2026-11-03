@@ -28,7 +28,6 @@ from typing import Any
 from fastapi import (
     FastAPI,
 )
-from fastapi.middleware.cors import CORSMiddleware
 
 from env_manager import __version__
 from env_manager._logging import get_logger
@@ -40,12 +39,7 @@ from env_manager.api import (
     routes_workspace,
 )
 from env_manager.api.routes_workspace import docs_dir
-from env_manager.security import (
-    ALLOWED_HEADERS,
-    ALLOWED_METHODS,
-    ALLOWED_ORIGINS,
-    origin_guard_middleware,
-)
+from env_manager.security import install_browser_guard
 from env_manager.service_manager import start_all_services
 
 _log = get_logger(__name__)
@@ -81,17 +75,7 @@ app = FastAPI(
 )
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=list(ALLOWED_ORIGINS),
-    allow_credentials=False,
-    allow_methods=list(ALLOWED_METHODS),
-    allow_headers=list(ALLOWED_HEADERS),
-)
-
-
-# Added last, so it runs first: refuses foreign origins before CORS or routing.
-app.add_middleware(origin_guard_middleware)
+install_browser_guard(app)
 
 
 if docs_dir().exists():

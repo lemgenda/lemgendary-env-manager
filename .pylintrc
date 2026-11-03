@@ -5,16 +5,9 @@ load-plugins=
 jobs=1
 unsafe-load-any-extension=no
 
-[MESSAGES CONTROL]
-disable=
-    too-many-branches,
-    too-many-locals,
-    too-many-statements,
-    too-many-lines,
-    too-many-arguments,
-    too-many-positional-arguments,
-    too-many-instance-attributes,
-    too-many-nested-blocks
+[DESIGN]
+# DTO dataclasses mirror the JSON/API contracts field for field (BootstrapStatus has 15).
+max-attributes=16
 
 [REPORTS]
 output-format=text

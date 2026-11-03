@@ -124,6 +124,7 @@ async def submit_bug_report(
 
 
 def docs_dir() -> Path:
+    """Root of the LemGendary AI Documentation Hub checkout in the workspace."""
     return workspace_root() / "lemgendary-docs"
 
 

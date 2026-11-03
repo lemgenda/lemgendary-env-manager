@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.45-STABLE)
+# LemGendary Environment Manager (v16.9.46-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.46 - Size Gates Enforced
+
+- The ruff ignores for `PLR0912`, `PLR0913` and `PLR0915` are removed from `pyproject.toml`, and the eight `too-many-*` disables are removed from `.pylintrc`. Ruff, pylint and pyright now run with no ignored or disabled checks.
+- `.pylintrc` sets `max-attributes=16`. The classes above pylint's default of 7 are DTO dataclasses that mirror the JSON/API contracts field for field (`BootstrapStatus` has 15), so splitting them would change the HTTP contract.
+- Functions over 15 locals or 12 branches are split into helpers: `verify_prerequisites`, `run_full_health_audit`, `sync_all_manifests` (`_sync_npm_manifest`), the Kaggle propagation run (`_write_users_file`), `compute_npm_drift` (`_installed_workspaces`, `_drift_entry`), `audit_project_health` (`_node_project_health`, `_missing_requirements`), `audit_docs_synchronization` (`_manifest_doc_violations`, `_paper_parity_violations`), `run_eslint` (`_eslint_report_violations`) and `stop_service` (`_stop_via_pid_files`, `_stop_port_holder`). Behaviour and messages are unchanged.
+- Duplicate code: the markdownlint, yamllint and tsc gates parse tool output through one helper, `validation.tooling.regex_violations`. `install_requirements` uses `utils.drain_lines`. The CORS and origin-guard wiring is `security.install_browser_guard`, used by the server and by the security tests.
+- `pipeline.events.Emit` is now an alias of `StepEmitter`, its only implementation, rather than a one-method Protocol; tests build emitters with `EventPublisher.step`. `docs_dir` has a docstring, and a long test line is wrapped.
 
 ### v16.9.45 - Validation and Drift Helpers
 

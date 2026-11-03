@@ -267,6 +267,24 @@ class _Propagator:
         _log.warning("Skipped legacy credential file %s: %s", label, reason)
         self.report.skipped.append(PropagationIssue(path=label, reason=reason))
 
+    def _write_users_file(self, ordered: list[dict[str, Any]]) -> None:
+        """Write every usable Kaggle credential, default first, to the training suite."""
+        users_path = self.root / TRAINING_REPO / ".kaggle_users"
+        label = self._label(users_path)
+        if not users_path.parent.is_dir():
+            self._skip(label, "repository not present in workspace")
+            return
+        lines = []
+        for record in ordered:
+            username = str(record.get("username") or "").strip()
+            if not username:
+                self._skip(f"{label} ({record.get('id')})", "Kaggle credential has no username")
+                continue
+            token_value = str(record["secret_value"]).strip()
+            lines.append(f"KAGGLE_USERNAME={username}, KAGGLE_API_TOKEN={token_value};")
+        if lines:
+            self._write(users_path, label, "\n".join(lines) + "\n")
+
     def run(self, kaggle_records: list[dict[str, Any]]) -> PropagationReport:
         """Write the default Kaggle credential to every legacy file and return the report."""
         usable = [r for r in kaggle_records if str(r.get("secret_value") or "").strip()]
@@ -284,23 +302,7 @@ class _Propagator:
                 continue
             self._write(target, self._label(target), token)
 
-        users_path = self.root / TRAINING_REPO / ".kaggle_users"
-        if not users_path.parent.is_dir():
-            self._skip(self._label(users_path), "repository not present in workspace")
-        else:
-            lines = []
-            for record in ordered:
-                username = str(record.get("username") or "").strip()
-                if not username:
-                    self._skip(
-                        f"{self._label(users_path)} ({record.get('id')})",
-                        "Kaggle credential has no username",
-                    )
-                    continue
-                token_value = str(record["secret_value"]).strip()
-                lines.append(f"KAGGLE_USERNAME={username}, KAGGLE_API_TOKEN={token_value};")
-            if lines:
-                self._write(users_path, self._label(users_path), "\n".join(lines) + "\n")
+        self._write_users_file(ordered)
 
         default_username = str(default.get("username") or "").strip()
         if not default_username:

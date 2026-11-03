@@ -175,7 +175,8 @@ class TestUpdateEndpoint(unittest.TestCase):
     def test_unknown_project_returns_404(self) -> None:
         """An unknown project returns 404."""
         with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(routes_pipeline.run_update(routes_pipeline.UpdateRequest(project="not-a-project")))
+            request = routes_pipeline.UpdateRequest(project="not-a-project")
+            asyncio.run(routes_pipeline.run_update(request))
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_dry_run_passes_project_and_does_not_start_a_job(self) -> None:

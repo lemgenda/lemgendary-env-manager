@@ -1,12 +1,12 @@
 """Node-based lint gates: markdownlint-cli2, ESLint and the TypeScript compiler."""
 
 import json
-import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from env_manager.validation.models import FileValidationViolation, tool_failure, unexplained_exit
-from env_manager.validation.tooling import resolve_tool_cmd, run_tool
+from env_manager.validation.tooling import regex_violations, resolve_tool_cmd, run_tool
 from env_manager.workspace import ENV_MANAGER_DIR
 
 ESLINT_SEVERITY_ERROR = 2
@@ -48,22 +48,32 @@ def run_markdownlint(project_dir: Path) -> list[FileValidationViolation]:
 
     try:
         proc = run_tool(cmd, timeout=120)
-        combined = proc.stdout + proc.stderr
-        for line in combined.splitlines():
-            m = re.match(r"^(.+?):(\d+)(?::\d+)?\s+(MD\d+/\S+)\s+(.+)$", line.strip())
-            if m:
-                violations.append(
-                    FileValidationViolation(
-                        file_path=m.group(1),
-                        line_number=int(m.group(2)),
-                        violation_type=f"markdownlint/{m.group(3)}",
-                        message=m.group(4),
-                    )
-                )
+        violations.extend(regex_violations(
+            proc.stdout + proc.stderr,
+            r"^(?P<path>.+?):(?P<line>\d+)(?::\d+)?\s+(?P<rule>MD\d+/\S+)\s+(?P<msg>.+)$",
+            "markdownlint/",
+        ))
         violations.extend(unexplained_exit("markdownlint", project_dir, proc, len(violations)))
     except (OSError, subprocess.SubprocessError) as exc:
         violations.append(tool_failure("markdownlint", project_dir, str(exc)))
     return violations
+
+
+def _eslint_report_violations(
+    report: list[dict[str, Any]], project_dir: Path,
+) -> list[FileValidationViolation]:
+    """Turn the error-severity messages of an ESLint JSON report into violations."""
+    return [
+        FileValidationViolation(
+            file_path=entry.get("filePath", str(project_dir)),
+            line_number=msg.get("line", 0),
+            violation_type="eslint_error",
+            message=msg.get("message", "").strip(),
+        )
+        for entry in report
+        for msg in entry.get("messages", [])
+        if msg.get("severity") == ESLINT_SEVERITY_ERROR
+    ]
 
 
 def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
@@ -108,22 +118,9 @@ def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
             return [tool_failure("eslint", project_dir, f"no JSON report: {detail}")]
 
         try:
-            data = json.loads(stdout[idx:])
+            violations.extend(_eslint_report_violations(json.loads(stdout[idx:]), project_dir))
         except json.JSONDecodeError as exc:
             return [tool_failure("eslint", project_dir, f"unreadable JSON report: {exc}")]
-
-        for entry in data:
-            file_path = entry.get("filePath", str(project_dir))
-            for msg in entry.get("messages", []):
-                if msg.get("severity") == ESLINT_SEVERITY_ERROR:
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=file_path,
-                            line_number=msg.get("line", 0),
-                            violation_type="eslint_error",
-                            message=msg.get("message", "").strip(),
-                        )
-                    )
         # Exit 2 is an ESLint crash or config error, even if a report was printed.
         if proc.returncode not in (0, 1):
             violations.append(tool_failure(
@@ -147,17 +144,11 @@ def run_typescript_check(project_dir: Path) -> list[FileValidationViolation]:
         cmd = [*resolve_tool_cmd("tsc", "typescript", project_dir=project_dir), "--noEmit"]
         proc = run_tool(cmd, cwd=project_dir, timeout=180)
         if proc.returncode != 0:
-            for line in (proc.stdout + proc.stderr).splitlines():
-                m = re.match(r"^(.+?)\((\d+),\d+\):\s+error\s+TS\d+:\s+(.+)$", line.strip())
-                if m:
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=m.group(1),
-                            line_number=int(m.group(2)),
-                            violation_type="typescript_error",
-                            message=m.group(3).strip(),
-                        )
-                    )
+            violations.extend(regex_violations(
+                proc.stdout + proc.stderr,
+                r"^(?P<path>.+?)\((?P<line>\d+),\d+\):\s+error\s+TS\d+:\s+(?P<msg>.+)$",
+                "typescript_error",
+            ))
         violations.extend(unexplained_exit("tsc", project_dir, proc, len(violations)))
     except (OSError, subprocess.SubprocessError) as exc:
         violations.append(tool_failure("tsc", project_dir, str(exc)))

@@ -12,9 +12,7 @@ All upgrade functions are mocked; no real pip or npm command runs.
 import shutil
 import tempfile
 import unittest
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -22,6 +20,7 @@ from typer.testing import CliRunner
 from env_manager.cli import app
 from env_manager.dependency_resolver import OutdatedPackage
 from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
+from env_manager.pipeline.events import EventPublisher
 from env_manager.updater import (
     EcosystemUpgradePlan,
     ProjectUpgradePlan,
@@ -30,14 +29,7 @@ from env_manager.updater import (
 from env_manager.venv_manager import ProjectVenvInfo, discover_projects
 
 
-def _emit(
-    status: str, msg: str, *, data: dict[str, Any] | None = None, is_progress: bool = False,
-) -> PipelineEvent:
-    return PipelineEvent(
-        timestamp=datetime.now(UTC).isoformat(), step_number=5, total_steps=7,
-        step_name="Dependency Upgrades", status=status, message=msg, data=data,
-        is_progress=is_progress,
-    )
+_emit = EventPublisher(total_steps=7).step(5, "Dependency Upgrades")
 
 
 def _project(name: str, root: Path, *, is_node: bool, has_npm: bool) -> ProjectVenvInfo:

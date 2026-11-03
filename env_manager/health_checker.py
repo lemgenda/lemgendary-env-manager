@@ -51,20 +51,7 @@ def run_full_health_audit(
     hardware = probe_hardware()
     discovered = discover_projects(base_dir)
 
-    projects_health: list[ProjectHealth] = []
-    for d in discovered:
-        health = audit_project_health(d)
-        projects_health.append(health)
-
-    cuda_index_url = torch_upgrade_index(hardware)
-    drift = compute_version_drift(
-        projects_health,
-        cuda_index_url=cuda_index_url,
-        include_safety=include_safety,
-    )
-    coverage = compute_manifest_coverage(projects_health)
-    singles = compute_single_manifest_packages(projects_health)
-
+    projects_health: list[ProjectHealth] = [audit_project_health(d) for d in discovered]
     npm_packages = audit_npm_workspaces(base_dir)
     npm_drift = compute_npm_drift(base_dir) if base_dir else []
 
@@ -85,9 +72,13 @@ def run_full_health_audit(
         bootstrap=bootstrap,
         hardware=hardware,
         projects=projects_health,
-        version_drift=drift,
-        manifest_coverage=coverage,
-        single_manifest_packages=singles,
+        version_drift=compute_version_drift(
+            projects_health,
+            cuda_index_url=torch_upgrade_index(hardware),
+            include_safety=include_safety,
+        ),
+        manifest_coverage=compute_manifest_coverage(projects_health),
+        single_manifest_packages=compute_single_manifest_packages(projects_health),
         npm_packages=npm_packages,
         npm_drift=npm_drift,
         overall_healthy=overall_healthy,

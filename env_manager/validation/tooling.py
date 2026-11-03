@@ -1,12 +1,14 @@
 """Locating the external lint tools that the gates run (shell, Python, Node binaries)."""
 
 import platform
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from env_manager.utils import run_command_simple
+from env_manager.validation.models import FileValidationViolation
 from env_manager.workspace import ENV_MANAGER_DIR
 
 
@@ -64,6 +66,27 @@ def resolve_tool_cmd(
 
     npx = shutil.which("npx") or ("npx.cmd" if sys.platform == "win32" else "npx")
     return [npx, "--no", npx_pkg]
+
+
+def regex_violations(
+    output: str, pattern: str, kind_prefix: str,
+) -> list[FileValidationViolation]:
+    """Turn each tool output line matching ``pattern`` into a violation.
+
+    ``pattern`` names its groups ``path``, ``line``, ``msg`` and, optionally,
+    ``rule``. The violation type is ``kind_prefix`` followed by the rule.
+    """
+    matches = (re.match(pattern, line.strip()) for line in output.splitlines())
+    return [
+        FileValidationViolation(
+            file_path=m["path"],
+            line_number=int(m["line"]),
+            violation_type=f"{kind_prefix}{m.groupdict().get('rule') or ''}",
+            message=m["msg"].strip(),
+        )
+        for m in matches
+        if m
+    ]
 
 
 def run_tool(

@@ -341,6 +341,43 @@ def _kill_process_tree(pid: int) -> bool:
         return False
 
 
+def _stop_via_pid_files(log_dir: Path, name: str) -> bool:
+    """Terminate the process tree recorded in a service PID file; remove the PID files."""
+    terminated = False
+    for pfile in (log_dir / "server.pid", log_dir / "pid"):
+        if not pfile.exists():
+            continue
+        try:
+            pid = int(pfile.read_text(encoding="utf-8").strip())
+            if psutil.pid_exists(pid):
+                terminated = _kill_process_tree(pid)
+                _log.info("Terminated process tree for %s (PID %d) via PID file", name, pid)
+            pfile.unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            _log.warning("Error stopping %s via PID file %s: %s", name, pfile, exc)
+    return terminated
+
+
+def _stop_port_holder(port: int) -> bool:
+    """Terminate every process tree listening on ``port``; True if any was stopped."""
+    try:
+        connections = psutil.net_connections(kind="inet")
+    except psutil.AccessDenied as exc:
+        # macOS needs elevated rights to list other processes' sockets.
+        _log.warning("Cannot list sockets to find the process on port %d: %s", port, exc)
+        return False
+    terminated = False
+    for conn in connections:
+        if conn.laddr and conn.laddr.port == port and conn.pid:
+            if _kill_process_tree(conn.pid):
+                terminated = True
+                _log.info("Terminated process tree on port %d (PID %d)", port, conn.pid)
+            else:
+                _log.warning("Could not terminate process holding port %d (PID %d)",
+                             port, conn.pid)
+    return terminated
+
+
 def stop_service(service_id: str) -> dict[str, Any]:
     """Stop an active ecosystem sidecar process by reading PID file or finding listening process."""
     key = _resolve_service_key(service_id)
@@ -368,40 +405,9 @@ def stop_service(service_id: str) -> dict[str, Any]:
             "port": port,
         }
 
-    # Attempt to terminate via PID file first
-    pid_files = [
-        proj_dir / cfg["log_folder"] / "server.pid",
-        proj_dir / cfg["log_folder"] / "pid",
-    ]
-
-    terminated = False
-    for pfile in pid_files:
-        if pfile.exists():
-            try:
-                pid = int(pfile.read_text(encoding="utf-8").strip())
-                if psutil.pid_exists(pid):
-                    terminated = _kill_process_tree(pid)
-                    _log.info("Terminated process tree for %s (PID %d) via PID file", name, pid)
-                pfile.unlink(missing_ok=True)
-            except (OSError, ValueError) as exc:
-                _log.warning("Error stopping %s via PID file %s: %s", name, pfile, exc)
-
-    # If still listening on port, terminate the process holding the port and all descendants
+    terminated = _stop_via_pid_files(proj_dir / cfg["log_folder"], name)
     if not terminated and is_port_in_use(port):
-        try:
-            connections = psutil.net_connections(kind="inet")
-        except psutil.AccessDenied as exc:
-            # macOS needs elevated rights to list other processes' sockets.
-            _log.warning("Cannot list sockets to find the process on port %d: %s", port, exc)
-            connections = []
-        for conn in connections:
-            if conn.laddr and conn.laddr.port == port and conn.pid:
-                terminated = _kill_process_tree(conn.pid)
-                if terminated:
-                    _log.info("Terminated process tree on port %d (PID %d)", port, conn.pid)
-                else:
-                    _log.warning("Could not terminate process holding port %d (PID %d)",
-                                 port, conn.pid)
+        terminated = _stop_port_holder(port)
 
     if terminated:
         return {

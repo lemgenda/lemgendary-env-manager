@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 
 @dataclass
@@ -118,21 +118,6 @@ PIP_PROGRESS_RULES: tuple[PipProgressRule, ...] = (
 )
 
 
-class Emit(Protocol):
-    """Emit one event for a step that is already bound (see ``StepEmitter``)."""
-
-    def __call__(
-        self,
-        status: str,
-        msg: str,
-        *,
-        data: dict[str, Any] | None = None,
-        is_progress: bool = False,
-    ) -> PipelineEvent:
-        """Build, publish and return the event."""
-        ...
-
-
 @dataclass(frozen=True)
 class EventPublisher:
     """Stamps events for one run and hands each one to the run's callback.
@@ -160,7 +145,7 @@ class EventPublisher:
 
 @dataclass(frozen=True)
 class StepEmitter:
-    """An ``Emit`` for one pipeline step."""
+    """Emit events for one pipeline step (built by ``EventPublisher.step``)."""
 
     publisher: EventPublisher
     number: int
@@ -187,3 +172,7 @@ class StepEmitter:
                 is_progress=is_progress,
             )
         )
+
+
+type Emit = StepEmitter
+"""What a step function receives to emit events for its own step."""

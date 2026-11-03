@@ -426,13 +426,7 @@ def remediation_for(missing_flags: dict[str, bool], current_os: str) -> tuple[li
 
 def verify_prerequisites() -> BootstrapStatus:
     """Verify all host toolchain prerequisites."""
-    major = sys.version_info.major
-    minor = sys.version_info.minor
-    patch = sys.version_info.micro
-    v_str = f"{major}.{minor}.{patch}"
     python_valid = sys.version_info[:2] >= MIN_PYTHON
-
-    pip_installed = shutil.which("pip") is not None
     venv_available = check_venv()
     git_installed, git_version = check_git()
     npm_installed, npm_version = check_npm()
@@ -452,9 +446,9 @@ def verify_prerequisites() -> BootstrapStatus:
 
     return BootstrapStatus(
         python_valid=python_valid,
-        python_version=v_str,
+        python_version=".".join(str(part) for part in sys.version_info[:3]),
         python_executable=sys.executable,
-        pip_installed=pip_installed,
+        pip_installed=shutil.which("pip") is not None,
         venv_available=venv_available,
         git_installed=git_installed,
         git_version=git_version,

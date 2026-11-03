@@ -154,6 +154,83 @@ def audit_manifest_synchronization(docs_dir: Path) -> list[FileValidationViolati
     return violations
 
 
+_SKIPPED_H2_TITLES = ("contents", "table of contents", "navigation matrix")
+
+
+def _content_h2_titles(raw_titles: list[str]) -> list[str]:
+    """Drop navigation headings (contents, category indexes) from a list of H2 titles."""
+    return [
+        x for x in raw_titles
+        if x.lower() not in _SKIPPED_H2_TITLES and not x.lower().startswith("category")
+    ]
+
+
+def _doc_violation(path: Path, kind: str, message: str) -> FileValidationViolation:
+    return FileValidationViolation(
+        file_path=str(path), line_number=1, violation_type=kind, message=message,
+    )
+
+
+def _paper_parity_violations(
+    doc_id: str, hp: Path, h_raw: str, m_raw: str,
+) -> list[FileValidationViolation]:
+    """Compare H2 count, table count and length ratio of one HTML/Markdown paper pair."""
+    violations: list[FileValidationViolation] = []
+    h2_h = _content_h2_titles([
+        re.sub(r"<[^>]+>", "", x).strip()
+        for x in re.findall(r"<h2[^>]*>(.*?)</h2>", h_raw, re.I)
+    ])
+    h2_m = _content_h2_titles([
+        re.sub(r"[*_`]", "", x).strip()
+        for x in re.findall(r"^##\s+(.+)$", m_raw, re.M)
+    ])
+    if len(h2_h) != len(h2_m):
+        violations.append(_doc_violation(
+            hp, "doc_heading_mismatch",
+            f"[{doc_id}] H2 count mismatch: HTML({len(h2_h)}) vs MD({len(h2_m)})",
+        ))
+
+    h_tables = len(re.findall(r"<table", h_raw, re.I))
+    m_tables = len(re.findall(r"\|(?:\s*:?-+:?\s*\|)+", m_raw))
+    if abs(h_tables - m_tables) > 1:
+        violations.append(_doc_violation(
+            hp, "doc_table_mismatch",
+            f"[{doc_id}] Table count difference exceeds threshold: "
+            f"HTML={h_tables} vs MD={m_tables}",
+        ))
+
+    ratio = len(m_raw) / len(h_raw) if len(h_raw) > 0 else 0
+    if not DOC_LENGTH_RATIO_MIN <= ratio <= DOC_LENGTH_RATIO_MAX:
+        violations.append(_doc_violation(
+            hp, "doc_ratio_anomaly",
+            f"[{doc_id}] Length ratio anomaly: ratio={ratio:.2f} "
+            f"(HTML={len(h_raw)}, MD={len(m_raw)})",
+        ))
+    return violations
+
+
+def _manifest_doc_violations(docs_dir: Path, doc: dict[str, Any]) -> list[FileValidationViolation]:
+    """Check that one manifest entry has both papers and that they stay in parity."""
+    doc_id = doc.get("id", "unknown")
+    hp = docs_dir / doc.get("html_path", "")
+    mp = docs_dir / doc.get("md_path", "")
+    if not hp.exists():
+        return [_doc_violation(
+            hp, "doc_html_missing",
+            f"Companion HTML publication missing for [{doc_id}]: {doc.get('html_path')}",
+        )]
+    if not mp.exists():
+        return [_doc_violation(
+            mp, "doc_md_missing", f"Markdown source missing for [{doc_id}]: {doc.get('md_path')}",
+        )]
+    return _paper_parity_violations(
+        doc_id,
+        hp,
+        hp.read_text(encoding="utf-8", errors="ignore"),
+        mp.read_text(encoding="utf-8", errors="ignore"),
+    )
+
+
 def audit_docs_synchronization(docs_dir: Path) -> list[FileValidationViolation]:
     """Check heading, table and length parity between each Markdown paper and its HTML twin."""
     violations: list[FileValidationViolation] = []
@@ -164,102 +241,8 @@ def audit_docs_synchronization(docs_dir: Path) -> list[FileValidationViolation]:
     try:
         with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
-
         for doc in manifest.get("documents", []):
-            doc_id = doc.get("id", "unknown")
-            hp = docs_dir / doc.get("html_path", "")
-            mp = docs_dir / doc.get("md_path", "")
-
-            if not hp.exists():
-                violations.append(
-                    FileValidationViolation(
-                        file_path=str(hp),
-                        line_number=1,
-                        violation_type="doc_html_missing",
-                        message=(
-                            f"Companion HTML publication missing for [{doc_id}]: "
-                            f"{doc.get('html_path')}"
-                        ),
-                    )
-                )
-                continue
-            if not mp.exists():
-                violations.append(
-                    FileValidationViolation(
-                        file_path=str(mp),
-                        line_number=1,
-                        violation_type="doc_md_missing",
-                        message=f"Markdown source missing for [{doc_id}]: {doc.get('md_path')}",
-                    )
-                )
-                continue
-
-            h_raw = hp.read_text(encoding="utf-8", errors="ignore")
-            m_raw = mp.read_text(encoding="utf-8", errors="ignore")
-
-            # 1. H2 count & parity
-            h2_h = [
-                re.sub(r"<[^>]+>", "", x).strip()
-                for x in re.findall(r"<h2[^>]*>(.*?)</h2>", h_raw, re.I)
-            ]
-            h2_h = [
-                x for x in h2_h
-                if x.lower() not in ("contents", "table of contents", "navigation matrix")
-                and not x.lower().startswith("category")
-            ]
-            h2_m = [
-                re.sub(r"[*_`]", "", x).strip()
-                for x in re.findall(r"^##\s+(.+)$", m_raw, re.M)
-            ]
-            h2_m = [
-                x for x in h2_m
-                if x.lower() not in ("contents", "table of contents", "navigation matrix")
-                and not x.lower().startswith("category")
-            ]
-
-            if len(h2_h) != len(h2_m):
-                violations.append(
-                    FileValidationViolation(
-                        file_path=str(hp),
-                        line_number=1,
-                        violation_type="doc_heading_mismatch",
-                        message=(
-                            f"[{doc_id}] H2 count mismatch: "
-                            f"HTML({len(h2_h)}) vs MD({len(h2_m)})"
-                        ),
-                    )
-                )
-
-            # 2. Table count parity
-            h_tables = len(re.findall(r"<table", h_raw, re.I))
-            m_tables = len(re.findall(r"\|(?:\s*:?-+:?\s*\|)+", m_raw))
-            if abs(h_tables - m_tables) > 1:
-                violations.append(
-                    FileValidationViolation(
-                        file_path=str(hp),
-                        line_number=1,
-                        violation_type="doc_table_mismatch",
-                        message=(
-                            f"[{doc_id}] Table count difference exceeds threshold: "
-                            f"HTML={h_tables} vs MD={m_tables}"
-                        ),
-                    )
-                )
-
-            # 3. Length ratio bounds
-            ratio = len(m_raw) / len(h_raw) if len(h_raw) > 0 else 0
-            if not DOC_LENGTH_RATIO_MIN <= ratio <= DOC_LENGTH_RATIO_MAX:
-                violations.append(
-                    FileValidationViolation(
-                        file_path=str(hp),
-                        line_number=1,
-                        violation_type="doc_ratio_anomaly",
-                        message=(
-                            f"[{doc_id}] Length ratio anomaly: ratio={ratio:.2f} "
-                            f"(HTML={len(h_raw)}, MD={len(m_raw)})"
-                        ),
-                    )
-                )
+            violations.extend(_manifest_doc_violations(docs_dir, doc))
     except MANIFEST_READ_ERRORS as exc:
         violations.append(
             FileValidationViolation(

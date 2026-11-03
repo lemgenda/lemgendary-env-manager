@@ -288,6 +288,33 @@ def sync_manifest_to_project(
         return False, f"Failed to synchronize manifest: {exc}"
 
 
+def _sync_npm_manifest(proj_name: str, manifest: Path, proj_dir: Path) -> tuple[bool, str]:
+    """Copy a centralized package.json manifest into a project unless the project drifted."""
+    target_pkg = proj_dir / "package.json"
+    if target_pkg.exists():
+        try:
+            drift = find_package_json_drift(
+                json.loads(manifest.read_text(encoding="utf-8")),
+                json.loads(target_pkg.read_text(encoding="utf-8")),
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            return False, f"Cannot compare {manifest.name} with {target_pkg}: {exc}"
+        if drift:
+            message = _drift_message(target_pkg, drift)
+            _log.warning(message)
+            return False, message
+    try:
+        # Avoid touching package.json if content is already identical
+        manifest_text = manifest.read_text(encoding="utf-8")
+        current = target_pkg.read_text(encoding="utf-8") if target_pkg.exists() else None
+        if current != manifest_text:
+            shutil.copy2(manifest, target_pkg)
+    except OSError as exc:
+        _log.error("Failed to synchronize %s to %s: %s", manifest, target_pkg, exc)
+        return False, f"Failed to synchronize {proj_name} npm manifest: {exc}"
+    return True, f"Synchronized {manifest.name} to {target_pkg}."
+
+
 def sync_all_manifests(base_dir: Path | None = None) -> dict[str, tuple[bool, str]]:
     """Synchronize all centralized manifests to their respective sibling projects."""
     if base_dir is None:
@@ -320,36 +347,6 @@ def sync_all_manifests(base_dir: Path | None = None) -> dict[str, tuple[bool, st
     for proj_name, manifest in npm_mappings.items():
         proj_dir = base_dir / proj_name
         if manifest.exists() and proj_dir.exists() and proj_dir.is_dir():
-            target_pkg = proj_dir / "package.json"
-            if target_pkg.exists():
-                try:
-                    drift = find_package_json_drift(
-                        json.loads(manifest.read_text(encoding="utf-8")),
-                        json.loads(target_pkg.read_text(encoding="utf-8")),
-                    )
-                except (OSError, json.JSONDecodeError) as exc:
-                    results[f"{proj_name} (npm)"] = (
-                        False, f"Cannot compare {manifest.name} with {target_pkg}: {exc}",
-                    )
-                    continue
-                if drift:
-                    message = _drift_message(target_pkg, drift)
-                    _log.warning(message)
-                    results[f"{proj_name} (npm)"] = (False, message)
-                    continue
-            try:
-                # Avoid touching package.json if content is already identical
-                manifest_text = manifest.read_text(encoding="utf-8")
-                current = target_pkg.read_text(encoding="utf-8") if target_pkg.exists() else None
-                if current != manifest_text:
-                    shutil.copy2(manifest, target_pkg)
-                results[f"{proj_name} (npm)"] = (
-                    True, f"Synchronized {manifest.name} to {target_pkg}."
-                )
-            except OSError as exc:
-                _log.error("Failed to synchronize %s to %s: %s", manifest, target_pkg, exc)
-                results[f"{proj_name} (npm)"] = (
-                    False, f"Failed to synchronize {proj_name} npm manifest: {exc}"
-                )
+            results[f"{proj_name} (npm)"] = _sync_npm_manifest(proj_name, manifest, proj_dir)
 
     return results

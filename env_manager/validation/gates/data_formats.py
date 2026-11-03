@@ -1,12 +1,11 @@
 """YAML and JSON lint gates."""
 
 import json
-import re
 import subprocess
 from pathlib import Path
 
 from env_manager.validation.models import FileValidationViolation, tool_failure, unexplained_exit
-from env_manager.validation.tooling import get_env_manager_python, run_tool
+from env_manager.validation.tooling import get_env_manager_python, regex_violations, run_tool
 from env_manager.workspace import ENV_MANAGER_DIR
 
 
@@ -56,19 +55,12 @@ def run_yamllint(project_dir: Path) -> list[FileValidationViolation]:
 
     try:
         proc = run_tool(cmd, timeout=120, use_pip_env=True)
-        if proc.stdout.strip():
-            for line in proc.stdout.strip().splitlines():
-                # yamllint parsable format: path:line:col: [level] message (rule)
-                m = re.match(r"^(.+?):(\d+):\d+: \[(\w+)\] (.+)$", line.strip())
-                if m:
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=m.group(1),
-                            line_number=int(m.group(2)),
-                            violation_type=f"yaml_{m.group(3)}",
-                            message=m.group(4),
-                        )
-                    )
+        # yamllint parsable format: path:line:col: [level] message (rule)
+        violations.extend(regex_violations(
+            proc.stdout,
+            r"^(?P<path>.+?):(?P<line>\d+):\d+: \[(?P<rule>\w+)\] (?P<msg>.+)$",
+            "yaml_",
+        ))
         # yamllint exits 1 when it finds problems and 2 on a config or tool
         # error; "No module named yamllint" also exits 1 with nothing parsed.
         if proc.returncode not in (0, 1):
