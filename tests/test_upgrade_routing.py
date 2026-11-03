@@ -173,7 +173,7 @@ class TestUpdateCommandScope(unittest.TestCase):
         plan = self._plan("lemgendary-datasets")
         with patch("env_manager.cli.build_upgrade_plan", return_value=plan) as build, \
                 patch("env_manager.cli.apply_upgrade_plan", return_value=iter([])) as apply_, \
-                patch("env_manager.cli.validate_project",
+                patch("env_manager.upgrade.verify.validate_project",
                       return_value=MagicMock(passed=True)):
             result = self.runner.invoke(app, ["update", "--project", "lemgendary-datasets"])
 

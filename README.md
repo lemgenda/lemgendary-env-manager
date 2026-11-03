@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.40-STABLE)
+# LemGendary Environment Manager (v16.9.41-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.41 - CLI Split into Views and Services
+
+- `env_manager/cli.py` (632 lines, 292 now) keeps only argument parsing and the order of output. The Rich tables move to the new `env_manager/cli_views/` package: `probe.py` (hardware table, software-update table and status, prerequisites), `audit.py` (toolchain, project, manifest-coverage and npm tables, `print_audit_report`), `update.py` (plan table, event line, post-upgrade validation lines) and `validate.py` (summary table and rows, violation listing).
+- The `update` command's logic moves to the new service module `env_manager/upgrade/verify.py`: `UpgradeTally` counts the apply events and builds the summary, and `validate_upgraded_projects` re-validates the upgraded projects before the manifest sync. Status colours are lookup tables (`INSTALL_STATUS_COLORS`, `STATUS_COLORS`) instead of `if` chains.
+- `probe`, `audit`, `update` and `validate` are now within the default branch, statement and local-variable limits. Output and exit codes are unchanged. The `update` test patches `validate_project` in `env_manager.upgrade.verify`.
 
 ### v16.9.40 - Updater Split
 

@@ -1,44 +1,37 @@
 """Typer command-line interface for the LemGendary Environment Manager (``lem-env``)."""
 
 import sys
-from pathlib import Path
 
 import typer
 import uvicorn
 from rich.console import Console
-from rich.table import Table
 
 from env_manager._logging import get_logger
 from env_manager.bootstrap import verify_prerequisites
-from env_manager.health_checker import (
-    render_drift_matrix,
-    render_manifest_coverage_table,
-    render_npm_drift_matrix,
-    render_single_manifest_table,
-    run_full_health_audit,
+from env_manager.cli_views.audit import print_audit_report
+from env_manager.cli_views.probe import (
+    hardware_table,
+    print_prerequisites,
+    print_software_updates,
 )
+from env_manager.cli_views.update import event_line, plan_table, validation_lines
+from env_manager.cli_views.validate import print_violations, summary_row, summary_table
+from env_manager.health_checker import run_full_health_audit
 from env_manager.hooks import install_git_hooks
 from env_manager.orchestrator import PipelineOrchestrator
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
-from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
+from env_manager.updater import apply_upgrade_plan, build_upgrade_plan
+from env_manager.upgrade.verify import UpgradeTally, validate_upgraded_projects
 from env_manager.utils import purge_workspace_caches
-from env_manager.validator import (
-    VALIDATION_TARGETS,
-    ProjectValidationReport,
-    validate_project,
-    validate_workspace,
-)
+from env_manager.validator import VALIDATION_TARGETS, validate_workspace
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
-PLAN_PREVIEW_SIZE = 3
-"""Safe packages listed per project in the upgrade-plan table."""
-
-VIOLATIONS_SHOWN_PER_KIND = 5
-"""Violations of each kind printed for a project that fails validation."""
+INSTALL_STATUS_COLORS = {"success": "green", "error": "red", "warning": "yellow"}
+"""Console colour per install pipeline event status; any other status is cyan."""
 
 
 def _configure_windows_console() -> None:
@@ -75,95 +68,10 @@ def probe():
     console.print("[bold cyan]Probing system hardware and accelerators...[/bold cyan]")
     hw = probe_hardware()
     boot = verify_prerequisites()
-
-    hw_table = Table(title="System Hardware & Accelerator Profile", header_style="bold magenta")
-    hw_table.add_column("Property", style="cyan")
-    hw_table.add_column("Value", style="green")
-
-    hw_table.add_row("Operating System", f"{hw.os_name} ({hw.os_release}, {hw.architecture})")
-    hw_table.add_row("Python Version", hw.python_version)
-    hw_table.add_row("Python Executable", hw.python_executable)
-    hw_table.add_row(
-        "Logical / Physical Cores", f"{hw.cpu_count_logical} / {hw.cpu_count_physical}"
-    )
-    hw_table.add_row("Total RAM (MB)", f"{hw.total_ram_mb:,}")
-    hw_table.add_row("Primary Backend", hw.primary_backend.upper())
-    hw_table.add_row("Recommended Torch Index", hw.recommended_torch_index)
-
-    if hw.accelerators:
-        for acc in hw.accelerators:
-            details = (
-                f"Index: {acc.index}, VRAM: {acc.total_memory_mb} MB, "
-                f"Backend: {acc.backend.upper()}"
-            )
-            if acc.driver_version:
-                details += f", Driver: {acc.driver_version}"
-            hw_table.add_row(f"Accelerator: {acc.name}", details)
-    else:
-        hw_table.add_row("Accelerators", "None detected (Using CPU backend)")
-
-    if hw.metatrader5 is not None:
-        mt5 = hw.metatrader5
-        if mt5.installed:
-            mt5_str = "[green]INSTALLED[/green]"
-            if mt5.version:
-                mt5_str += f" (v{mt5.version})"
-            if mt5.install_path:
-                mt5_str += f" — {mt5.install_path}"
-        else:
-            mt5_str = "[red]NOT FOUND[/red]"
-        hw_table.add_row("MetaTrader 5", mt5_str)
-
-    console.print(hw_table)
-
-    # ── Software Update Availability ─────────────────────────────────────────
-    # Versions come from `winget list` (installed) and `winget show`
-    # (available in source). For MT5, if winget doesn't track the install,
-    # the version is read from terminal64.exe's file metadata instead, and
-    # the status reflects that winget has no source data.
+    console.print(hardware_table(hw))
     if boot.software_updates:
-        update_table = Table(title="Software Update Availability", header_style="bold magenta")
-        update_table.add_column("Software", style="cyan")
-        update_table.add_column("Current", style="white")
-        update_table.add_column("Latest", style="white")
-        update_table.add_column("Status", style="bold")
-
-        for upd in boot.software_updates:
-            if upd.update_available:
-                status_str = "[yellow]UPDATE AVAILABLE[/yellow]"
-            elif upd.current_version and upd.latest_version:
-                status_str = "[green]UP TO DATE[/green]"
-            elif upd.current_version and not upd.latest_version:
-                # Installed, but the source doesn't have a version to compare.
-                status_str = "[dim]INSTALLED (not in winget)[/dim]"
-            elif not upd.current_version and upd.latest_version:
-                status_str = "[dim]NOT INSTALLED[/dim]"
-            else:
-                status_str = "[dim]NOT TRACKED[/dim]"
-
-            current_display = upd.current_version or "[dim]—[/dim]"
-            latest_display = upd.latest_version or "[dim]—[/dim]"
-
-            update_table.add_row(
-                upd.name,
-                current_display,
-                latest_display,
-                status_str,
-            )
-            if upd.update_available and upd.install_command:
-                console.print(f"  [yellow]Run to update:[/yellow] {upd.install_command}")
-
-        console.print(update_table)
-
-    if boot.missing_prerequisites:
-        console.print("\n[bold red]Missing Prerequisites:[/bold red]")
-        for prereq in boot.missing_prerequisites:
-            console.print(f"  [red]• {prereq}[/red]")
-        console.print("\n[bold yellow]Remediation:[/bold yellow]")
-        for instruction in boot.remediation_instructions:
-            console.print(f"  [yellow]→ {instruction}[/yellow]")
-    else:
-        console.print("[bold green]All software prerequisites satisfied.[/bold green]")
+        print_software_updates(console, boot.software_updates)
+    print_prerequisites(console, boot)
 
 
 @app.command()
@@ -180,119 +88,7 @@ def audit(
         console.print("[dim]Fast mode: skipping safety classification dry-runs.[/dim]")
 
     report = run_full_health_audit(include_safety=not fast)
-
-    boot_table = Table(title="Prerequisites & Toolchain", header_style="bold magenta")
-    boot_table.add_column("Tool", style="cyan")
-    boot_table.add_column("Status", style="green")
-    boot_table.add_column("Details", style="white")
-
-    boot_table.add_row(
-        "Python",
-        "[green][OK][/green]" if report.bootstrap.python_valid else "[red][FAIL][/red]",
-        report.bootstrap.python_version,
-    )
-    boot_table.add_row(
-        "Git",
-        "[green][OK][/green]" if report.bootstrap.git_installed else "[red][FAIL][/red]",
-        report.bootstrap.git_version or "Not found",
-    )
-    boot_table.add_row(
-        "NPM",
-        "[green][OK][/green]" if report.bootstrap.npm_installed else "[red][FAIL][/red]",
-        report.bootstrap.npm_version or "Not found",
-    )
-    boot_table.add_row(
-        "MetaTrader 5",
-        "[green][OK][/green]" if report.bootstrap.mt5_installed else "[yellow][MISSING][/yellow]",
-        (report.bootstrap.mt5_version or report.bootstrap.mt5_path or "Not found"),
-    )
-    console.print(boot_table)
-
-    proj_table = Table(title="Python Project Environments Status", header_style="bold magenta")
-    proj_table.add_column("Project", style="cyan")
-    proj_table.add_column("Venv Exists", style="yellow")
-    proj_table.add_column("Installed Pkgs", style="green")
-    proj_table.add_column("Missing Pkgs", style="red")
-    proj_table.add_column("Healthy", style="bold")
-
-    for p in report.projects:
-        proj_table.add_row(
-            p.name,
-            "[YES]" if p.venv_exists else "[NO]",
-            str(p.total_installed),
-            str(len(p.missing_packages)),
-            "[green][OK][/green]" if p.is_healthy else "[red][WARN][/red]",
-        )
-    console.print(proj_table)
-
-    coverage_table = render_manifest_coverage_table(report.manifest_coverage)
-    if coverage_table is not None:
-        console.print(coverage_table)
-        for entry in report.manifest_coverage:
-            if entry.missing:
-                console.print(
-                    f"[red]{entry.project_name} missing:[/red] "
-                    f"{', '.join(entry.missing)}"
-                )
-            if entry.platform_skipped:
-                console.print(
-                    f"[dim]{entry.project_name} platform-skipped:[/dim] "
-                    f"{', '.join(entry.platform_skipped)}"
-                )
-
-    if report.version_drift:
-        drift_table = render_drift_matrix(report.version_drift)
-        if drift_table is not None:
-            console.print(drift_table)
-
-    if report.single_manifest_packages:
-        single_table = render_single_manifest_table(report.single_manifest_packages)
-        if single_table is not None:
-            console.print(single_table)
-
-    if report.npm_packages:
-        npm_table = Table(title="Node.js & NPM Workspace Status", header_style="bold magenta")
-        npm_table.add_column("Project", style="cyan")
-        npm_table.add_column("package.json", style="yellow")
-        npm_table.add_column("node_modules", style="green")
-        npm_table.add_column("Dependencies", style="white")
-
-        for npm in report.npm_packages:
-            dep_count = len(npm.dependencies) + len(npm.dev_dependencies)
-            npm_table.add_row(
-                npm.location,
-                "[YES]",
-                "[green][OK][/green]" if npm.node_modules_present else "[red][MISSING][/red]",
-                str(dep_count),
-            )
-        console.print(npm_table)
-
-        npm_detail_table = Table(title="NPM Package Dependency Matrix", header_style="bold magenta")
-        npm_detail_table.add_column("Project", style="cyan")
-        npm_detail_table.add_column("Package", style="white")
-        npm_detail_table.add_column("Type", style="yellow")
-        npm_detail_table.add_column("Declared Version", style="white")
-        npm_detail_table.add_column("Installed Version", style="white")
-        npm_detail_table.add_column("Status", style="bold")
-
-        for npm in report.npm_packages:
-            for pkg in getattr(npm, "detailed_packages", []):
-                status_str = "[green][OK][/green]" if pkg.is_installed else "[red][MISSING][/red]"
-                type_str = "dev" if pkg.is_dev else "prod"
-                npm_detail_table.add_row(
-                    npm.location,
-                    pkg.name,
-                    type_str,
-                    pkg.declared_version,
-                    pkg.installed_version or "[dim]None[/dim]",
-                    status_str,
-                )
-        console.print(npm_detail_table)
-
-    if report.npm_drift:
-        npm_drift_table = render_npm_drift_matrix(report.npm_drift)
-        if npm_drift_table is not None:
-            console.print(npm_drift_table)
+    print_audit_report(console, report)
 
 
 @app.command()
@@ -316,14 +112,7 @@ def install(
     orchestrator = PipelineOrchestrator()
 
     for event in orchestrator.run_clean_install_pipeline(target_project=project, clean=clean):
-        color = "cyan"
-        if event.status == "success":
-            color = "green"
-        elif event.status == "error":
-            color = "red"
-        elif event.status == "warning":
-            color = "yellow"
-
+        color = INSTALL_STATUS_COLORS.get(event.status, "cyan")
         console.print(
             f"[{color}][Step {event.step_number}/{event.total_steps}] "
             f"{event.step_name}: {event.message}[/{color}]"
@@ -349,151 +138,56 @@ def update(
         console.print(f"[bold red]{exc}[/bold red]")
         raise typer.Exit(code=1) from exc
 
+
     if not plan.has_any_updates:
         console.print("[bold green]All packages are up to date across all projects.[/bold green]")
         return
 
-    plan_table = Table(
-        title=f"Upgrade Plan ({plan.total_outdated} packages outdated, "
-              f"{plan.total_safe} safe, {plan.total_blocked} blocked)",
-        header_style="bold magenta",
-    )
-    plan_table.add_column("Project", style="cyan")
-    plan_table.add_column("Type", style="white")
-    plan_table.add_column("Safe", style="green", justify="right")
-    plan_table.add_column("Blocked", style="red", justify="right")
-    plan_table.add_column("Packages (safe only)", style="white")
-
-    for proj_plan in plan.projects:
-        safe_count = len(proj_plan.safe_packages)
-        blocked_count = len(proj_plan.blocked_packages)
-
-        preview = ", ".join(
-            f"{p.name} ({p.current_version}->{p.latest_version})"
-            for p in proj_plan.safe_packages[:PLAN_PREVIEW_SIZE]
-        )
-        if safe_count > PLAN_PREVIEW_SIZE:
-            preview += f" ... (+{safe_count - PLAN_PREVIEW_SIZE} more)"
-        if not preview:
-            preview = "[dim](none)[/dim]"
-
-        plan_table.add_row(
-            proj_plan.name,
-            "npm" if proj_plan.is_node_project else "pip",
-            str(safe_count),
-            str(blocked_count),
-            preview,
-        )
-    console.print(plan_table)
-
+    console.print(plan_table(plan))
     if dry_run:
         console.print("[bold yellow]Dry run — no packages were upgraded.[/bold yellow]")
         return
 
     console.print("[bold green]Applying upgrades bottom-up...[/bold green]")
-    success_count = 0
-    fail_count = 0
-    blocked_count = 0
-
+    tally = UpgradeTally()
     for event in apply_upgrade_plan(plan, base_dir):
-        if event.status == "upgraded":
-            color = "green"
-            success_count += 1
-        elif event.status == "failed":
-            color = "red"
-            fail_count += 1
-        elif event.status == "blocked":
-            color = "yellow"
-            blocked_count += 1
-        elif event.status == "verified":
-            color = "blue"
-        else:
-            color = "yellow"
+        tally.record(event)
+        console.print(event_line(event))
 
-        pkg_info = f"{event.package}"
-        if event.old_version and event.new_version:
-            pkg_info += f" ({event.old_version} -> {event.new_version})"
-
-        msg = event.message
-        if event.status == "blocked" and msg:
-            console.print(f"[{color}][BLOCKED] {event.project}: {pkg_info} — {msg}[/{color}]")
-        else:
-            console.print(
-                f"[{color}][{event.status.upper()}] {event.project}: {pkg_info}[/{color}]"
-            )
-
-    summary = f"{success_count} upgraded"
-    if blocked_count:
-        summary += f", {blocked_count} blocked"
-    if fail_count:
-        summary += f", {fail_count} failed"
-
-    if fail_count == 0:
-        console.print(f"[bold green]Upgrade complete. {summary}.[/bold green]")
-    else:
-        console.print(f"[bold yellow]{summary}. Check output above.[/bold yellow]")
+    if tally.failed:
+        console.print(f"[bold yellow]{tally.summary()}. Check output above.[/bold yellow]")
         raise typer.Exit(code=1)
+    console.print(f"[bold green]Upgrade complete. {tally.summary()}.[/bold green]")
 
     console.print("[bold cyan]Running post-upgrade validation on modified projects...[/bold cyan]")
-    all_valid = True
-    projects = discover_projects(base_dir)
-    for p in projects:
-        if project and p.name != project:
-            continue
-        p_dir = Path(p.project_dir)
-        report = validate_project(p_dir, is_node_project=getattr(p, "is_node_project", False))
-        tag = "[bold green][PASS][/bold green]" if report.passed else "[bold red][FAIL][/bold red]"
-        console.print(f"{tag} {p.name}: compiled={report.compiled_files_count}, "
-                      f"lint={len(report.lint_errors)}, yaml={len(report.yaml_errors)}")
-        if not report.passed:
-            all_valid = False
-            for err in report.compile_errors[:3]:
-                console.print(f"  [red]{err.file_path}:{err.line_number}: {err.message}[/red]")
+    reports = validate_upgraded_projects(base_dir, project)
+    for name, report in reports:
+        for line in validation_lines(name, report):
+            console.print(line)
 
-    if all_valid:
-        console.print(
-            "[bold green]All projects passed validation. Syncing manifests...[/bold green]"
-        )
-        sync_results = sync_all_manifests(base_dir)
-        for name, (ok, msg) in sync_results.items():
-            tag = "[green][OK][/green]" if ok else "[red][FAIL][/red]"
-            console.print(f"{tag} {name}: {msg}")
-        console.print("[bold green]Manifests synced successfully.[/bold green]")
-    else:
+    if not all(report.passed for _, report in reports):
         console.print(
             "[bold red]Manifest sync SKIPPED — validation failures detected above. "
             "Fix errors and re-run.[/bold red]"
         )
         raise typer.Exit(code=1)
+    console.print("[bold green]All projects passed validation. Syncing manifests...[/bold green]")
+    _print_sync_results(sync_all_manifests(base_dir))
+    console.print("[bold green]Manifests synced successfully.[/bold green]")
+
+
+def _print_sync_results(results: dict[str, tuple[bool, str]]) -> None:
+    """Print one OK/FAIL line per synchronized manifest."""
+    for name, (ok, msg) in results.items():
+        tag = "[green][OK][/green]" if ok else "[red][FAIL][/red]"
+        console.print(f"{tag} {name}: {msg}")
 
 
 @app.command()
 def sync():
     """Synchronize centralized manifests to all sibling projects (one-way copy)."""
     console.print("[bold cyan]Synchronizing requirements manifests...[/bold cyan]")
-    results = sync_all_manifests()
-    for name, (ok, msg) in results.items():
-        tag = "[green][OK][/green]" if ok else "[red][FAIL][/red]"
-        console.print(f"{tag} {name}: {msg}")
-
-
-def _count_cell(violations: list, noun: str = "issues") -> str:
-    """Summary-table cell: green OK, or the violation count in red."""
-    return "[green]OK[/green]" if not violations else f"[red]{len(violations)} {noun}[/red]"
-
-
-def _print_violations(rep: ProjectValidationReport) -> None:
-    """Print the first few violations of each kind in a failed report."""
-    sections = (
-        ("SyntaxError", rep.compile_errors), ("Emoji", rep.emoji_violations),
-        ("Lint", rep.lint_errors), ("YAML", rep.yaml_errors), ("JSON", rep.json_errors),
-        ("HTML", rep.html_errors), ("WCAG", rep.wcag_violations), ("Domain", rep.domain_errors),
-    )
-    for label, violations in sections:
-        for err in violations[:VIOLATIONS_SHOWN_PER_KIND]:
-            console.print(
-                f"  [red]{label} ({err.file_path}:{err.line_number}): {err.message}[/red]"
-            )
+    _print_sync_results(sync_all_manifests())
 
 
 @app.command()
@@ -511,53 +205,19 @@ def validate(
     else:
         console.print("[bold cyan]Validating all projects (full compliance suite)...[/bold cyan]")
     base_dir = workspace_root()
-
     node_projects = {name for name, is_node in VALIDATION_TARGETS if is_node}
 
-    all_passed = True
-    summary_table = Table(title="Validation Summary", header_style="bold magenta")
-    summary_table.add_column("Project", style="cyan")
-    summary_table.add_column("Python", style="white")
-    summary_table.add_column("Lint", style="white")
-    summary_table.add_column("YAML", style="white")
-    summary_table.add_column("JSON", style="white")
-    summary_table.add_column("HTML/WCAG", style="white")
-    summary_table.add_column("Domain", style="white")
-    summary_table.add_column("Status", style="bold")
-
-    for proj_name, rep in validate_workspace(base_dir, project).items():
-        is_node = proj_name in node_projects
-
-        py_status = _count_cell(rep.compile_errors, "errors")
-        emoji_issue = f" +{len(rep.emoji_violations)} emoji" if rep.emoji_violations else ""
-        lint_status = _count_cell(rep.lint_errors)
-        yaml_status = _count_cell(rep.yaml_errors)
-        json_status = _count_cell(rep.json_errors)
-        html_status = (
-            "[green]OK[/green]"
-            if not rep.html_errors and not rep.wcag_violations
-            else f"[red]{len(rep.html_errors)}W3C {len(rep.wcag_violations)}WCAG[/red]"
-        )
-        domain_status = _count_cell(rep.domain_errors)
-        if is_node:
-            py_status = "[dim]N/A[/dim]"
-        overall = "[green][PASS][/green]" if rep.passed else "[red][FAIL][/red]"
-
-        summary_table.add_row(
-            proj_name, py_status + emoji_issue, lint_status, yaml_status,
-            json_status, html_status, domain_status, overall,
-        )
-
+    table = summary_table()
+    reports = validate_workspace(base_dir, project)
+    for proj_name, rep in reports.items():
+        table.add_row(*summary_row(proj_name, rep, proj_name in node_projects))
         if not rep.passed:
-            all_passed = False
-            _print_violations(rep)
+            print_violations(console, rep)
+    console.print(table)
 
-    console.print(summary_table)
-
-    if all_passed:
-        console.print("[bold green]All projects passed full compliance validation.[/bold green]")
-    else:
+    if not all(rep.passed for rep in reports.values()):
         raise typer.Exit(code=1)
+    console.print("[bold green]All projects passed full compliance validation.[/bold green]")
 
 
 @app.command("clean")
