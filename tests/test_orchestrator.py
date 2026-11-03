@@ -192,6 +192,7 @@ class TestPipelineDestructiveOptIn(unittest.TestCase):
         return events
 
     def test_default_run_is_non_destructive(self) -> None:
+        """The default run keeps venvs and node_modules."""
         events = self._run_through_step_3()
         self.mock_create_venv.assert_not_called()
         self.mock_rmtree.assert_not_called()
@@ -200,16 +201,19 @@ class TestPipelineDestructiveOptIn(unittest.TestCase):
         self.assertIn("Existing node_modules verified for node-project.", messages)
 
     def test_explicit_false_is_non_destructive(self) -> None:
+        """``clean=False`` keeps venvs and node_modules."""
         self._run_through_step_3(clean=False)
         self.mock_create_venv.assert_not_called()
         self.mock_rmtree.assert_not_called()
 
     def test_explicit_true_runs_destructive_path(self) -> None:
+        """``clean=True`` recreates the venv and deletes node_modules."""
         self._run_through_step_3(clean=True)
         self.mock_create_venv.assert_called_once_with(self.py_dir)
         self.mock_rmtree.assert_called_once_with(self.node_dir / "node_modules")
 
     def test_purge_failure_is_reported(self) -> None:
+        """A node_modules purge failure becomes one error event."""
         self.mock_rmtree.side_effect = PermissionError("locked")
         events = self._run_through_step_3(clean=True)
         errors = [e.message for e in events if e.status == "error"]

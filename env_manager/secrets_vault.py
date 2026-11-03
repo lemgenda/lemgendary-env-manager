@@ -268,6 +268,7 @@ class _Propagator:
         self.report.skipped.append(PropagationIssue(path=label, reason=reason))
 
     def run(self, kaggle_records: list[dict[str, Any]]) -> PropagationReport:
+        """Write the default Kaggle credential to every legacy file and return the report."""
         usable = [r for r in kaggle_records if str(r.get("secret_value") or "").strip()]
         if not usable:
             return self.report
@@ -325,9 +326,11 @@ class SecretsVault:
 
     @property
     def secrets_file(self) -> Path:
+        """Path of the vault file in the workspace root."""
         return self.workspace_root / SECRETS_FILE_NAME
 
     def is_initialized(self) -> bool:
+        """True once the vault file exists."""
         return self.secrets_file.exists()
 
     def load_records(self) -> list[dict[str, Any]]:
@@ -343,6 +346,7 @@ class SecretsVault:
         return [r for r in records if isinstance(r, dict)]
 
     def list_masked(self) -> list[MaskedSecretItem]:
+        """Return every stored secret with its value masked."""
         return [mask_record(r) for r in self.load_records()]
 
     def _merge(self, items: list[SecretItem]) -> list[dict[str, Any]]:

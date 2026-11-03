@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.24-STABLE)
+# LemGendary Environment Manager (v16.9.25-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,11 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.25 - Docstrings Required
+
+- `missing-docstring` is removed from the `.pylintrc` disable list. The 195 public functions, methods and classes that lacked one (62 in `env_manager/`, 133 in `tests/`) now have a one-line docstring saying what they return or check. `.pylintrc` now disables only the eight `too-many-*` size checks, which go with the module splits in step L8; pylint reports nothing else except the existing `duplicate-code` notes.
+- `tests/test_downgrade_guard.py::TestRealCentralManifestsHaveNoDrift` is removed: it read the real sibling repositories, so its result depended on their state. The same drift check runs on every `lem-env sync`, which refuses to write a manifest that would downgrade a sibling.
 
 ### v16.9.24 - Line Length Enforced
 

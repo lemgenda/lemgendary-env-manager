@@ -83,6 +83,7 @@ class HardwareProfile:
     metatrader5: Optional[MetaTrader5Info] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 

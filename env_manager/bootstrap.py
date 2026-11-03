@@ -67,6 +67,7 @@ class BootstrapStatus:
     software_updates: List[SoftwareUpdateInfo]
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 

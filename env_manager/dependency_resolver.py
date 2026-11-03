@@ -31,6 +31,7 @@ class OutdatedPackage:
     package_type: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -43,6 +44,7 @@ class DependencyResolutionPlan:
     has_updates: bool
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -131,6 +133,7 @@ def venv_package_count(project_dir: Path) -> int:
 
 
 def venv_has_real_packages(project_dir: Path) -> bool:
+    """True when the venv has at least one non-bootstrap package."""
     return venv_package_count(project_dir) > 0
 
 
@@ -598,6 +601,7 @@ def classify_safe_upgrades(
 # ─── Legacy helpers ─────────────────────────────────────────────────────────
 
 def create_safe_upgrade_plan(project_dir: Path) -> DependencyResolutionPlan:
+    """Plan upgrades for the outdated packages that are safe to install."""
     raw = find_outdated_packages(project_dir)
     safe, _ = classify_safe_upgrades(project_dir, raw)
     return DependencyResolutionPlan(
@@ -609,6 +613,7 @@ def create_safe_upgrade_plan(project_dir: Path) -> DependencyResolutionPlan:
 
 
 def apply_safe_upgrades(project_dir: Path, packages: list[str]) -> tuple[bool, str]:
+    """Upgrade ``packages`` in the project venv; return (ok, pip output)."""
     if not is_venv_valid(project_dir) or not packages:
         return True, "No packages to upgrade or environment invalid."
     python_path = get_venv_python_path(project_dir)

@@ -95,6 +95,7 @@ class ProjectUpgradePlan:
     cuda_index_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a dict, pairing each blocked package with its reason."""
         d = asdict(self)
         d["blocked_packages"] = [
             {"package": asdict(pkg), "reason": reason}
@@ -116,6 +117,7 @@ class EcosystemUpgradePlan:
     cuda_index_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -130,6 +132,7 @@ class UpgradeEvent:
     message: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 

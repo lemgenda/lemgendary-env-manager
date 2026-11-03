@@ -99,18 +99,22 @@ _log = logging.getLogger("env_manager.server")
 # ─── WebSocket connection manager ──────────────────────────────────────────
 
 class ConnectionManager:
+    """Tracks open ``/ws/log`` WebSocket clients and broadcasts events to them."""
     def __init__(self):
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
+        """Accept the WebSocket and start broadcasting to it."""
         await websocket.accept()
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
+        """Stop broadcasting to a closed WebSocket."""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: Dict[str, Any]):
+        """Send ``message`` to every client; drop clients whose socket is gone."""
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
@@ -137,6 +141,7 @@ async def _drain_event_queue():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Start the event drainer and the sidecar services; cancel the drainer on shutdown."""
     drain_task = asyncio.create_task(_drain_event_queue())
     # Automatically ensure tripartite sidecars are started on startup
     loop = asyncio.get_running_loop()
@@ -170,6 +175,7 @@ app.add_middleware(origin_guard_middleware)
 
 
 class RunPipelineRequest(BaseModel):
+    """Body of ``POST /api/pipeline/run``."""
     target_project: Optional[str] = None
     # Destructive opt-in: deletes every venv and node_modules and stops
     # processes running from those venvs. Omitted means a safe run.
@@ -177,6 +183,7 @@ class RunPipelineRequest(BaseModel):
 
 
 class RunStepRequest(BaseModel):
+    """Body of ``POST /api/pipeline/run-step``."""
     step_number: int
     target_project: Optional[str] = None
     clean: bool = False
@@ -184,14 +191,17 @@ class RunStepRequest(BaseModel):
 
 
 class CleanRequest(BaseModel):
+    """Body of ``POST /api/clean``; no project means every project."""
     project: Optional[str] = None
 
 
 class ValidateRequest(BaseModel):
+    """Body of ``POST /api/validate``; no project means every project."""
     project: Optional[str] = None
 
 
 class UpdateRequest(BaseModel):
+    """Body of ``POST /api/update``."""
     project: Optional[str] = None
     dry_run: bool = False
 
@@ -301,6 +311,7 @@ async def get_drift(
 
 @app.get("/api/hardware")
 async def get_hardware():
+    """Return the host hardware profile."""
     loop = asyncio.get_running_loop()
     profile = await loop.run_in_executor(None, probe_hardware)
     return profile.to_dict()
@@ -308,6 +319,7 @@ async def get_hardware():
 
 @app.get("/api/projects")
 async def get_projects():
+    """Return every discovered project with its venv state."""
     loop = asyncio.get_running_loop()
     projects = await loop.run_in_executor(None, discover_projects)
     return [p.to_dict() for p in projects]
@@ -315,6 +327,7 @@ async def get_projects():
 
 @app.get("/api/npm")
 async def get_npm():
+    """Return the npm package status of each Node workspace."""
     loop = asyncio.get_running_loop()
     npm_statuses = await loop.run_in_executor(None, audit_npm_workspaces)
     return [s.to_dict() for s in npm_statuses]
@@ -322,6 +335,7 @@ async def get_npm():
 
 @app.get("/api/pipeline/status")
 async def get_pipeline_status():
+    """Return the orchestrator state and the most recent pipeline events."""
     return {
         "is_running": orchestrator.is_running,
         "last_status": orchestrator.last_status,
@@ -346,6 +360,7 @@ def _run_pipeline_worker(
 
 @app.post("/api/pipeline/run")
 async def run_pipeline(request: RunPipelineRequest):
+    """Start the full pipeline on a background thread."""
     if orchestrator.is_running:
         return {"status": "error", "message": "Pipeline is already running."}
     if update_jobs.is_running:
@@ -379,6 +394,7 @@ def _run_step_worker(
 
 @app.post("/api/pipeline/run-step")
 async def run_pipeline_step(request: RunStepRequest):
+    """Run one pipeline step on a background thread."""
     if orchestrator.is_running:
         return {"status": "error", "message": "Pipeline or step is already running."}
     if update_jobs.is_running:
@@ -470,6 +486,7 @@ async def get_update_status():
 
 @app.get("/api/manifests")
 async def get_manifests():
+    """Return the text of each central requirements manifest by file name."""
     env_mgr_dir = ENV_MANAGER_DIR
     manifests_dir = env_mgr_dir / "requirements"
     manifests = {}
@@ -481,6 +498,7 @@ async def get_manifests():
 
 @app.post("/api/manifests/sync")
 async def sync_manifests():
+    """Copy the central manifests into the sibling projects."""
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, sync_all_manifests)
     formatted = {k: {"success": ok, "message": msg} for k, (ok, msg) in results.items()}
@@ -488,11 +506,13 @@ async def sync_manifests():
 
 
 class ManifestValidateRequest(BaseModel):
+    """Body of ``POST /api/manifests/validate``."""
     name: str
     content: str
 
 
 class ManifestSaveRequest(BaseModel):
+    """Body of ``POST /api/manifests/save``."""
     name: str
     content: str
 
@@ -745,6 +765,7 @@ async def get_docs_status():
 
 @app.post("/api/clean")
 async def clean_artifacts(request: Optional[CleanRequest] = None):
+    """Purge bytecode caches and build artifacts; report the space reclaimed."""
     base_dir = workspace_root()
     projects = discover_projects(base_dir)
     target_name = request.project if request else None
@@ -768,6 +789,7 @@ async def clean_artifacts(request: Optional[CleanRequest] = None):
 
 @app.post("/api/validate")
 async def validate_codebase(request: Optional[ValidateRequest] = None):
+    """Run the full validation suite on one or every project."""
     base_dir = workspace_root()
     projects = discover_projects(base_dir)
     target_name = request.project if request else None
@@ -790,6 +812,7 @@ async def validate_codebase(request: Optional[ValidateRequest] = None):
 
 
 class HooksInstallRequest(BaseModel):
+    """Body of ``POST /api/hooks/install``; no project means every project."""
     project: Optional[str] = None
 
 
@@ -950,6 +973,7 @@ async def graceful_shutdown():
 @app.websocket("/ws/log")
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
+    """Replay recent events to a new client, then keep the socket open for broadcasts."""
     await manager.connect(websocket)
     try:
         for ev in list(recent_events)[-20:]:

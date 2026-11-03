@@ -30,12 +30,15 @@ class _TempWorkspace(unittest.TestCase):
         self.sibling.mkdir()
 
     def write(self, path: Path, text: str) -> Path:
+        """Write ``text`` to ``path`` and return the path."""
         path.write_text(text, encoding="utf-8")
         return path
 
 
 class TestRequirementDowngradeGuard(_TempWorkspace):
+    """Requirements sync refuses writes that would downgrade a sibling."""
     def test_central_lower_pin_is_not_written_and_reported(self) -> None:
+        """A lower central pin is not written and is reported as drift."""
         central = self.write(self.central_dir / "requirements-datasets.txt",
                              "torch==2.14.1+cu126\nfastapi==0.162.0\n")
         sibling_text = "torch==2.15.0\nfastapi==0.162.0\n"
@@ -52,6 +55,7 @@ class TestRequirementDowngradeGuard(_TempWorkspace):
                          "torch==2.14.1+cu126\nfastapi==0.162.0\n")
 
     def test_central_higher_pin_is_written(self) -> None:
+        """A higher central pin is written."""
         central = self.write(self.central_dir / "requirements-datasets.txt", "torch==2.16.0\n")
         target = self.write(self.sibling / "requirements.txt", "torch==2.15.0\n")
 
@@ -61,6 +65,7 @@ class TestRequirementDowngradeGuard(_TempWorkspace):
         self.assertEqual(target.read_text(encoding="utf-8"), "torch==2.16.0\n")
 
     def test_equal_pins_are_written(self) -> None:
+        """Equal pins are written."""
         central = self.write(self.central_dir / "requirements-datasets.txt", "numpy==2.5.4\n")
         target = self.write(self.sibling / "requirements.txt", "numpy==2.5.4\n")
 
@@ -70,6 +75,7 @@ class TestRequirementDowngradeGuard(_TempWorkspace):
         self.assertEqual(target.read_text(encoding="utf-8"), "numpy==2.5.4\n")
 
     def test_missing_sibling_file_is_created(self) -> None:
+        """A missing sibling requirements file is created."""
         central = self.write(self.central_dir / "requirements-datasets.txt", "numpy==2.5.4\n")
 
         ok, msg = sync_manifest_to_project(central, self.sibling)
@@ -78,6 +84,7 @@ class TestRequirementDowngradeGuard(_TempWorkspace):
         self.assertTrue((self.sibling / "requirements.txt").exists())
 
     def test_loosened_range_and_dropped_pin_and_removed_package_are_drift(self) -> None:
+        """A loosened range, a dropped pin and a removed package all count as drift."""
         central = self.write(self.central_dir / "c.txt",
                              "transformers>=5.0.0,<6.0.0\npillow\nscipy>=1.0\n")
         sibling = self.write(self.sibling / "requirements.txt",
@@ -91,6 +98,7 @@ class TestRequirementDowngradeGuard(_TempWorkspace):
             self.assertIn(name, joined)
 
     def test_markers_are_compared_per_marker(self) -> None:
+        """Pins are compared per environment marker."""
         central = self.write(self.central_dir / "c.txt",
                              "MetaTrader5==5.0.50; sys_platform == 'win32'\n")
         sibling = self.write(self.sibling / "requirements.txt",
@@ -99,6 +107,7 @@ class TestRequirementDowngradeGuard(_TempWorkspace):
         self.assertEqual(find_requirement_drift(central, sibling), [])
 
     def test_upgrade_with_extra_central_package_is_not_drift(self) -> None:
+        """An extra central package is not drift."""
         central = self.write(self.central_dir / "c.txt", "numpy==2.6.0\nhttpx2==2.16.0\n")
         sibling = self.write(self.sibling / "requirements.txt", "numpy==2.5.4\n")
 
@@ -106,12 +115,14 @@ class TestRequirementDowngradeGuard(_TempWorkspace):
 
 
 class TestPackageJsonDowngradeGuard(_TempWorkspace):
+    """package.json sync refuses writes that would downgrade a sibling."""
     def setUp(self) -> None:
         super().setUp()
         self.gui = self.base / "lemgendary-ai-studio-gui"
         self.gui.mkdir()
 
     def test_older_central_package_json_is_not_copied(self) -> None:
+        """An older central package.json is not copied."""
         central = {"version": "2.10.12", "devDependencies": {"vite": "^6.4.4"}}
         sibling = {"version": "2.10.13", "devDependencies": {"vite": "^6.4.4", "jsdom": "25.0.1"}}
         self.write(self.central_dir / "lemgendary-ai-studio-gui.package.json", json.dumps(central))
@@ -127,6 +138,7 @@ class TestPackageJsonDowngradeGuard(_TempWorkspace):
         self.assertEqual(json.loads(target.read_text(encoding="utf-8")), sibling)
 
     def test_newer_central_package_json_is_copied(self) -> None:
+        """A newer central package.json is copied."""
         central = {"version": "2.10.14", "devDependencies": {"vite": "^6.5.0"}}
         self.write(self.central_dir / "lemgendary-ai-studio-gui.package.json", json.dumps(central))
         sibling = {"version": "2.10.13", "devDependencies": {"vite": "^6.4.4"}}
@@ -139,33 +151,13 @@ class TestPackageJsonDowngradeGuard(_TempWorkspace):
         self.assertEqual(json.loads(target.read_text(encoding="utf-8")), central)
 
     def test_npm_drift_detects_lower_dependency(self) -> None:
+        """npm drift detects a dependency the central manifest lowers."""
         drift = find_package_json_drift(
             {"dependencies": {"react": "^18.2.0"}},
             {"dependencies": {"react": "^18.3.1"}},
         )
         self.assertEqual(len(drift), 1)
         self.assertIn("react", drift[0])
-
-
-class TestRealCentralManifestsHaveNoDrift(unittest.TestCase):
-    """Read-only check: the committed central manifests are not behind the siblings."""
-
-    def test_central_is_not_behind_siblings(self) -> None:
-        env_mgr = Path(__file__).resolve().parent.parent
-        base = env_mgr.parent
-        central = env_mgr / "requirements"
-        pairs = {
-            "lemgendary-training-suite": "requirements-training.txt",
-            "lemgendary-datasets": "requirements-datasets.txt",
-            "lemgendary-env-manager": "requirements-env-manager.txt",
-            "lemgendary-docs": "requirements-documentation.txt",
-        }
-        for project, manifest in pairs.items():
-            sibling = base / project / "requirements.txt"
-            if not sibling.exists():
-                continue
-            with self.subTest(project=project):
-                self.assertEqual(find_requirement_drift(central / manifest, sibling), [])
 
 
 if __name__ == "__main__":

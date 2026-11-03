@@ -49,10 +49,12 @@ class ProjectVenvInfo:
     has_npm_manifest: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
 def get_venv_python_path(project_dir: Path) -> Path:
+    """Path of the project's venv interpreter for this platform."""
     venv_dir = project_dir / ".venv"
     is_windows = platform.system().lower() == "windows"
     python_exe_name = "python.exe" if is_windows else "python"
@@ -61,6 +63,7 @@ def get_venv_python_path(project_dir: Path) -> Path:
 
 
 def is_venv_valid(project_dir: Path) -> bool:
+    """True when ``.venv`` has a ``pyvenv.cfg`` and an interpreter that runs."""
     venv_dir = project_dir / ".venv"
     python_path = get_venv_python_path(project_dir)
 
@@ -76,6 +79,7 @@ def is_venv_valid(project_dir: Path) -> bool:
 
 
 def get_venv_python_version(project_dir: Path) -> Optional[str]:
+    """Return the venv interpreter version, or None when the venv is invalid."""
     if not is_venv_valid(project_dir):
         return None
     python_path = get_venv_python_path(project_dir)
@@ -235,6 +239,7 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
 
 
 def get_installed_packages(project_dir: Path) -> Dict[str, str]:
+    """Return ``{name: version}`` for the venv's packages, or ``{}`` when invalid."""
     if not is_venv_valid(project_dir):
         return {}
     python_path = get_venv_python_path(project_dir)
@@ -361,6 +366,7 @@ def normalize_opencv_variant(
 
 
 def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
+    """Find the known projects under ``base_dir`` and describe each one's environment."""
     if base_dir is None:
         base_dir = workspace_root()
 

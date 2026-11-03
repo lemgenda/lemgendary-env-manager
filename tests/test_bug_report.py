@@ -50,12 +50,14 @@ class FakePlatform:
         self.reveal_calls: list[Path] = []
 
     def open_mail_client(self, recipient: str, subject: str, body: str) -> bool:
+        """Record the call and return the configured result."""
         self.mail_calls.append((recipient, subject, body))
         if self.raise_error:
             raise OSError("no mail client")
         return self.mail_ok
 
     def reveal_in_file_manager(self, path: Path) -> bool:
+        """Record the call and return the configured result."""
         self.reveal_calls.append(path)
         if self.raise_error:
             raise OSError("no file manager")
@@ -103,6 +105,7 @@ class BugReportApiTests(unittest.TestCase):
     # ── happy path ──────────────────────────────────────────────────────
 
     def test_full_report_is_archived_and_handed_off(self) -> None:
+        """A complete report is zipped in the workspace and handed to the mail client."""
         files = [
             ("screenshot", ("a.png", PNG, "image/png")),
             ("screenshot", ("b.webp", WEBP, "image/webp")),
@@ -150,12 +153,14 @@ class BugReportApiTests(unittest.TestCase):
         self.assertEqual(self.platform.reveal_calls, [self.root / body["archive_path"]])
 
     def test_minimal_report_and_mp4_recording(self) -> None:
+        """A report with only the required fields and an MP4 recording is accepted."""
         response = self._post(files=[("recording", ("r.mp4", MP4, "video/mp4"))])
         self.assertEqual(response.status_code, 200, response.text)
         with self._zip(response.json()) as archive:
             self.assertEqual(sorted(archive.namelist()), ["recording.mp4", "report.csv"])
 
     def test_formula_like_text_is_neutralised(self) -> None:
+        """Formula-like text is prefixed with a quote in the CSV."""
         response = self._post(data=_form(module="=HYPERLINK(1)"))
         self.assertEqual(response.status_code, 200, response.text)
         with self._zip(response.json()) as archive:
@@ -163,6 +168,7 @@ class BugReportApiTests(unittest.TestCase):
         self.assertEqual(rows[1][REPORT_COLUMNS.index("module")], "'=HYPERLINK(1)")
 
     def test_no_absolute_path_leaves_the_server(self) -> None:
+        """Responses carry only workspace-relative paths."""
         response = self._post()
         self.assertEqual(response.status_code, 200, response.text)
         absolute = str(self.root)
@@ -174,6 +180,7 @@ class BugReportApiTests(unittest.TestCase):
     # ── adapter failures ────────────────────────────────────────────────
 
     def test_adapter_false_results_are_reported(self) -> None:
+        """Adapter calls that return False are reported in the response."""
         self._use_service(FakePlatform(mail_ok=False, reveal_ok=False))
         body = self._post().json()
         self.assertFalse(body["mail_client_opened"])
@@ -181,6 +188,7 @@ class BugReportApiTests(unittest.TestCase):
         self.assertTrue((self.root / body["archive_path"]).is_file())
 
     def test_adapter_errors_do_not_fail_the_request(self) -> None:
+        """Adapter exceptions are reported without failing the request."""
         self._use_service(FakePlatform(raise_error=True))
         response = self._post()
         self.assertEqual(response.status_code, 200, response.text)
@@ -198,15 +206,18 @@ class BugReportApiTests(unittest.TestCase):
         self.assertFalse((self.root / "bug-reports").exists())
 
     def test_invalid_email(self) -> None:
+        """An invalid e-mail address is rejected."""
         for email in ("", "not-an-email", "a@b", "a b@c.com"):
             with self.subTest(email=email):
                 self._assert_field_error(self._post(data=_form(email=email)), "email")
 
     def test_short_description_after_trim(self) -> None:
+        """A description that is too short after trimming is rejected."""
         padded = "   " + "x" * 49 + "   \n"
         self._assert_field_error(self._post(data=_form(description=padded)), "description")
 
     def test_missing_fields(self) -> None:
+        """Missing required fields are rejected."""
         for field in ("module", "app_version", "current_tab", "description", "email"):
             with self.subTest(field=field):
                 data = _form()
@@ -214,19 +225,23 @@ class BugReportApiTests(unittest.TestCase):
                 self._assert_field_error(self._post(data=data), field)
 
     def test_blank_module(self) -> None:
+        """A blank module name is rejected."""
         self._assert_field_error(self._post(data=_form(module="   ")), "module")
 
     # ── upload validation ───────────────────────────────────────────────
 
     def test_too_many_screenshots(self) -> None:
+        """More screenshots than allowed are rejected."""
         files = [("screenshot", (f"{i}.png", PNG, "image/png")) for i in range(6)]
         self._assert_field_error(self._post(files=files), "screenshot")
 
     def test_screenshot_wrong_type(self) -> None:
+        """A screenshot with an unsupported type is rejected."""
         files = [("screenshot", ("a.jpg", b"\xff\xd8\xff" + b"\x00" * 20, "image/jpeg"))]
         self._assert_field_error(self._post(files=files), "screenshot")
 
     def test_magic_byte_mismatch(self) -> None:
+        """An upload whose bytes do not match its declared type is rejected."""
         cases = {
             "screenshot": ("a.png", WEBP, "image/png"),
             "recording": ("r.webm", MP4, "video/webm"),
@@ -236,11 +251,13 @@ class BugReportApiTests(unittest.TestCase):
                 self._assert_field_error(self._post(files=[(field, upload)]), field)
 
     def test_telemetry_must_be_utf8_csv(self) -> None:
+        """Telemetry must be a UTF-8 CSV file."""
         for upload in (("t.txt", TELEMETRY, "text/plain"), ("t.csv", b"\xff\xfe\x00", "text/csv")):
             with self.subTest(upload=upload[0]):
                 self._assert_field_error(self._post(files=[("telemetry", upload)]), "telemetry")
 
     def test_empty_upload(self) -> None:
+        """An empty upload is rejected."""
         self._assert_field_error(
             self._post(files=[("screenshot", ("a.png", b"", "image/png"))]), "screenshot"
         )
@@ -248,6 +265,7 @@ class BugReportApiTests(unittest.TestCase):
     # ── size limits (413) ───────────────────────────────────────────────
 
     def test_per_file_size_limits(self) -> None:
+        """Each upload kind has its own size limit."""
         small = BugReportSettings(
             max_screenshot_bytes=64, max_telemetry_bytes=64, max_recording_bytes=64
         )
@@ -263,6 +281,7 @@ class BugReportApiTests(unittest.TestCase):
                     self._assert_field_error(self._post(files=[(field, upload)]), field, 413)
 
     def test_total_size_limit(self) -> None:
+        """A report whose uploads exceed the total limit is rejected."""
         small = BugReportSettings(max_total_bytes=100)
         files = [("screenshot", (f"{i}.png", PNG, "image/png")) for i in range(3)]
         with mock.patch.object(server, "BUG_REPORT_SETTINGS", small):
@@ -284,16 +303,19 @@ class BugReportServiceTests(unittest.TestCase):
         return BugReportService(self.root, settings, FakePlatform())
 
     def test_reports_dir_must_stay_inside_workspace(self) -> None:
+        """A reports folder outside the workspace is refused."""
         outside = str(Path(self._tmp_dir).resolve() / "elsewhere")
         for reports_dir in ("..", "../elsewhere", ".", outside):
             with self.subTest(reports_dir=reports_dir), self.assertRaises(ReportsDirError):
                 self._service(reports_dir).submit(self.submission)
 
     def test_folder_outside_git_has_no_ignore_file(self) -> None:
+        """Outside a git repo no ``.gitignore`` is written."""
         self._service("bug-reports").submit(self.submission)
         self.assertFalse((self.root / "bug-reports" / ".gitignore").exists())
 
     def test_folder_inside_git_repo_is_self_ignored(self) -> None:
+        """Inside a git repo the reports folder ignores itself."""
         (self.root / "repo" / ".git").mkdir(parents=True)
         result = self._service("repo/bug-reports").submit(self.submission)
         ignore = self.root / "repo" / "bug-reports" / ".gitignore"
@@ -305,17 +327,20 @@ class PlatformAdapterTests(unittest.TestCase):
     """The real adapter, with the OS calls replaced."""
 
     def test_mailto_url_encodes_subject_and_body(self) -> None:
+        """Subject and body are percent-encoded in the ``mailto:`` URL."""
         url = build_mailto_url("a@b.com", "Bug report", "Line 1\nLine & 2")
         self.assertTrue(url.startswith("mailto:a@b.com?subject=Bug%20report&body="))
         self.assertEqual(unquote(url.split("body=", 1)[1]), "Line 1\nLine & 2")
 
     def test_open_mail_client_uses_webbrowser(self) -> None:
+        """The mail client is opened through ``webbrowser``."""
         with mock.patch("env_manager.bug_report.platform.webbrowser.open",
                         return_value=False) as opener:
             self.assertFalse(SystemPlatformAdapter().open_mail_client("a@b.com", "S", "B"))
         self.assertTrue(opener.call_args.args[0].startswith("mailto:a@b.com"))
 
     def test_reveal_commands_per_platform(self) -> None:
+        """Each platform uses its own reveal command."""
         target = Path("bug-reports") / "x.zip"
         expected = {
             "win32": ["explorer", f"/select,{target}"],
@@ -333,13 +358,16 @@ class PlatformAdapterTests(unittest.TestCase):
                 self.assertEqual(revealed, platform == "win32")
 
     def test_reveal_launch_error_returns_false(self) -> None:
+        """A reveal command that cannot launch returns False."""
         with mock.patch("env_manager.bug_report.platform.subprocess.run",
                         side_effect=FileNotFoundError("xdg-open")):
             self.assertFalse(SystemPlatformAdapter("linux").reveal_in_file_manager(Path("x")))
 
 
 class OpenApiTests(unittest.TestCase):
+    """The committed ``openapi.json`` matches the live schema."""
     def test_openapi_json_is_current(self) -> None:
+        """``openapi.json`` equals ``app.openapi()``."""
         committed = json.loads(
             (Path(server.__file__).resolve().parent.parent / "openapi.json").read_text(
                 encoding="utf-8"

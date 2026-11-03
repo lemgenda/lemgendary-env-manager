@@ -24,6 +24,7 @@ class TestReadmeVersion(unittest.TestCase):
     """Keep the README header and changelog version in sync."""
 
     def test_header_matches_latest_changelog(self) -> None:
+        """The README title version equals the newest changelog entry."""
         text = README.read_text(encoding="utf-8")
         header = re.search(r"^# .*\(v(\d+\.\d+\.\d+)", text, re.MULTILINE)
         latest = re.search(r"^### v(\d+\.\d+\.\d+)", text, re.MULTILINE)
@@ -33,6 +34,7 @@ class TestReadmeVersion(unittest.TestCase):
 
 
     def test_every_version_string_matches_the_readme(self) -> None:
+        """Every version string in the repo equals the README version."""
         expected = _readme_header_version()
         with open(ROOT / "pyproject.toml", "rb") as handle:
             pyproject_version = tomllib.load(handle)["project"]["version"]

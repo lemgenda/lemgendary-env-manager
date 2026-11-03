@@ -48,7 +48,9 @@ def _wait_until_idle(jobs: UpdateJobManager, timeout: float = 5.0) -> None:
 
 
 class TestUpdateJobManager(unittest.TestCase):
+    """The background safe-update job manager."""
     def test_start_returns_before_the_runner_finishes(self) -> None:
+        """``start`` returns before the runner has finished."""
         runner = _BlockingRunner()
         jobs = UpdateJobManager(runner)
         published: list[dict[str, Any]] = []
@@ -73,6 +75,7 @@ class TestUpdateJobManager(unittest.TestCase):
         self.assertEqual(published[-1]["status"], "success")
 
     def test_second_start_while_running_is_refused(self) -> None:
+        """A second start while a job runs is refused."""
         runner = _BlockingRunner()
         jobs = UpdateJobManager(runner)
         jobs.start(None, lambda ev: None)
@@ -88,6 +91,7 @@ class TestUpdateJobManager(unittest.TestCase):
         self.assertEqual(runner.projects, [None, None])
 
     def test_runner_failure_is_recorded_and_releases_the_lock(self) -> None:
+        """A failing runner is recorded and frees the manager for the next job."""
         def failing_runner(project, emit):
             raise RuntimeError("pip exploded")
 
@@ -105,7 +109,9 @@ class TestUpdateJobManager(unittest.TestCase):
 
 
 class TestRunSafeUpdate(unittest.TestCase):
+    """``run_safe_update`` plans, applies and reports one update."""
     def test_project_is_passed_to_the_plan_builder(self) -> None:
+        """The requested project reaches the plan builder."""
         plan = MagicMock(has_any_updates=False)
         with patch("env_manager.update_jobs.build_upgrade_plan", return_value=plan) as build:
             status = run_safe_update("lemgendary-docs", lambda ev: None, Path("ws"))
@@ -113,6 +119,7 @@ class TestRunSafeUpdate(unittest.TestCase):
         self.assertEqual(status, "up_to_date")
 
     def test_failed_package_makes_the_job_partial(self) -> None:
+        """One failed package makes the job status partial."""
         plan = MagicMock(has_any_updates=True)
         events = [
             MagicMock(to_dict=lambda: {"status": "upgraded"}),
@@ -129,7 +136,9 @@ class TestRunSafeUpdate(unittest.TestCase):
 
 
 class TestUpdateEndpoint(unittest.TestCase):
+    """``POST /api/update`` and ``GET /api/update/status``."""
     def test_update_returns_accepted_with_job_id(self) -> None:
+        """A real update returns ``accepted`` with a job id."""
         fake_jobs = MagicMock()
         fake_jobs.start.return_value = {"job_id": "abc", "status": "running"}
         with patch.object(server, "update_jobs", fake_jobs), \
@@ -142,6 +151,7 @@ class TestUpdateEndpoint(unittest.TestCase):
         self.assertEqual(fake_jobs.start.call_args.args[0], "lemgendary-datasets")
 
     def test_update_while_running_returns_409(self) -> None:
+        """An update while another runs returns 409."""
         fake_jobs = MagicMock()
         fake_jobs.start.side_effect = UpdateAlreadyRunningError(
             "An update is already running (job abc)."
@@ -154,6 +164,7 @@ class TestUpdateEndpoint(unittest.TestCase):
         self.assertIn("already running", ctx.exception.detail)
 
     def test_update_while_pipeline_runs_returns_409(self) -> None:
+        """An update while the pipeline runs returns 409."""
         fake_jobs = MagicMock()
         with patch.object(server, "update_jobs", fake_jobs), \
                 patch.object(server.orchestrator, "is_running", True):
@@ -163,11 +174,13 @@ class TestUpdateEndpoint(unittest.TestCase):
         fake_jobs.start.assert_not_called()
 
     def test_unknown_project_returns_404(self) -> None:
+        """An unknown project returns 404."""
         with self.assertRaises(HTTPException) as ctx:
             asyncio.run(server.run_update(server.UpdateRequest(project="not-a-project")))
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_dry_run_passes_project_and_does_not_start_a_job(self) -> None:
+        """A dry run builds the plan for the project and starts no job."""
         plan = MagicMock(has_any_updates=True)
         plan.to_dict.return_value = {"projects": []}
         fake_jobs = MagicMock()
@@ -181,6 +194,7 @@ class TestUpdateEndpoint(unittest.TestCase):
         fake_jobs.start.assert_not_called()
 
     def test_status_endpoint_reports_job(self) -> None:
+        """The status endpoint reports the current job."""
         fake_jobs = MagicMock(is_running=True)
         fake_jobs.snapshot.return_value = {"job_id": "abc", "status": "running"}
         with patch.object(server, "update_jobs", fake_jobs):
@@ -189,6 +203,7 @@ class TestUpdateEndpoint(unittest.TestCase):
         self.assertEqual(data["job"]["job_id"], "abc")
 
     def test_pipeline_refuses_to_start_during_update(self) -> None:
+        """The pipeline refuses to start while an update runs."""
         fake_jobs = MagicMock(is_running=True)
         with patch.object(server, "update_jobs", fake_jobs), \
                 patch.object(server.orchestrator, "is_running", False), \
@@ -199,7 +214,9 @@ class TestUpdateEndpoint(unittest.TestCase):
 
 
 class TestPingEndpoint(unittest.TestCase):
+    """``/api/ping`` liveness probe."""
     def test_ping_is_constant_and_does_no_audit(self) -> None:
+        """Ping returns a constant body and runs no health audit."""
         with patch.object(server, "run_full_health_audit") as audit:
             data = asyncio.run(server.ping())
         audit.assert_not_called()
@@ -208,6 +225,7 @@ class TestPingEndpoint(unittest.TestCase):
         self.assertEqual(data["version"], server.app.version)
 
     def test_ping_route_supports_get_and_head(self) -> None:
+        """Ping answers both GET and HEAD."""
         methods = set()
         for route in server.app.routes:
             if getattr(route, "path", None) == "/api/ping":

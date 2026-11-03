@@ -64,6 +64,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         return self.client.post("/api/secrets", json={"secrets": items})
 
     def test_get_masks_values_and_has_no_side_effect(self) -> None:
+        """GET masks values and writes nothing."""
         users = self.root / "lemgendary-training-suite" / ".kaggle_users"
         users.write_text(f"KAGGLE_USERNAME=alice, KAGGLE_API_TOKEN={KAGGLE_TOKEN};\n",
                          encoding="utf-8")
@@ -85,6 +86,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertEqual(before, after)
 
     def test_get_masks_stored_vault(self) -> None:
+        """GET masks the values of a stored vault."""
         self.assertEqual(self._post([_kaggle(KAGGLE_TOKEN)]).status_code, 200)
         res = self.client.get("/api/secrets")
         self.assertTrue(res.json()["initialized"])
@@ -92,6 +94,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertEqual(res.json()["secrets"][0]["value_hint"], "5678")
 
     def test_post_keeps_stored_value_when_empty_or_omitted(self) -> None:
+        """POST keeps the stored value when the new one is empty or missing."""
         github = {"id": "github-primary", "service": "github", "label": "GitHub",
                   "secret_value": GITHUB_TOKEN}
         self.assertEqual(self._post([_kaggle(KAGGLE_TOKEN), github]).status_code, 200)
@@ -104,6 +107,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertEqual(stored["github-primary"]["secret_value"], GITHUB_TOKEN)
 
     def test_post_replaces_value_when_non_empty(self) -> None:
+        """POST replaces the value when a new one is given."""
         self._post([_kaggle(KAGGLE_TOKEN)])
         res = self._post([_kaggle("KGAT_replacement_0000")])
         self.assertEqual(res.status_code, 200)
@@ -111,6 +115,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertTrue((self.secrets_file.parent / ".secrets.yaml.bak").exists())
 
     def test_post_removes_items_left_out(self) -> None:
+        """POST removes items left out of the payload."""
         github = {"id": "github-primary", "service": "github", "label": "GitHub",
                   "secret_value": GITHUB_TOKEN}
         self._post([_kaggle(KAGGLE_TOKEN), github])
@@ -118,10 +123,12 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertNotIn("github-primary", self._stored())
 
     def test_kaggle_mandatory_accepts_kept_value(self) -> None:
+        """The mandatory Kaggle secret is satisfied by a kept stored value."""
         self._post([_kaggle(KAGGLE_TOKEN)])
         self.assertEqual(self._post([_kaggle("")]).status_code, 200)
 
     def test_kaggle_mandatory_accepts_kept_legacy_seed(self) -> None:
+        """The mandatory Kaggle secret is satisfied by a kept legacy seed."""
         users = self.root / "lemgendary-training-suite" / ".kaggle_users"
         users.write_text(f"KAGGLE_USERNAME=alice, KAGGLE_API_TOKEN={KAGGLE_TOKEN};\n",
                          encoding="utf-8")
@@ -130,12 +137,14 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertEqual(self._stored()["kaggle-alice"]["secret_value"], KAGGLE_TOKEN)
 
     def test_kaggle_mandatory_rejects_missing_value(self) -> None:
+        """Saving without any Kaggle value is rejected."""
         res = self._post([_kaggle()])
         self.assertEqual(res.status_code, 400)
         self.assertIn("Kaggle", res.json()["detail"])
         self.assertFalse(self.secrets_file.exists())
 
     def test_post_response_never_echoes_values(self) -> None:
+        """The POST response never contains secret values."""
         github = {"id": "github-primary", "service": "github", "label": "GitHub",
                   "secret_value": GITHUB_TOKEN}
         res = self._post([_kaggle(KAGGLE_TOKEN), github])
@@ -145,6 +154,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertEqual(res.json()["count"], 2)
 
     def test_propagation_writes_legacy_files_without_inventing_usernames(self) -> None:
+        """Propagation writes legacy files and never invents a username."""
         second = _kaggle("KGAT_second_token_11", username=None, item_id="kaggle-2",
                          is_default=False)
         res = self._post([_kaggle(KAGGLE_TOKEN), second])
@@ -163,12 +173,14 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertEqual(kaggle_json, {"username": "alice", "key": KAGGLE_TOKEN})
 
     def test_propagation_skips_kaggle_json_without_username(self) -> None:
+        """``kaggle.json`` is skipped when no username is known."""
         res = self._post([_kaggle(KAGGLE_TOKEN, username=None)])
         report = res.json()["propagation"]
         self.assertIn("~/.kaggle/kaggle.json", [s["path"] for s in report["skipped"]])
         self.assertFalse((self.home_kaggle / "kaggle.json").exists())
 
     def test_propagation_reports_write_failures(self) -> None:
+        """Failed legacy writes are listed in the report."""
         # A directory in place of the token file makes the write fail.
         (self.root / "lemgendary-datasets" / ".kaggle_token").mkdir()
         res = self._post([_kaggle(KAGGLE_TOKEN)])
@@ -178,6 +190,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertIn("could not be written", res.json()["message"])
 
     def test_get_reports_unreadable_vault(self) -> None:
+        """GET on an unreadable vault returns status ``error`` and no secrets."""
         self.secrets_file.write_text("secrets: [unclosed\n", encoding="utf-8")
         res = self.client.get("/api/secrets")
         self.assertEqual(res.json()["status"], "error")
@@ -188,11 +201,13 @@ class SecretsVaultUnitTests(unittest.TestCase):
     """Pure helpers."""
 
     def test_value_hint(self) -> None:
+        """The hint is the last four characters, and empty for values under eight."""
         self.assertEqual(value_hint("1234567"), "")
         self.assertEqual(value_hint("12345678"), "5678")
         self.assertEqual(value_hint(""), "")
 
     def test_seed_does_not_invent_usernames(self) -> None:
+        """Seeding from legacy files never invents a username."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "lemgendary-training-suite").mkdir()

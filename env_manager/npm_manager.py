@@ -28,6 +28,7 @@ class NpmDependencyDetail:
     is_installed: bool
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -43,6 +44,7 @@ class NpmPackageStatus:
     audit_summary: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 

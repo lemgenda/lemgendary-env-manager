@@ -46,6 +46,7 @@ class SystemPlatformAdapter:
         self._platform = platform
 
     def open_mail_client(self, recipient: str, subject: str, body: str) -> bool:
+        """Open the default mail client on a ``mailto:`` link; return True if it opened."""
         url = build_mailto_url(recipient, subject, body)
         try:
             opened = webbrowser.open(url)
@@ -57,6 +58,7 @@ class SystemPlatformAdapter:
         return opened
 
     def reveal_in_file_manager(self, path: Path) -> bool:
+        """Show ``path`` in the platform file manager; return True if it launched."""
         command = self._reveal_command(path)
         try:
             result = subprocess.run(

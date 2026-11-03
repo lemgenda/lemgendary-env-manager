@@ -73,6 +73,7 @@ class ProjectHealth:
     is_healthy: bool
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -84,6 +85,7 @@ class PinInfo:
     installed: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -94,6 +96,7 @@ class ProjectManifest:
     platform_skipped: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the pins and the platform-skipped package list as a dict."""
         return {
             "pins": {k: v.to_dict() for k, v in self.pins.items()},
             "platform_skipped": list(self.platform_skipped),
@@ -110,9 +113,11 @@ class UpgradeStatus:
 
     @property
     def is_outdated(self) -> bool:
+        """True when a newer version than the installed one is known."""
         return self.latest is not None and self.latest != self.current
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -128,6 +133,7 @@ class VersionDriftEntry:
     projects_declared: int
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a dict, with each project's upgrade status serialized."""
         d = asdict(self)
         d["upgrades"] = {
             proj: status.to_dict() for proj, status in self.upgrades.items()
@@ -146,6 +152,7 @@ class ManifestCoverageEntry:
     platform_skipped: List[str]  # declared but skipped by an OS-specific marker
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -159,6 +166,7 @@ class SingleManifestEntry:
     specifier: str
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -172,6 +180,7 @@ class NpmDriftEntry:
     is_dev_dependency: bool
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -189,6 +198,7 @@ class HealthAuditReport:
     overall_healthy: bool
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 

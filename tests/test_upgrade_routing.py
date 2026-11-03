@@ -49,6 +49,7 @@ class TestDiscoveryMetadata(unittest.TestCase):
     """Discovery records which projects carry an npm manifest."""
 
     def test_has_npm_manifest_flag(self) -> None:
+        """Discovery sets ``has_npm_manifest`` and ``is_node_project`` per project."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for name in ("lemgendary-env-manager", "lemgendary-datasets",
@@ -106,6 +107,7 @@ class TestStep5Routing(unittest.TestCase):
         return list(orchestrator.execute_safe_upgrades([project], hw, _emit))
 
     def test_dual_stack_project_gets_pip_and_npm(self) -> None:
+        """A project with requirements and package.json gets pip and npm upgrades."""
         proj = _project("lemgendary-env-manager", self.root, is_node=False, has_npm=True)
         self._run(proj)
         p_dir = Path(proj.project_dir)
@@ -116,6 +118,7 @@ class TestStep5Routing(unittest.TestCase):
         self.sync.assert_called_once_with(self.root)
 
     def test_python_only_project_gets_pip_only(self) -> None:
+        """A Python-only project gets pip upgrades only."""
         proj = _project("lemgendary-datasets", self.root, is_node=False, has_npm=False)
         self._run(proj)
         self.npm_outdated.assert_not_called()
@@ -125,6 +128,7 @@ class TestStep5Routing(unittest.TestCase):
         )
 
     def test_npm_only_project_gets_npm_only(self) -> None:
+        """A Node-only project gets npm upgrades only."""
         proj = _project("lemgendary-ai-studio-gui", self.root, is_node=True, has_npm=True)
         events = self._run(proj)
         self.npm_outdated.assert_called_once_with(Path(proj.project_dir))
@@ -135,6 +139,7 @@ class TestStep5Routing(unittest.TestCase):
         self.assertTrue(any("(npm) - updating 1 package" in e.message for e in events))
 
     def test_npm_up_to_date_skips_update(self) -> None:
+        """An up-to-date npm project is not updated."""
         self.npm_outdated.return_value = []
         proj = _project("lemgendary-ai-studio-gui", self.root, is_node=True, has_npm=True)
         self._run(proj)
@@ -161,6 +166,7 @@ class TestUpdateCommandScope(unittest.TestCase):
         )
 
     def test_project_option_scopes_plan_and_apply(self) -> None:
+        """``update --project X`` plans and applies only X."""
         plan = self._plan("lemgendary-datasets")
         with patch("env_manager.cli.build_upgrade_plan", return_value=plan) as build, \
                 patch("env_manager.cli.apply_upgrade_plan", return_value=iter([])) as apply_, \
@@ -176,6 +182,7 @@ class TestUpdateCommandScope(unittest.TestCase):
         self.assertEqual([p.name for p in applied_plan.projects], ["lemgendary-datasets"])
 
     def test_unknown_project_exits_non_zero(self) -> None:
+        """An unknown project exits non-zero and applies nothing."""
         with patch("env_manager.cli.build_upgrade_plan",
                    side_effect=ValueError("Project not found: nope")) as build, \
                 patch("env_manager.cli.apply_upgrade_plan") as apply_:
@@ -187,6 +194,7 @@ class TestUpdateCommandScope(unittest.TestCase):
         apply_.assert_not_called()
 
     def test_unknown_project_rejected_by_plan_builder(self) -> None:
+        """The plan builder raises ValueError for an unknown project."""
         with tempfile.TemporaryDirectory() as tmp, \
                 patch("env_manager.updater._detect_cuda", return_value=(None, "none")):
             with self.assertRaises(ValueError):

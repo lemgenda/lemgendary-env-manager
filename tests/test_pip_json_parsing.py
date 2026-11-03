@@ -24,6 +24,7 @@ class TestPipStreamsAreSeparated(unittest.TestCase):
     """Runs a real child process that writes JSON to stdout and warnings to stderr."""
 
     def test_stderr_lines_do_not_reach_stdout(self) -> None:
+        """pip warnings on stderr never corrupt the JSON read from stdout."""
         script = (
             "import sys, json\n"
             f"sys.stderr.write({_WARNING!r} + '\\n'); sys.stderr.flush()\n"
@@ -56,7 +57,9 @@ class _VenvPatched(unittest.TestCase):
 
 
 class TestInstalledStateParsing(_VenvPatched):
+    """Reading installed packages from ``pip list`` JSON."""
     def test_stderr_warning_is_logged_and_json_still_parsed(self) -> None:
+        """A stderr warning is logged and the stdout JSON is still parsed."""
         with patch.object(dr, "run_pip_with_recovery",
                           return_value=_completed(json.dumps(_PIP_LIST), _WARNING)), \
                 self.assertLogs("lem_env.dependency_resolver", level="WARNING") as logs:
@@ -66,18 +69,21 @@ class TestInstalledStateParsing(_VenvPatched):
         self.assertTrue(any("Ignoring invalid distribution" in line for line in logs.output))
 
     def test_invalid_json_raises(self) -> None:
+        """Output that is not JSON raises instead of yielding an empty list."""
         with patch.object(dr, "run_pip_with_recovery",
                           return_value=_completed(_WARNING + "\n" + json.dumps(_PIP_LIST))):
             with self.assertRaises(dr.PipJsonError):
                 dr.installed_package_versions(self.project)
 
     def test_empty_package_list_raises(self) -> None:
+        """An empty package list is treated as an error."""
         with patch.object(dr, "run_pip_with_recovery", return_value=_completed("[]")):
             with self.assertRaises(dr.PipJsonError):
                 dr.installed_package_versions(self.project)
 
 
 class TestClassifierFailsClosed(_VenvPatched):
+    """The upgrade classifier blocks every candidate when pip output is unusable."""
     def setUp(self) -> None:
         super().setUp()
         self.candidates = [
@@ -86,6 +92,7 @@ class TestClassifierFailsClosed(_VenvPatched):
         ]
 
     def test_unparseable_pip_list_blocks_every_candidate(self) -> None:
+        """Unparsable ``pip list`` output blocks every candidate."""
         with patch.object(dr, "run_pip_with_recovery", return_value=_completed("not json")), \
                 self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
             safe, blocked = dr.classify_safe_upgrades(self.project, self.candidates)
@@ -95,6 +102,7 @@ class TestClassifierFailsClosed(_VenvPatched):
         self.assertTrue(all("unavailable" in reason for _, reason in blocked))
 
     def test_failed_pip_inspect_blocks_every_candidate(self) -> None:
+        """A failed ``pip inspect`` blocks every candidate."""
         responses = [_completed(json.dumps(_PIP_LIST)), _completed("", "ERROR: boom", returncode=1)]
         with patch.object(dr, "run_pip_with_recovery", side_effect=responses), \
                 self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
@@ -104,6 +112,7 @@ class TestClassifierFailsClosed(_VenvPatched):
         self.assertEqual(len(blocked), 2)
 
     def test_unparseable_dry_run_report_is_a_failure(self) -> None:
+        """An unparsable dry-run report counts as a failed dry run."""
         with patch.object(dr, "run_pip_with_recovery",
                           return_value=_completed("Would install numpy-2.6.0", _WARNING)), \
                 self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
@@ -116,6 +125,7 @@ class TestClassifierFailsClosed(_VenvPatched):
         self.assertIn("could not be parsed", msg)
 
     def test_empty_installed_state_aborts_dry_run(self) -> None:
+        """The dry run aborts when the installed state comes back empty."""
         with patch.object(dr, "run_pip_with_recovery") as runner, \
                 self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
             ok, _, _ = dr.constraint_preserving_dry_run(self.project, ["numpy"], current_state={})
@@ -124,6 +134,7 @@ class TestClassifierFailsClosed(_VenvPatched):
         runner.assert_not_called()
 
     def test_dry_run_report_with_stderr_warning_is_parsed(self) -> None:
+        """A dry-run report is parsed even when pip also wrote a stderr warning."""
         report = {"install": [{"metadata": {"name": "numpy", "version": "2.6.0"}}]}
         with patch.object(dr, "run_pip_with_recovery",
                           return_value=_completed(json.dumps(report), _WARNING)):

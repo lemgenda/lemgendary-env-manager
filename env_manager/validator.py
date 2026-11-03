@@ -83,6 +83,7 @@ class FileValidationViolation:
     message: str
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -102,6 +103,7 @@ class ProjectValidationReport:
     passed: bool
 
     def to_dict(self) -> Dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
