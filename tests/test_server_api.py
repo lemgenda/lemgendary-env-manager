@@ -21,8 +21,14 @@ from env_manager.api.routes_pipeline import (
     run_pipeline_step,
 )
 from env_manager.api.routes_status import get_hardware, get_projects
+from env_manager.ecosystem import ecosystem
 from env_manager.health.models import ProjectHealth
 from env_manager.server import app
+
+
+def _port(service_id: str) -> int:
+    """The port of ``service_id`` from the ecosystem file."""
+    return ecosystem().require_service(service_id).port
 
 
 class TestServerApi(unittest.TestCase):
@@ -60,7 +66,7 @@ class TestServerApi(unittest.TestCase):
         data = asyncio.run(get_gui_state())
         self.assertIn("service", data)
         self.assertEqual(data["service"].get("name"), "lemgendary-env-manager")
-        self.assertEqual(data["service"].get("port"), 8000)
+        self.assertEqual(data["service"].get("port"), _port("env-manager"))
         self.assertIn("hardware", data)
         self.assertIn("projects", data)
         self.assertIn("pipeline", data)
@@ -69,9 +75,9 @@ class TestServerApi(unittest.TestCase):
         """``/api/gui/ecosystem`` lists each sidecar with its port."""
         data = asyncio.run(get_gui_ecosystem())
         self.assertIn("env_manager", data)
-        self.assertEqual(data["env_manager"].get("port"), 8000)
+        self.assertEqual(data["env_manager"].get("port"), _port("env-manager"))
         self.assertIn("dataset_compiler", data)
-        self.assertEqual(data["dataset_compiler"].get("port"), 8100)
+        self.assertEqual(data["dataset_compiler"].get("port"), _port("dataset-compiler"))
 
     def test_get_manifests_endpoint(self) -> None:
         """``/api/manifests`` returns a manifest dict."""

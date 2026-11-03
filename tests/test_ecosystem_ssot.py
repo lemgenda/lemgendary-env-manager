@@ -130,10 +130,45 @@ def test_literal_port_is_flagged(project: Path) -> None:
     assert [v.line_number for v in found] == [1, 2]
 
 
-def test_port_number_without_port_context_passes(project: Path) -> None:
-    """A number that happens to equal a port but is not used as one is not flagged."""
+@pytest.mark.parametrize("line", [
+    "const url = `${base}:{port}`;",
+    "const url = `http://${host}:{port}/api`;",
+    "expect(service.port).toBe({port});",
+    "listen({port})",
+    "port = {port}",
+    "const value = {port};",
+    "PORTS = [{port}, 1]",
+    "--port {port}",
+    "# served on {port}",
+])
+def test_standalone_port_token_is_flagged(project: Path, line: str) -> None:
+    """Any service port written as its own number token in code is a finding."""
+    for port in PORTS:
+        _write(project / f"a{port}.ts", line.replace("{port}", str(port)) + "\n")
+    assert _types(run_ecosystem_ssot(project)) == [PORT_LITERAL] * len(PORTS)
+
+
+@pytest.mark.parametrize("line", [
+    "const n = 1{port};",
+    "const n = {port}1;",
+    "const mask = 0x{port};",
+    "color: #{port};",
+    "version = '1.{port}'",
+    "ratio = {port}.5",
+    "offset = -{port}",
+    "width: {port}px",
+    "const v{port} = 1;",
+])
+def test_port_inside_a_longer_token_passes(project: Path, line: str) -> None:
+    """Longer numbers, hex, colours, versions, decimals and names are not ports."""
+    for port in PORTS:
+        _write(project / f"a{port}.ts", line.replace("{port}", str(port)) + "\n")
+    assert not run_ecosystem_ssot(project)
+
+
+def test_port_number_in_documentation_prose_passes(project: Path) -> None:
+    """Documentation may mention a number that equals a port without naming a service."""
     _write(project / "a.md", f"Trained on {PORT} images and {PORT}0 more.\n")
-    _write(project / "a.ts", f"const row = {{ count: {PORT}, total: {PORT}0 }};\n")
     assert not run_ecosystem_ssot(project)
 
 

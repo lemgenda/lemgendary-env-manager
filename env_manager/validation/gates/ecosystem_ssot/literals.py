@@ -47,15 +47,22 @@ class LiteralRule:
         ]
 
 
-def port_rule(eco: Ecosystem) -> LiteralRule:
-    """Service ports written as ``host:port`` or after a ``port`` key, flag or label.
+PORT_TOKEN_BEFORE = r"(?<![\w.#$-])"
+"""A port token is not the tail of a word, hex value, version, colour or range."""
 
-    A number after ``key: `` (with a space) is a value, not a port, and passes.
+PORT_TOKEN_AFTER = r"(?![\w$]|[.,]\d)"
+"""A port token is not the head of a longer word, unit or decimal number."""
+
+
+def port_rule(eco: Ecosystem) -> LiteralRule:
+    """Any service port written as a standalone number token.
+
+    For a port ``P``: ``:P``, ``}:P``, ``(P)``, ``= P`` and ``P,`` all match;
+    ``1P``, ``P1``, ``0xP``, ``#P``, ``1.P``, ``P.5`` and ``-P`` do not.
+    Code, configuration and tests read ports from the ecosystem file.
     """
     ports = "|".join(str(svc.port) for svc in sorted(eco.services, key=lambda s: s.port))
-    pattern = re.compile(
-        rf"(?:[\w\]]:|\bport\w*[\"']?\s*[:=]?\s*)(?:{ports})(?!\d)", re.IGNORECASE,
-    )
+    pattern = re.compile(rf"{PORT_TOKEN_BEFORE}(?:{ports}){PORT_TOKEN_AFTER}")
     return LiteralRule(PORT_LITERAL, pattern, "service port")
 
 

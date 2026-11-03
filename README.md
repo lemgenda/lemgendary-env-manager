@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.58-STABLE)
+# LemGendary Environment Manager (v16.9.59-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -351,6 +351,18 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.59 - ecosystem_ssot Catches Every Standalone Port Token
+
+- The `ssot_port` rule now flags any service port from `ecosystem.json`
+  written as its own number token in code, configuration and tests:
+  template literals (`${base}:<port>`), calls (`toBe(<port>)`),
+  assignments and list items. It used to need a word character or `]`
+  before the colon, or a `port` label, so `}:<port>` and bare numbers
+  slipped through. Longer numbers, hex, colours, versions, decimals,
+  negative numbers and units still pass. The allowlist is unchanged.
+- `tests/test_server_api.py` reads the expected ports from the ecosystem
+  file.
 
 ### v16.9.58 - Central GUI Manifest Synced; package.json Parity Check
 
