@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.31-STABLE)
+# LemGendary Environment Manager (v16.9.32-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -174,6 +174,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.32 - Python 3.12 Contract and Cross-Platform Git Hooks (D-17, D-18)
+
+- `requires-python` is now `>=3.12`, matching the code (`Path.walk`, `shutil.rmtree(onexc=...)`, `datetime.UTC`), Ruff's `target-version`, and ECOSYSTEM_ARCHITECTURE.md. `bootstrap.MIN_PYTHON` is `(3, 12)` and the launcher asks for Python 3.12+. A test keeps the three values equal.
+- The pre-commit hook finds the project with `git rev-parse --show-toplevel`, so the copy in `.git/hooks` validates the project instead of a project named `.git`. It finds `lem-env` or `python` under `.venv/Scripts` (Windows) or `.venv/bin` (Linux, macOS), so commits no longer fail on POSIX hosts. The Python fallback runs from the env-manager directory instead of building a `PYTHONPATH` with a platform-specific separator.
+- `install_git_hooks` reports a failed `git config core.hooksPath` as a failed install, marks the hook files executable, and takes its project list from `validator.VALIDATION_TARGETS`.
+- `.githooks/pre-commit` is regenerated from the template, and `.gitattributes` keeps `.githooks/*` at LF line endings so `sh` can run the hook after a Windows checkout.
+- New tests: `tests/test_hooks.py`, `tests/test_python_contract.py`.
 
 ### v16.9.31 - One Validation Set, Fail-Closed Gates (D-15, D-16)
 

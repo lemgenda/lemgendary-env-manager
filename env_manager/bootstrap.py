@@ -1,6 +1,6 @@
 """Bootstrap verification and global environment check module.
 
-Ensures Python 3.10+ (preferably 3.12+), pip, git, and venv module
+Ensures Python 3.12+, pip, git, and venv module
 are properly installed and accessible across platforms.
 
 Also checks for MetaTrader 5 installation and surfaces software update
@@ -21,8 +21,11 @@ from env_manager.utils import WINDOWS_NO_WINDOW, run_command_simple
 
 _log = get_logger(__name__)
 
-MIN_PYTHON = (3, 10)
-"""Oldest Python the ecosystem supports."""
+MIN_PYTHON = (3, 12)
+"""Oldest Python the ecosystem supports (``Path.walk``, ``rmtree(onexc=...)``, ``datetime.UTC``).
+
+Keep in sync with ``requires-python`` in ``pyproject.toml``.
+"""
 
 WINERROR_ALIAS_RESOLUTION = 1920
 """WinError raised when an App Execution Alias such as winget cannot be resolved."""
@@ -421,7 +424,7 @@ def verify_prerequisites() -> BootstrapStatus:
     current_os = platform.system().lower()
 
     if not python_valid:
-        missing.append("python>=3.10")
+        missing.append(f"python>={MIN_PYTHON[0]}.{MIN_PYTHON[1]}")
         if current_os == "windows":
             instructions.append("Install Python 3.12 using: winget install Python.Python.3.12")
         elif current_os == "linux":

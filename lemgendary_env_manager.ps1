@@ -1,5 +1,5 @@
 # ==============================================================================
-# LemGendary Environment Manager Hub (v16.9.31)
+# LemGendary Environment Manager Hub (v16.9.32)
 # Authoritative PowerShell orchestrator for cross-platform environments.
 # ==============================================================================
 
@@ -80,7 +80,7 @@ function Initialize-Environment {
     try {
         $GlobalPy = (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     } catch [System.Management.Automation.CommandNotFoundException] {
-        Write-Host "[ERROR] Global Python was not found in PATH. Please install Python 3.10+." -ForegroundColor Red
+        Write-Host "[ERROR] Global Python was not found in PATH. Please install Python 3.12+." -ForegroundColor Red
         exit 1
     }
 
