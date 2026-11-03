@@ -62,7 +62,7 @@ def test_failed_git_config_is_reported(tmp_path: Path) -> None:
     project = tmp_path / "lemgendary-datasets"
     (project / ".git").mkdir(parents=True)
     failed = subprocess.CompletedProcess(args=[], returncode=128, stdout="", stderr="not a repo")
-    with patch("env_manager.hooks.subprocess.run", return_value=failed):
+    with patch("env_manager.hooks.run_command_simple", return_value=failed):
         results = install_git_hooks(base_dir=tmp_path)
     assert results == [(
         "lemgendary-datasets", False,

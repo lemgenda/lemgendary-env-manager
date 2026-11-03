@@ -10,7 +10,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from env_manager.utils import WINDOWS_NO_WINDOW
+from env_manager.utils import run_command_simple
 from env_manager.validator import VALIDATION_TARGETS
 from env_manager.workspace import workspace_root
 
@@ -82,15 +82,8 @@ def _install_one(proj_dir: Path) -> tuple[bool, str]:
     githooks_dir.mkdir(parents=True, exist_ok=True)
     _write_hook(githooks_dir / "pre-commit")
 
-    proc = subprocess.run(
-        ["git", "config", "core.hooksPath", ".githooks"],
-        cwd=str(proj_dir),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-        creationflags=WINDOWS_NO_WINDOW,
+    proc = run_command_simple(
+        ["git", "config", "core.hooksPath", ".githooks"], timeout=30, cwd=proj_dir,
     )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()

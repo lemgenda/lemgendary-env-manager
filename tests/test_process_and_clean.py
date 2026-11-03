@@ -8,7 +8,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from env_manager.utils import purge_project_cache, purge_workspace_caches, stream_process_lines
+from env_manager.utils import (
+    drain_lines,
+    purge_project_cache,
+    purge_workspace_caches,
+    stream_command,
+    stream_process_lines,
+)
 
 
 KILL_DEADLINE_S = 15
@@ -57,6 +63,23 @@ def test_streams_are_kept_apart_and_exit_code_returned() -> None:
                 code = stop.value
     assert sorted(seen) == [("stderr", "err\n"), ("stdout", "out\n")]
     assert code == EXIT_CODE
+
+
+def test_stream_command_yields_lines_and_keeps_streams_apart() -> None:
+    """``stream_command`` yields every line live and returns stdout and stderr separately."""
+    script = f"import sys; print('out'); print('err', file=sys.stderr); sys.exit({EXIT_CODE})"
+    seen: list[str] = []
+    completed = drain_lines(stream_command([sys.executable, "-c", script], 30), seen.append)
+    assert sorted(seen) == ["err", "out"]
+    assert completed.stdout == "out"
+    assert completed.stderr == "err"
+    assert completed.returncode == EXIT_CODE
+
+
+def test_stream_command_raises_when_the_tool_is_missing(tmp_path: Path) -> None:
+    """A command that cannot start raises ``OSError`` for the caller to report."""
+    with pytest.raises(OSError):
+        drain_lines(stream_command([str(tmp_path / "no-such-tool")], 30))
 
 
 def test_clean_keeps_compiled_extension_modules(tmp_path: Path) -> None:

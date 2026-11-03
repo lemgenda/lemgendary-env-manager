@@ -23,6 +23,7 @@ from typing import Any
 import psutil
 
 from env_manager._logging import get_logger
+from env_manager.utils import run_command_simple
 from env_manager.venv_manager import get_venv_python_path
 from env_manager.workspace import workspace_root
 
@@ -312,13 +313,12 @@ def _kill_process_tree(pid: int) -> bool:
         return False
     try:
         if sys.platform == "win32":
-            cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-            res = subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True,
-                check=False,
-                creationflags=cflags,
-            )
+            res = run_command_simple(["taskkill", "/F", "/T", "/PID", str(pid)], timeout=30)
+            if res.returncode != 0:
+                _log.warning(
+                    "taskkill for PID %d exited with %d: %s",
+                    pid, res.returncode, (res.stderr or res.stdout).strip(),
+                )
             return res.returncode == 0
 
         parent = psutil.Process(pid)

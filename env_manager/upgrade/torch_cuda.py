@@ -10,7 +10,7 @@ from env_manager.dependency_resolver import (
 )
 from env_manager.system_probe import HardwareProfile, probe_hardware
 from env_manager.upgrade.models import TORCH_FAMILY, normalize, venv_package_map
-from env_manager.utils import WINDOWS_NO_WINDOW
+from env_manager.utils import run_command_simple
 from env_manager.venv_manager import (
     get_venv_python_path,
     is_venv_valid,
@@ -54,12 +54,10 @@ def verify_torch_cuda_runtime(project_dir: Path) -> tuple[bool, str]:
         return False, "invalid venv"
     python_path = get_venv_python_path(project_dir)
     try:
-        proc = subprocess.run(
+        proc = run_command_simple(
             [str(python_path), "-c",
              "import torch; print(torch.__version__); print(int(torch.cuda.is_available()))"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=60, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
+            timeout=60,
         )
         if proc.returncode != 0:
             return False, (proc.stderr or "torch import failed").strip()[:200]

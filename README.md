@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.46-STABLE)
+# LemGendary Environment Manager (v16.9.47-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.47 - One Subprocess Runner
+
+- Audit: the API routes and the update job runner already call the service layer in-process (`validate_workspace`, `run_full_health_audit`, `build_upgrade_plan`/`apply_upgrade_plan` on a job thread, `sync_all_manifests`, `install_git_hooks`, `purge_workspace_caches`). No route runs `lem-env`, `python -m env_manager` or a repository script as a subprocess, so the HTTP contract is unchanged. The only self-reference is the git pre-commit hook, which runs outside any env-manager process.
+- External tools now go through two runners in `utils`: `run_command_simple` for captured commands and the new `stream_command` for long-running ones with live output. `stream_command` keeps stdout and stderr apart, kills the process tree on timeout and raises launch errors for the caller to report. pip attempts and `npm install` both use it, so the two separate `Popen` blocks are gone.
+- The direct `subprocess.run` calls in `venv_manager` (venv creation), `service_manager` (taskkill), `hooks` (git config), `upgrade/torch_cuda` (CUDA runtime check), `upgrade/npm` (outdated, update), `bug_report/platform` (file manager) and the pip cache purge now use `run_command_simple`. taskkill now has a timeout.
+- Errors that were dropped are now logged: a failed taskkill logs its exit code and output, a failed `pip cache purge` logs its exit code, `npm outdated` with no output and a non-zero exit logs npm's stderr, and a failed `npm install` logs its exit code. The `npm install` result message now lists stdout before stderr.
+- Tests: two new `stream_command` tests (separate streams, launch error); the hook and bug-report tests patch `run_command_simple`.
 
 ### v16.9.46 - Size Gates Enforced
 

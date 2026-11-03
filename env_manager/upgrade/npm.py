@@ -9,7 +9,7 @@ from env_manager._logging import get_logger
 from env_manager.dependency_resolver import (
     OutdatedPackage,
 )
-from env_manager.utils import WINDOWS_NO_WINDOW
+from env_manager.utils import run_command_simple
 
 _log = get_logger(__name__)
 
@@ -22,13 +22,13 @@ def find_npm_outdated(project_dir: Path) -> list[OutdatedPackage]:
     if not (project_dir / "package.json").exists():
         return []
     try:
-        proc = subprocess.run(
-            [npm_path, "outdated", "--json"],
-            cwd=str(project_dir),
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=90, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
-        )
+        proc = run_command_simple([npm_path, "outdated", "--json"], timeout=90, cwd=project_dir)
+        # npm outdated exits 1 whenever something is outdated; only output tells.
+        if not proc.stdout.strip() and proc.returncode != 0:
+            _log.warning(
+                "npm outdated for %s exited with %d: %s",
+                project_dir, proc.returncode, proc.stderr.strip(),
+            )
         if proc.stdout.strip():
             data = json.loads(proc.stdout.strip())
             if not isinstance(data, dict):
@@ -55,13 +55,7 @@ def apply_npm_update(project_dir: Path) -> tuple[bool, str]:
     if not npm_path:
         return False, "npm not found on PATH."
     try:
-        proc = subprocess.run(
-            [npm_path, "update"],
-            cwd=str(project_dir),
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=300, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
-        )
+        proc = run_command_simple([npm_path, "update"], timeout=300, cwd=project_dir)
         if proc.returncode == 0:
             return True, proc.stdout
         return False, proc.stderr or proc.stdout or "npm update failed."

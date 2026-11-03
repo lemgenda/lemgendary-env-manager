@@ -14,9 +14,11 @@ from pathlib import Path
 from typing import Final, Protocol
 from urllib.parse import quote
 
+from env_manager.utils import run_command_simple
+
 _log = logging.getLogger("env_manager.bug_report.platform")
 
-_LAUNCH_TIMEOUT_S: Final[float] = 15.0
+_LAUNCH_TIMEOUT_S: Final[int] = 15
 
 
 class PlatformAdapter(Protocol):
@@ -61,9 +63,7 @@ class SystemPlatformAdapter:
         """Show ``path`` in the platform file manager; return True if it launched."""
         command = self._reveal_command(path)
         try:
-            result = subprocess.run(
-                command, check=False, capture_output=True, timeout=_LAUNCH_TIMEOUT_S
-            )
+            result = run_command_simple(command, timeout=_LAUNCH_TIMEOUT_S)
         except (OSError, subprocess.SubprocessError) as exc:
             _log.warning("Could not open the file manager (%s): %s", command[0], exc)
             return False
@@ -77,7 +77,7 @@ class SystemPlatformAdapter:
                 "%s exited with %s: %s",
                 command[0],
                 result.returncode,
-                result.stderr.decode("utf-8", errors="replace").strip(),
+                result.stderr.strip(),
             )
             return False
         return True

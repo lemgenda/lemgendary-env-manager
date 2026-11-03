@@ -13,7 +13,7 @@ from typing import Any
 from collections.abc import Callable, Generator
 
 from env_manager._logging import get_logger
-from env_manager.utils import WINDOWS_NO_WINDOW, drain_lines, pip_env, stream_process_lines
+from env_manager.utils import drain_lines, pip_env, stream_command
 from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
@@ -125,32 +125,20 @@ def stream_npm_install(
         return False, "NPM executable not found on system PATH."
 
     try:
-        with subprocess.Popen(
-            [npm_path, "install"],
-            cwd=str(package_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=pip_env(),
-            creationflags=WINDOWS_NO_WINDOW,
-        ) as proc:
-            lines: list[str] = []
-            for _, raw_line in stream_process_lines(proc, timeout):
-                stripped = raw_line.strip()
-                if stripped:
-                    lines.append(stripped)
-                    yield stripped
-            if proc.returncode == 0:
-                return True, "\n".join(lines) or "ok"
-            return False, "\n".join(lines) or "NPM install failed."
+        completed = yield from stream_command(
+            [npm_path, "install"], timeout, cwd=package_dir, env=pip_env(),
+        )
     except subprocess.TimeoutExpired as exc:
         _log.warning("npm install in %s timed out after %ss", package_dir, timeout)
         return False, f"npm install timed out after {timeout}s: {exc}"
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError) as exc:
         _log.warning("npm install in %s could not be run: %s", package_dir, exc)
         return False, str(exc)
+    output = "\n".join(t for t in (completed.stdout.strip(), completed.stderr.strip()) if t)
+    if completed.returncode == 0:
+        return True, output or "ok"
+    _log.warning("npm install in %s exited with %d", package_dir, completed.returncode)
+    return False, output or "NPM install failed."
 
 
 def run_npm_install(

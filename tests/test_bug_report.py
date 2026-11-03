@@ -350,8 +350,8 @@ class PlatformAdapterTests(unittest.TestCase):
         }
         for platform, command in expected.items():
             with self.subTest(platform=platform), mock.patch(
-                "env_manager.bug_report.platform.subprocess.run",
-                return_value=mock.Mock(returncode=1, stderr=b"err"),
+                "env_manager.bug_report.platform.run_command_simple",
+                return_value=mock.Mock(returncode=1, stderr="err"),
             ) as run:
                 revealed = SystemPlatformAdapter(platform).reveal_in_file_manager(target)
                 self.assertEqual(run.call_args.args[0], command)
@@ -360,7 +360,7 @@ class PlatformAdapterTests(unittest.TestCase):
 
     def test_reveal_launch_error_returns_false(self) -> None:
         """A reveal command that cannot launch returns False."""
-        with mock.patch("env_manager.bug_report.platform.subprocess.run",
+        with mock.patch("env_manager.bug_report.platform.run_command_simple",
                         side_effect=FileNotFoundError("xdg-open")):
             self.assertFalse(SystemPlatformAdapter("linux").reveal_in_file_manager(Path("x")))
 
