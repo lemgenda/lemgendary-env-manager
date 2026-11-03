@@ -1,12 +1,12 @@
 # ==============================================================================
-# LemGendary Environment Manager Hub (v16.9.32)
+# LemGendary Environment Manager Hub (v16.9.33)
 # Authoritative PowerShell orchestrator for cross-platform environments.
 # ==============================================================================
 
 [CmdletBinding()]
 param (
     [Parameter(Position = 0)]
-    [ValidateSet("probe", "audit", "install", "update", "sync", "validate", "serve", "menu")]
+    [ValidateSet("probe", "audit", "install", "update", "sync", "validate", "clean", "setup-hooks", "hooks", "serve", "menu")]
     [string]$Command = "menu",
 
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -16,7 +16,13 @@ param (
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvDir = Join-Path $ScriptDir ".venv"
-$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+# Windows venvs keep the interpreter in Scripts\python.exe; Linux and macOS
+# (PowerShell 7) use bin/python.
+if ($IsWindows -or $env:OS -eq "Windows_NT") {
+    $VenvPython = Join-Path (Join-Path $VenvDir "Scripts") "python.exe"
+} else {
+    $VenvPython = Join-Path (Join-Path $VenvDir "bin") "python"
+}
 $VenvCfg = Join-Path $VenvDir "pyvenv.cfg"
 
 function Invoke-Checked {
@@ -77,9 +83,17 @@ function Initialize-Environment {
         }
     }
 
-    try {
-        $GlobalPy = (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-    } catch [System.Management.Automation.CommandNotFoundException] {
+    # Linux and macOS often install the interpreter only as python3.
+    $GlobalPy = $null
+    foreach ($PyName in @("python", "python3")) {
+        try {
+            $GlobalPy = (Get-Command $PyName -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            break
+        } catch [System.Management.Automation.CommandNotFoundException] {
+            Write-Verbose "'$PyName' is not on PATH."
+        }
+    }
+    if ($null -eq $GlobalPy) {
         Write-Host "[ERROR] Global Python was not found in PATH. Please install Python 3.12+." -ForegroundColor Red
         exit 1
     }
@@ -98,15 +112,8 @@ Initialize-Environment
 
 # ── Non-interactive mode (CLI passthrough) ────────────────────────────────────
 if ($Command -ne "menu") {
-    switch ($Command) {
-        "probe"    { & $VenvPython -m env_manager.cli probe @RemainingArgs }
-        "audit"    { & $VenvPython -m env_manager.cli audit @RemainingArgs }
-        "install"  { & $VenvPython -m env_manager.cli install @RemainingArgs }
-        "update"   { & $VenvPython -m env_manager.cli update @RemainingArgs }
-        "sync"     { & $VenvPython -m env_manager.cli sync @RemainingArgs }
-        "validate" { & $VenvPython -m env_manager.cli validate @RemainingArgs }
-        "serve"    { & $VenvPython -m env_manager.cli serve @RemainingArgs }
-    }
+    # Every ValidateSet value except "menu" is a lem-env command of the same name.
+    & $VenvPython -m env_manager.cli $Command @RemainingArgs
     exit $LASTEXITCODE
 }
 
@@ -177,7 +184,7 @@ do {
                 Write-Host "[OK] Server stopped." -ForegroundColor Green
             } else {
                 Write-Host "[Option 6] Launching API Sidecar Server in background..." -ForegroundColor Cyan
-                Write-Host "  REST API:  http://127.0.0" -ForegroundColor Gray
+                Write-Host "  REST API:  http://127.0.0.1:8000" -ForegroundColor Gray
                 Write-Host "  WebSocket: ws://127.0.0.1:8000/ws/log" -ForegroundColor Gray
                 $VenvPythonLocal = $VenvPython
                 $ServerJob = Start-Job -ScriptBlock {

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.32-STABLE)
+# LemGendary Environment Manager (v16.9.33-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -174,6 +174,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.33 - Launcher Completes D-19
+
+- `lemgendary_env_manager.ps1` accepts every `lem-env` command (`clean`, `setup-hooks` and `hooks` were missing from its `ValidateSet`) and passes the command straight through, so the list cannot drift from the CLI again. A test compares the `ValidateSet` with the Typer commands.
+- The venv interpreter is `.venv\Scripts\python.exe` on Windows and `.venv/bin/python` under PowerShell 7 on Linux and macOS; the bootstrap looks for `python` and then `python3`.
+- The sidecar banner prints the full URL `http://127.0.0.1:8000` (it was cut to `http://127.0.0`).
+- New tests: `tests/test_launcher.py`.
 
 ### v16.9.32 - Python 3.12 Contract and Cross-Platform Git Hooks (D-17, D-18)
 
