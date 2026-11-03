@@ -227,6 +227,11 @@ def probe_directml() -> list[AcceleratorDevice]:
 
 # ─── MetaTrader 5 detection ─────────────────────────────────────────────────
 
+def ps_quote(value: str) -> str:
+    """Return ``value`` as a single-quoted PowerShell literal (``'`` doubled)."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _read_exe_version(exe_path: Path) -> str | None:
     """Extract FileVersion from a Windows PE executable in-process without spawning consoles."""
     if not exe_path.is_file():
@@ -263,7 +268,7 @@ def _read_exe_version(exe_path: Path) -> str | None:
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        f"(Get-Item -LiteralPath '{exe_path}').VersionInfo.FileVersion",
+        f"(Get-Item -LiteralPath {ps_quote(str(exe_path))}).VersionInfo.FileVersion",
     ]
     try:
         proc = subprocess.run(
@@ -345,16 +350,16 @@ def _mt5_registry_probe() -> MetaTrader5Info | None:
     return None
 
 
-def _mt5_known_paths_probe() -> MetaTrader5Info | None:
+def mt5_known_paths_probe() -> MetaTrader5Info | None:
     """Check well-known install locations for the MT5 terminal binary."""
-    prog_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-    prog_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    local_appdata = os.environ.get("LOCALAPPDATA", "")
-
+    # Install roots come only from the environment; there is no hardcoded
+    # drive-letter fallback.
     candidates = [
-        Path(prog_files) / "MetaTrader 5" / "terminal64.exe",
-        Path(prog_files_x86) / "MetaTrader 5" / "terminal64.exe",
+        Path(root) / "MetaTrader 5" / "terminal64.exe"
+        for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"))
+        if root
     ]
+    local_appdata = os.environ.get("LOCALAPPDATA", "")
     if local_appdata:
         candidates.append(Path(local_appdata) / "Programs" / "MetaTrader 5" / "terminal64.exe")
         candidates.append(Path(local_appdata) / "MetaQuotes" / "Terminal" / "terminal64.exe")
@@ -442,7 +447,7 @@ def probe_metatrader5() -> MetaTrader5Info:
         )
         return info
 
-    info = _mt5_known_paths_probe()
+    info = mt5_known_paths_probe()
     if info is not None:
         _log.debug(
             "MT5 detected via known path: %s version=%s",

@@ -18,7 +18,6 @@ through every endpoint manually.
 
 import asyncio
 import json
-import logging
 import os
 import signal
 import threading
@@ -50,6 +49,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from env_manager import __version__
+from env_manager._logging import get_logger
 from env_manager.bug_report import (
     DEFAULT_SETTINGS as BUG_REPORT_SETTINGS,
     BugReportFields,
@@ -94,7 +94,7 @@ from env_manager.workspace import ENV_MANAGER_DIR, workspace_root
 # OSError (uvicorn's ClientDisconnected) for a dropped transport.
 _WEBSOCKET_GONE_ERRORS = (WebSocketDisconnect, RuntimeError, OSError)
 
-_log = logging.getLogger("env_manager.server")
+_log = get_logger(__name__)
 
 
 # ─── WebSocket connection manager ──────────────────────────────────────────
@@ -162,32 +162,29 @@ def _publish_pipeline_event(ev_dict: dict[str, Any], loop: asyncio.AbstractEvent
     """Record a pipeline event and broadcast it to WebSocket clients."""
     stamped = record_event(ev_dict)
     asyncio.run_coroutine_threadsafe(manager.broadcast(stamped), loop)
-_event_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 orchestrator = PipelineOrchestrator()
 
 
-async def _drain_event_queue():
-    while True:
-        ev = await _event_queue.get()
-        await manager.broadcast(ev)
-        _event_queue.task_done()
+def _log_sidecar_startup(future: "asyncio.Future[dict[str, Any]]") -> None:
+    """Log the outcome of the startup sidecar launch, including any exception."""
+    if future.cancelled():
+        _log.info("Sidecar startup was cancelled.")
+        return
+    exc = future.exception()
+    if exc is not None:
+        _log.error("Starting the ecosystem sidecars failed: %s", exc, exc_info=exc)
+        return
+    for service_id, outcome in future.result().items():
+        _log.info("Sidecar %s at startup: %s", service_id, outcome)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    """Start the event drainer and the sidecar services; cancel the drainer on shutdown."""
-    drain_task = asyncio.create_task(_drain_event_queue())
-    # Automatically ensure tripartite sidecars are started on startup
+    """Start the ecosystem sidecars in the background; their outcome is logged."""
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, start_all_services)
-    try:
-        yield
-    finally:
-        drain_task.cancel()
-        try:
-            await drain_task
-        except asyncio.CancelledError:
-            _log.debug("Drain event queue task cancelled cleanly during shutdown.")
+    startup = loop.run_in_executor(None, start_all_services)
+    startup.add_done_callback(_log_sidecar_startup)
+    yield
 
 
 app = FastAPI(

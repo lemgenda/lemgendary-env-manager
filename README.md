@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.33-STABLE)
+# LemGendary Environment Manager (v16.9.34-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -174,6 +174,16 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.34 - Contract and Hygiene Fixes (D-20)
+
+- Dead code removed: the never-fed `_event_queue` and its drain task in `server.py`, and the unused `create_safe_upgrade_plan`, `apply_safe_upgrades`, `_pip_dry_run` and `DependencyResolutionPlan` in `dependency_resolver.py`.
+- The startup launch of the sidecars is no longer fire-and-forget: its result, or its exception, is logged when it finishes.
+- The server logger is `lem_env.server`, inside the configured `lem_env` hierarchy, so its records reach the configured handler and level.
+- `stop_service` handles `psutil.AccessDenied` from `net_connections` (macOS without elevated rights) instead of raising.
+- `discover_projects` runs each venv interpreter once (it ran `python --version` three times per project); validity and version come from one call.
+- The MetaTrader 5 path probe uses only `ProgramFiles`, `ProgramFiles(x86)` and `LOCALAPPDATA`; the hardcoded `C:\Program Files` fallbacks are gone. The PowerShell version query quotes the path with `system_probe.ps_quote`, which escapes `'`.
+- New tests: `tests/test_hygiene.py`.
 
 ### v16.9.33 - Launcher Completes D-19
 

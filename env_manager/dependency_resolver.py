@@ -35,19 +35,6 @@ class OutdatedPackage:
         return asdict(self)
 
 
-@dataclass
-class DependencyResolutionPlan:
-    """Plan for safe package upgrades."""
-    project_name: str
-    outdated_packages: list[OutdatedPackage]
-    safe_upgrades: list[str]
-    has_updates: bool
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the fields as a plain dict for JSON output."""
-        return asdict(self)
-
-
 # ─── Normalization helpers ──────────────────────────────────────────────────
 
 def _normalize(name: str) -> str:
@@ -596,64 +583,3 @@ def classify_safe_upgrades(
                 blocked.append((pkg, "no safe resolution available"))
 
     return safe, blocked
-
-
-# ─── Legacy helpers ─────────────────────────────────────────────────────────
-
-def create_safe_upgrade_plan(project_dir: Path) -> DependencyResolutionPlan:
-    """Plan upgrades for the outdated packages that are safe to install."""
-    raw = find_outdated_packages(project_dir)
-    safe, _ = classify_safe_upgrades(project_dir, raw)
-    return DependencyResolutionPlan(
-        project_name=project_dir.name,
-        outdated_packages=raw,
-        safe_upgrades=[pkg.name for pkg in safe],
-        has_updates=len(raw) > 0,
-    )
-
-
-def apply_safe_upgrades(project_dir: Path, packages: list[str]) -> tuple[bool, str]:
-    """Upgrade ``packages`` in the project venv; return (ok, pip output)."""
-    if not is_venv_valid(project_dir) or not packages:
-        return True, "No packages to upgrade or environment invalid."
-    python_path = get_venv_python_path(project_dir)
-    proc = run_pip_with_recovery(
-        python_path, ["install", "--upgrade", *packages], timeout=900,
-    )
-    if proc.returncode == 0:
-        return True, proc.stdout
-    return False, proc.stderr or proc.stdout or "Pip upgrade failed."
-
-
-def _pip_dry_run(
-    project_dir: Path,
-    packages: list[str],
-    index_url: str | None = None,
-    extra_index_url: str | None = None,
-    timeout: int = 300,
-) -> tuple[bool, dict[str, str], str]:
-    """Simple (non-constraint) dry-run. Kept for backward compatibility."""
-    if not is_venv_valid(project_dir) or not packages:
-        return True, {}, "nothing to do"
-
-    python_path = get_venv_python_path(project_dir)
-    args = [
-        "install", "--dry-run", "--upgrade",
-        "--upgrade-strategy", "only-if-needed",
-        "--report", "-", "--quiet",
-    ]
-    if index_url:
-        args.extend(["--index-url", index_url])
-    if extra_index_url:
-        args.extend(["--extra-index-url", extra_index_url])
-    args.extend(packages)
-
-    proc = run_pip_with_recovery(python_path, args, timeout=timeout)
-    _log_pip_stderr(proc.stderr, "install --dry-run", project_dir)
-    if proc.returncode != 0:
-        return False, {}, (proc.stderr or proc.stdout or "")[-300:]
-
-    report = _parse_pip_report(proc.stdout)
-    if report is None:
-        return False, {}, "pip dry-run report could not be parsed"
-    return True, _would_install_from_report(report), "ok"

@@ -388,7 +388,13 @@ def stop_service(service_id: str) -> dict[str, Any]:
 
     # If still listening on port, terminate the process holding the port and all descendants
     if not terminated and is_port_in_use(port):
-        for conn in psutil.net_connections(kind="inet"):
+        try:
+            connections = psutil.net_connections(kind="inet")
+        except psutil.AccessDenied as exc:
+            # macOS needs elevated rights to list other processes' sockets.
+            _log.warning("Cannot list sockets to find the process on port %d: %s", port, exc)
+            connections = []
+        for conn in connections:
             if conn.laddr and conn.laddr.port == port and conn.pid:
                 terminated = _kill_process_tree(conn.pid)
                 if terminated:

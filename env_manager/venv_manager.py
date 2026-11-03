@@ -63,34 +63,34 @@ def get_venv_python_path(project_dir: Path) -> Path:
     return venv_dir / python_subfolder / python_exe_name
 
 
-def is_venv_valid(project_dir: Path) -> bool:
-    """True when ``.venv`` has a ``pyvenv.cfg`` and an interpreter that runs."""
-    venv_dir = project_dir / ".venv"
-    python_path = get_venv_python_path(project_dir)
+def _probe_venv_python(project_dir: Path) -> str | None:
+    """Run the venv interpreter once; return its ``--version`` text, or None if invalid.
 
-    cfg_path = venv_dir / "pyvenv.cfg"
-    if not cfg_path.exists() or not python_path.exists() or not python_path.is_file():
-        return False
+    A venv is valid when ``.venv`` has a ``pyvenv.cfg`` and an interpreter
+    that runs.
+    """
+    python_path = get_venv_python_path(project_dir)
+    cfg_path = project_dir / ".venv" / "pyvenv.cfg"
+    if not cfg_path.exists() or not python_path.is_file():
+        return None
     try:
         proc = run_command_simple([str(python_path), "--version"])
-        return proc.returncode == 0
     except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("venv python --version check failed for %s: %s", project_dir, exc)
-        return False
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip() or proc.stderr.strip()
+
+
+def is_venv_valid(project_dir: Path) -> bool:
+    """True when ``.venv`` has a ``pyvenv.cfg`` and an interpreter that runs."""
+    return _probe_venv_python(project_dir) is not None
 
 
 def get_venv_python_version(project_dir: Path) -> str | None:
     """Return the venv interpreter version, or None when the venv is invalid."""
-    if not is_venv_valid(project_dir):
-        return None
-    python_path = get_venv_python_path(project_dir)
-    try:
-        proc = run_command_simple([str(python_path), "--version"])
-        if proc.returncode == 0:
-            return proc.stdout.strip()
-    except (OSError, subprocess.SubprocessError) as exc:
-        _log.warning("venv python version query failed for %s: %s", project_dir, exc)
-    return None
+    return _probe_venv_python(project_dir)
 
 
 def _handle_remove_readonly(func, path, exc):
@@ -243,8 +243,12 @@ def get_installed_packages(project_dir: Path) -> dict[str, str]:
     """Return ``{name: version}`` for the venv's packages, or ``{}`` when invalid."""
     if not is_venv_valid(project_dir):
         return {}
-    python_path = get_venv_python_path(project_dir)
+    return _pip_list(project_dir)
 
+
+def _pip_list(project_dir: Path) -> dict[str, str]:
+    """Return ``{name: version}`` from ``pip list`` in a venv already known to be valid."""
+    python_path = get_venv_python_path(project_dir)
     proc = run_pip_with_recovery(
         python_path, ["list", "--format=json"], timeout=30,
     )
@@ -385,10 +389,11 @@ def discover_projects(base_dir: Path | None = None) -> list[ProjectVenvInfo]:
         p_dir = base_dir / proj_name
         if p_dir.exists() and p_dir.is_dir():
             v_dir = p_dir / ".venv"
-            valid = is_venv_valid(p_dir)
+            # One interpreter run per project: validity and version together.
+            py_ver = _probe_venv_python(p_dir)
+            valid = py_ver is not None
             py_path = str(get_venv_python_path(p_dir)) if valid else None
-            py_ver = get_venv_python_version(p_dir) if valid else None
-            pkgs = get_installed_packages(p_dir) if valid else {}
+            pkgs = _pip_list(p_dir) if valid else {}
 
             discovered.append(
                 ProjectVenvInfo(
