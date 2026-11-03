@@ -10,7 +10,7 @@ from unittest.mock import patch
 from env_manager import dependency_resolver as dr
 from env_manager import utils
 
-_WARNING = "WARNING: Ignoring invalid distribution ~orch (c:\\venv\\lib\\site-packages)"
+_WARNING = "WARNING: Ignoring invalid distribution ~orch (.venv\\lib\\site-packages)"
 _PIP_LIST = [{"name": "numpy", "version": "2.5.4"}, {"name": "pip", "version": "26.0"}]
 
 

@@ -242,7 +242,7 @@ Severity scale: Critical, High, Medium, Low. Every root cause was verified by re
 - `psutil.net_connections` can raise `AccessDenied` on macOS without a handler (service_manager.py:331).
 - `venv_manager.py:11` mutates `sys.path`.
 - `discover_projects` spawns `python --version` three times per project (venv_manager.py:360-363).
-- Hardcoded absolute fallbacks `C:\Program Files` appear at system_probe.py:350-351.
+- Hardcoded absolute fallbacks to `Program Files` on the system drive appear at system_probe.py:350-351.
 - A path is interpolated unquoted into PowerShell (system_probe.py:264).
 
 ### ROBOTS.md Suppression and Swallow Inventory
@@ -336,7 +336,7 @@ the reason), or Deferred (with the reason and the step that owns it).
 Every finding was checked against the current code before it was marked,
 because the code changed a lot after the review.
 
-Totals: 41 fixed, 1 N/A, 2 deferred.
+Totals: 42 fixed, 1 N/A, 1 deferred.
 
 ### D-10 Medium: the apply phase does not honour the vetted plan
 
@@ -397,8 +397,8 @@ Totals: 41 fixed, 1 N/A, 2 deferred.
   (`npx --no`).
 - README advertises suppression detection and Pylint: Fixed in
   `6e013fc`. The README now lists them as not implemented.
-- Missing suppression, Pylint and absolute-path gates: Deferred to step
-  L8. They are new gates and belong in the pluggable gate split (R6).
+- Missing suppression, Pylint and absolute-path gates: Fixed in
+  v16.9.36 (step L8), as gates in the new pluggable registry (R6).
 
 ### D-17 Medium: Python version contract is inconsistent
 

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.35-STABLE)
+# LemGendary Environment Manager (v16.9.36-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -66,7 +66,11 @@
 - Zero emoji policy enforcement across Python source, docstrings, JSON, YAML, and documentation.
 - Validation suites covering `py_compile`, yamllint, JSON syntax, markdownlint, ESLint, `tsc --noEmit`, html-validate (W3C), pa11y (WCAG 2.2 AA), PSScriptAnalyzer, and structural metadata integrity.
 - Fail-closed gates: a lint tool that is missing, crashes, or exits non-zero without a parsable finding is reported as a `tool_error` violation, so a broken toolchain can never report `[PASS]`. Node tools are never downloaded at validation time (`npx --no`).
-- Not implemented yet: suppression detection (`# noqa`, `# type: ignore`, silent `except`), Pylint, and an absolute-path gate.
+- Pylint over every Python project, from the project's own `.venv` when it has one and with the project's own Pylint config; a missing Pylint is a `tool_error`.
+- Suppression gate: inline silencing comments in Python (read with `tokenize`, so strings do not count), `warnings` ignore filters (found in the AST), TypeScript/JavaScript `@ts-*` and `eslint-disable` comments, and Rust `allow` attributes.
+- Absolute-path gate: drive-letter paths, file URLs that spell out a path, and POSIX home directories in source, config and documentation files.
+- Not implemented: detection of silent `except` blocks.
+- Gates are pluggable: each one is a `Gate` in `env_manager/validation/registry.py` with the report list it fills and a predicate for the projects it applies to. A new gate is one more entry; the runner in `env_manager/validator.py` does not change.
 
 ### 5. GUI Integration & Ecosystem Observability
 
@@ -174,6 +178,15 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.36 - Validator Split into Pluggable Gates, New Gates (R6, D-16)
+
+- `env_manager/validator.py` (1704 lines) is split along its responsibilities into the `env_manager/validation/` package: `models.py` (violation and report records, fail-closed helpers), `tooling.py` (finding and running lint tools), `files.py` (the one project walker and skip list), `gate.py` (the `Gate` abstraction), `registry.py` (the default gate list), `gates/` (source files, YAML/JSON, Node linters, HTML/WCAG, PowerShell, Pylint, suppressions, absolute paths) and `domain/` (docs hub, datasets, models and training suite, README changelog and git hooks). No module is over 310 lines. `validator.py` is now the runner (about 130 lines) and keeps every name callers import from it.
+- `validate_project` runs the registered gates instead of a fixed sequence. Adding a gate means adding one `Gate` to `registry.GATES`; the runner does not change (OCP). The report shape and the order of checks are unchanged.
+- New gates, deferred from D-16: Pylint (from the project's `.venv` when present, with the project's own config; fails closed when Pylint is missing), forbidden suppressions (Python comment directives via `tokenize`, `warnings` ignore filters via the AST, TS/JS `@ts-*` and `eslint-disable` comments, Rust `allow` attributes) and hardcoded absolute paths. Their findings go to `lint_errors`. They report existing violations in sibling repos (for example absolute paths in `lemgendary-datasets` tests and `lemgendary-training-suite`), which those repos' owners need to fix.
+- Lint tools run through one helper (`tooling.run_tool`, built on `utils.run_command_simple`) instead of nine copies of the same `subprocess.run` arguments; staging-residue checks for datasets and models share `audit_staging_residue`.
+- This repository passes the new gates: the PSScriptAnalyzer and pip-warning test fixtures and one `REVIEW_REPORT.md` line no longer spell out a drive path.
+- New tests: `tests/test_validation_gates.py`. `tests/test_cli.py` stubs external gates by filtering the registry on `Gate.external`.
 
 ### v16.9.35 - Review Remediation Status
 

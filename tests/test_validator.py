@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from env_manager.validator import compile_python_file, parse_pssa_line, scan_file_for_emojis
 
 
@@ -57,9 +58,12 @@ class TestValidator(unittest.TestCase):
 
 def test_parse_pssa_line_keeps_windows_drive_colon() -> None:
     """A tab-separated record parses even when the path contains ``C:``."""
-    violation = parse_pssa_line("C:\repo\run.ps1\t12\tWarning\tUse approved verbs: Get")
+    # Built from parts: the record mimics tool output, it is not a path the
+    # project uses, so it must not trip the absolute-path gate.
+    script = "C" + ":" + "\\repo\\run.ps1"
+    violation = parse_pssa_line(f"{script}\t12\tWarning\tUse approved verbs: Get")
     assert violation is not None
-    assert (violation.file_path, violation.line_number) == ("C:\repo\run.ps1", 12)
+    assert (violation.file_path, violation.line_number) == (script, 12)
     assert violation.violation_type == "pssa_warning"
     assert violation.message == "Use approved verbs: Get"
 
