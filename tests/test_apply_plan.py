@@ -1,5 +1,6 @@
 """The apply phase installs exactly the vetted plan (REVIEW_REPORT D-10)."""
 
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,6 +39,7 @@ class TestApplyUpgradePlan(unittest.TestCase):
     """``apply_upgrade_plan`` honours the vetted plan."""
 
     def setUp(self) -> None:
+        self.ws = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.batch = patch(
             f"{APPLY}.apply_batch_with_rollback", return_value=(True, "ok", False),
         ).start()
@@ -55,20 +57,20 @@ class TestApplyUpgradePlan(unittest.TestCase):
     def test_candidates_are_pinned_to_the_vetted_version(self) -> None:
         """Each safe package is installed as ``name==latest_version``."""
         plan = _plan([OutdatedPackage("rich", "13.0.0", "13.1.0", "pip")], None)
-        list(apply_upgrade_plan(plan, Path("ws")))
+        list(apply_upgrade_plan(plan, self.ws))
         self.assertEqual(self.batch.call_args.args[1], ["rich==13.1.0"])
 
     def test_no_torch_reinstall_without_torch_candidates(self) -> None:
         """A GPU host with no torch candidates in the plan does not reinstall torch."""
         plan = _plan([OutdatedPackage("rich", "13.0.0", "13.1.0", "pip")], CUDA_INDEX)
-        list(apply_upgrade_plan(plan, Path("ws")))
+        list(apply_upgrade_plan(plan, self.ws))
         self.torch.assert_not_called()
 
     def test_torch_candidates_use_the_plan_index_and_pins(self) -> None:
         """Torch candidates install pinned from the CUDA index stored in the plan."""
         plan = _plan([OutdatedPackage("torch", "2.14.0", "2.15.0+cu126", "wheel-cuda")],
                      CUDA_INDEX)
-        events = list(apply_upgrade_plan(plan, Path("ws")))
+        events = list(apply_upgrade_plan(plan, self.ws))
         self.torch.assert_called_once()
         self.assertEqual(self.torch.call_args.args[1:], (CUDA_INDEX, ["torch==2.15.0+cu126"]))
         self.assertIn("upgraded", [e.status for e in events])
@@ -76,7 +78,7 @@ class TestApplyUpgradePlan(unittest.TestCase):
     def test_cpu_host_applies_torch_in_the_regular_batch(self) -> None:
         """Without a GPU index, a vetted torch candidate goes in the pinned pip batch."""
         plan = _plan([OutdatedPackage("torch", "2.14.0", "2.15.0", "pip")], None)
-        list(apply_upgrade_plan(plan, Path("ws")))
+        list(apply_upgrade_plan(plan, self.ws))
         self.torch.assert_not_called()
         self.assertEqual(self.batch.call_args.args[1], ["torch==2.15.0"])
 
@@ -86,7 +88,7 @@ class TestApplyUpgradePlan(unittest.TestCase):
         plan = _plan([OutdatedPackage("torch", "2.14.0", "2.15.0+cu126", "wheel-cuda")],
                      CUDA_INDEX)
         with patch(f"{APPLY}._restore_freeze", return_value=(True, "ok")) as restore:
-            events = list(apply_upgrade_plan(plan, Path("ws")))
+            events = list(apply_upgrade_plan(plan, self.ws))
         restore.assert_called_once()
         failed = [e for e in events if e.package == "torch-family"]
         self.assertIn("rolled back", failed[0].message)
@@ -97,11 +99,12 @@ class TestBatchRollback(unittest.TestCase):
 
     def test_install_failure_rolls_back(self) -> None:
         """A pip install that fails part-way is rolled back."""
+        ws = Path(self.enterContext(tempfile.TemporaryDirectory()))
         with patch(f"{APPLY}._snapshot_freeze", return_value="rich==13.0.0\n"), \
                 patch(f"{APPLY}._apply_pip_upgrade", return_value=(False, "boom")), \
                 patch(f"{APPLY}._restore_freeze",
                       return_value=(True, "ok")) as restore:
-            ok, msg, rolled_back = apply_batch_with_rollback(Path("ws"), ["rich==13.1.0"])
+            ok, msg, rolled_back = apply_batch_with_rollback(ws, ["rich==13.1.0"])
         self.assertFalse(ok)
         self.assertTrue(rolled_back)
         self.assertIn("pip install failed", msg)

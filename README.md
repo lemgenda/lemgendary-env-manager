@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.52-STABLE)
+# LemGendary Environment Manager (v16.9.53-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -347,6 +347,17 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.53 - PSScriptAnalyzer Gate Runs Again; Test Temp Workspace
+
+- The PSScriptAnalyzer gate piped a `foreach` statement into
+  `ForEach-Object`, which PowerShell rejects ("An empty pipe element is not
+  allowed"), so the gate never analysed a script and only reported a tool
+  failure. The file list is now piped through `Where-Object` and
+  `ForEach-Object`, and the gate reports real findings.
+- `tests/test_apply_plan.py` used a relative `ws` folder as the workspace,
+  which left an empty `ws/` tree in the repository after each run. The tests
+  now use a temporary directory.
 
 ### v16.9.52 - SSOT Gate at Error Severity (ENV-3)
 
