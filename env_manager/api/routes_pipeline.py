@@ -18,7 +18,7 @@ from env_manager.api.state import (
     recent_events_snapshot,
 )
 from env_manager.update_jobs import UpdateAlreadyRunningError
-from env_manager.updater import UPGRADE_ORDER, build_upgrade_plan
+from env_manager.updater import build_upgrade_plan, upgrade_order
 from env_manager.workspace import workspace_root
 
 router = APIRouter()
@@ -121,7 +121,10 @@ async def run_pipeline_step(request: RunStepRequest):
     if not 1 <= request.step_number <= orchestrator.total_steps:
         return {
             "status": "error",
-            "message": f"Invalid step number: {request.step_number}. Must be between 1 and 7.",
+            "message": (
+                f"Invalid step number: {request.step_number}. "
+                f"Must be between 1 and {orchestrator.total_steps}."
+            ),
         }
     refusal = _claim_pipeline("Pipeline or step is already running.")
     if refusal is not None:
@@ -149,7 +152,7 @@ async def run_update(request: UpdateRequest | None = None):
     ``/ws/log`` and readable at ``GET /api/update/status``.
     """
     request = request or UpdateRequest()
-    if request.project is not None and request.project not in UPGRADE_ORDER:
+    if request.project is not None and request.project not in upgrade_order():
         raise HTTPException(status_code=404, detail=f"Unknown project: {request.project}")
 
     if request.dry_run:

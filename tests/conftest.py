@@ -14,22 +14,17 @@ from pathlib import Path
 
 import pytest
 
+from env_manager.ecosystem import ecosystem
 from env_manager.workspace import WORKSPACE_ROOT_ENV
 
 _README = "# {name}\n\nFixture repository.\n\n## Changelog\n\n### v1.0.0\n\n- Fixture.\n"
 
-_PYTHON_PROJECTS = (
-    "lemgendary-env-manager",
-    "lemgendary-datasets",
-    "lemgendary-training-suite",
-    "lemgendary-docs",
-)
+_ECOSYSTEM = ecosystem()
 
-_MANIFESTS = (
-    "requirements-training.txt",
-    "requirements-datasets.txt",
-    "requirements-env-manager.txt",
-    "requirements-documentation.txt",
+_MANAGED_PROJECTS = tuple(p.folder for p in _ECOSYSTEM.managed_projects())
+
+_MANIFESTS = tuple(
+    p.requirements_manifest for p in _ECOSYSTEM.projects if p.requirements_manifest is not None
 )
 
 _SESSION_ROOT = pytest.StashKey[Path]()
@@ -37,12 +32,12 @@ _SESSION_ROOT = pytest.StashKey[Path]()
 
 def build_fake_workspace(root: Path) -> Path:
     """Create the smallest workspace the CLI, server and validator accept."""
-    for name in (*_PYTHON_PROJECTS, "lemgendary-ai-studio-gui"):
+    for name in _MANAGED_PROJECTS:
         project = root / name
         project.mkdir(parents=True)
         (project / "README.md").write_text(_README.format(name=name), encoding="utf-8")
 
-    manifests = root / "lemgendary-env-manager" / "requirements"
+    manifests = root / _ECOSYSTEM.self_folder() / "requirements"
     manifests.mkdir()
     for manifest in _MANIFESTS:
         (manifests / manifest).write_text("rich>=13.0.0\n", encoding="utf-8")

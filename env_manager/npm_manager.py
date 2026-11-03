@@ -13,6 +13,7 @@ from typing import Any
 from collections.abc import Callable, Generator
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import ecosystem
 from env_manager.utils import drain_lines, pip_env, stream_command
 from env_manager.workspace import workspace_root
 
@@ -154,9 +155,10 @@ def audit_npm_workspaces(base_dir: Path | None = None) -> list[NpmPackageStatus]
     if base_dir is None:
         base_dir = workspace_root()
 
+    # Projects with a central npm manifest (``projects[].npm_manifest``).
     target_dirs = [
-        base_dir / "lemgendary-env-manager",
-        base_dir / "lemgendary-ai-studio-gui",
+        base_dir / project.folder
+        for project in ecosystem().projects if project.npm_manifest is not None
     ]
 
     results: list[NpmPackageStatus] = []

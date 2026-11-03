@@ -131,7 +131,8 @@ class PipelineOrchestrator:
             if step is None:
                 yield publisher.step(0, "Invalid Step")(
                     "error",
-                    f"Requested step number {step_number} is outside the valid range (1-7).",
+                    f"Requested step number {step_number} is outside the valid range "
+                    f"(1-{self.total_steps}).",
                 )
                 self.last_status = "error"
                 return None

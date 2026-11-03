@@ -9,6 +9,7 @@ from fastapi import (
 )
 
 from env_manager import __version__
+from env_manager.ecosystem import ecosystem
 from env_manager.health_checker import run_full_health_audit
 from env_manager.npm_manager import audit_npm_workspaces
 from env_manager.system_probe import probe_hardware
@@ -21,7 +22,7 @@ router = APIRouter()
 @router.head("/api/ping")
 async def ping():
     """Liveness probe: constant-time, no I/O. Use /api/health for the full audit."""
-    return {"status": "ok", "service": "lemgendary-env-manager", "version": __version__}
+    return {"status": "ok", "service": ecosystem().self_folder(), "version": __version__}
 
 
 @router.get("/api/health")

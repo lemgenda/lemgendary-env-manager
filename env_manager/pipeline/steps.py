@@ -1,9 +1,12 @@
-"""The seven pipeline steps, shared by the full run and the single-step run.
+"""The pipeline steps, shared by the full run and the single-step run.
 
 Each step is a generator over ``PipelineEvent`` that returns a
 ``StepOutcome``. Inputs that a later step needs (hardware profile, project
 list) are kept on ``PipelineRun``: the full run computes them once, a
 single-step run computes what its step needs.
+
+Step numbers, ids and names come from ``pipeline_steps`` in
+``ecosystem.json``; :data:`STEPS` maps each to its handler by id.
 """
 
 from collections.abc import Callable, Generator
@@ -12,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from env_manager.bootstrap import verify_prerequisites
+from env_manager.ecosystem import EcosystemFileError, ecosystem, ecosystem_file
 from env_manager.health_checker import run_full_health_audit
 from env_manager.pipeline.events import EventPublisher, PipelineEvent, StepEmitter
 from env_manager.pipeline.install import install_packages
@@ -26,9 +30,6 @@ from env_manager.venv_manager import (
     discover_projects,
     is_venv_valid,
 )
-
-TOTAL_STEPS = 7
-"""Steps in the Smart Clean Install Pipeline."""
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,9 @@ class PipelineRun:
     projects: list[ProjectVenvInfo] | None = None
     install_failures: list[str] = field(default_factory=list)
 
-    def step(self, number: int, name: str) -> StepEmitter:
-        """Emitter for events of step ``number``."""
-        return self.publisher.step(number, name)
+    def step(self, number: int, name: str | None = None) -> StepEmitter:
+        """Emitter for events of step ``number``, named as in ``ecosystem.json`` by default."""
+        return self.publisher.step(number, name or ecosystem().step(number).name)
 
     def hardware(self) -> HardwareProfile:
         """The hardware profile, probed on first use."""
@@ -94,7 +95,7 @@ def _status(ok: bool) -> str:
 
 def hardware_discovery(run: PipelineRun) -> StepEvents:
     """Step 1: probe the system hardware and accelerators."""
-    emit = run.step(1, "Hardware Discovery")
+    emit = run.step(1)
     yield emit("info", "Probing system hardware and accelerators...")
     run.hw = probe_hardware()
     hw = run.hw
@@ -110,7 +111,7 @@ def hardware_discovery(run: PipelineRun) -> StepEvents:
 
 def toolchain_audit(run: PipelineRun) -> StepEvents:
     """Step 2: verify the Python, Git and npm toolchains."""
-    emit = run.step(2, "Toolchain Audit")
+    emit = run.step(2)
     yield emit("info", "Verifying Python, Git, and NPM toolchains...")
     boot = verify_prerequisites()
     ok = boot.python_valid and boot.git_installed
@@ -172,7 +173,7 @@ def _python_project_events(
 
 def virtual_environments(run: PipelineRun) -> StepEvents:
     """Step 3: discover projects and create (or, with ``clean``, recreate) their envs."""
-    emit = run.step(3, "Virtual Environments")
+    emit = run.step(3)
     yield emit("info", "Discovering managed projects and virtual environments...")
     projects = run.discover()
     for project in projects:
@@ -185,7 +186,7 @@ def virtual_environments(run: PipelineRun) -> StepEvents:
 
 def requirements_install(run: PipelineRun) -> StepEvents:
     """Step 4: sync the central manifests, then install every project's packages."""
-    emit = run.step(4, "Requirements Synchronization")
+    emit = run.step(4)
     yield emit("info", "Synchronizing centralized manifests to projects...")
     sync_results = sync_all_manifests(run.base_dir)
     target = run.options.target_project
@@ -203,7 +204,7 @@ def requirements_install(run: PipelineRun) -> StepEvents:
 
 def dependency_upgrades(run: PipelineRun) -> StepEvents:
     """Step 5: audit outdated packages and apply the safe upgrades."""
-    emit = run.step(5, "Dependency Upgrades")
+    emit = run.step(5)
     yield emit("info", "Auditing outdated packages and applying safe upgrades bottom-up...")
     hw = run.hardware()
     yield from execute_safe_upgrades(run.base_dir, run.managed_projects(), hw, emit)
@@ -232,7 +233,7 @@ def _sync_after_validation(run: PipelineRun, emit: StepEmitter) -> PipelineEvent
 
 def codebase_verification(run: PipelineRun) -> StepEvents:
     """Step 6: validate every project; sync manifests only when all pass."""
-    emit = run.step(6, "Codebase Verification")
+    emit = run.step(6)
     yield emit("info", "Running full validation suite (py_compile, emoji, lint, PS1)...")
     all_passed = True
     for project in run.managed_projects():
@@ -264,7 +265,7 @@ def codebase_verification(run: PipelineRun) -> StepEvents:
 
 def health_matrix(run: PipelineRun) -> StepEvents:
     """Step 7: run the full health audit and report the result."""
-    emit = run.step(7, "Health Matrix")
+    emit = run.step(7)
     yield emit("info", "Generating final ecosystem health report...")
     if run.install_failures:
         yield emit(
@@ -282,13 +283,32 @@ def health_matrix(run: PipelineRun) -> StepEvents:
     return StepOutcome(report, _status(report.overall_healthy))
 
 
-STEPS: dict[int, Step] = {
-    1: hardware_discovery,
-    2: toolchain_audit,
-    3: virtual_environments,
-    4: requirements_install,
-    5: dependency_upgrades,
-    6: codebase_verification,
-    7: health_matrix,
+_HANDLERS: dict[str, Step] = {
+    "hardware_discovery": hardware_discovery,
+    "toolchain_audit": toolchain_audit,
+    "virtual_environments": virtual_environments,
+    "requirements_install": requirements_install,
+    "dependency_upgrades": dependency_upgrades,
+    "codebase_verification": codebase_verification,
+    "health_matrix": health_matrix,
 }
+"""Step handlers by ``pipeline_steps[].id``."""
+
+
+def _steps_by_number() -> dict[int, Step]:
+    """Pair every ``pipeline_steps`` entry with its handler; fail on any mismatch."""
+    declared = ecosystem().pipeline_steps
+    ids = {step.id for step in declared}
+    if ids != set(_HANDLERS):
+        raise EcosystemFileError(
+            f"pipeline_steps ids {sorted(ids)} in {ecosystem_file()} do not match "
+            f"the handlers {sorted(_HANDLERS)}"
+        )
+    return {step.number: _HANDLERS[step.id] for step in declared}
+
+
+STEPS: dict[int, Step] = _steps_by_number()
 """Step handlers by number, in run order."""
+
+TOTAL_STEPS = len(STEPS)
+"""Steps in the Smart Clean Install Pipeline."""

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.48-STABLE)
+# LemGendary Environment Manager (v16.9.49-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -137,8 +137,12 @@ documentation is available at `http://127.0.0.1:8000/docs`.
 - `GET /api/gui/state`: Unified payload aggregating host service information,
   hardware profile, project list, and pipeline status. Designed for rapid
   initial GUI state hydration.
-- `GET /api/gui/ecosystem`: Multi-sidecar connectivity monitor probing the
-  environment manager and dataset compiler sidecars.
+- `GET /api/gui/ecosystem`: Multi-sidecar connectivity monitor: one entry per
+  service in `ecosystem/ecosystem.json` (`env_manager`, `dataset_compiler`,
+  `training_suite`), probed on its liveness path.
+- `GET /api/ecosystem`: The ecosystem registry (`ecosystem/ecosystem.json`)
+  as a typed `Ecosystem` response: services, projects, pipeline steps and
+  identity.
 
 ### Orchestration & Maintenance Endpoints
 
@@ -239,8 +243,8 @@ python -m env_manager.cli install --clean
 # Clean temporary caches and artifacts
 python -m env_manager.cli clean
 
-# Start the sidecar API service
-python -m env_manager.cli serve --host 127.0.0.1 --port 8000
+# Start the sidecar API service (host and port default to ecosystem.json)
+python -m env_manager.cli serve
 ```
 
 ---
@@ -269,9 +273,57 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
   the central pin (or remove the package from both files on purpose), then sync
   again.
 
+### Ecosystem Single Source of Truth
+
+- `ecosystem/ecosystem.json` is the one place that defines ecosystem facts;
+  `ecosystem/ecosystem.schema.json` (JSON Schema draft 2020-12) describes it
+  and a test validates the file against it. Top-level keys:
+  - `services[]`: `id`, `aliases`, `project`, `port`, `health_path`,
+    `liveness_path`, `websocket_path`, `app_import`, `log_dir`.
+  - `projects[]`: `folder`, `display_name`, `kind` (`python`, `node`,
+    `asset`), `managed`, `validated`, `upgrade_order`, `git_hooked`,
+    `requirements_manifest`, `npm_manifest`, `legacy_folders`.
+  - `pipeline_steps[]`: `number`, `id`, `name`, `short_description`,
+    `long_description`.
+  - `identity`: `docs_url`, `kaggle_owner`, `bind_host`.
+- Python code reads it through `env_manager.ecosystem.ecosystem()` (parsed
+  once and cached). `LEMGENDARY_ECOSYSTEM_FILE` overrides the location;
+  otherwise this repository's own file is used, then the copy the wheel
+  installs under `<prefix>/share/lemgendary-env-manager/ecosystem/`. A
+  missing or invalid file stops with an error naming the expected path.
+- Service ports and URLs, the validated, managed, hooked and asset-store
+  project lists, the upgrade order, manifest names, the pipeline step table
+  and the documentation URL are all derived from it. Edit the file, not the
+  code. Other repositories and the GUI read the same file (or
+  `GET /api/ecosystem`).
+
 ---
 
 ## Changelog
+
+### v16.9.49 - Ecosystem Registry (ENV-1)
+
+- New `ecosystem/ecosystem.json` with `ecosystem/ecosystem.schema.json`
+  (JSON Schema draft 2020-12): `services`, `projects`, `pipeline_steps`
+  (long descriptions taken from the GUI step cards) and `identity`
+  (`docs_url`, `kaggle_owner`, `bind_host`). It ships in the wheel via
+  `tool.setuptools.data-files`.
+- New cached loader `env_manager.ecosystem` (`LEMGENDARY_ECOSYSTEM_FILE`
+  override, then the repository file, then the installed copy; fails loudly
+  with the expected path).
+- Duplicates removed and derived from the file: `SERVICE_CONFIGS` (ports,
+  health URLs, log dirs, app imports, bind host), `VALIDATION_TARGETS`,
+  `UPGRADE_ORDER` (now `upgrade_order()`), `discover_projects` project lists,
+  `ASSET_STORE_PROJECTS` (now `asset_store_folders()`),
+  `PROJECT_TO_MANIFEST` and the requirements and npm manifest maps, the npm
+  audit targets, the secrets vault repository names, the `/api/gui/ecosystem`
+  and `/api/gui/state` ports, the docs URLs, the `serve` defaults and
+  `TOTAL_STEPS` and the step table. Step events use the step names from the
+  file.
+- New `GET /api/ecosystem` returns the file as a typed `Ecosystem` response;
+  `openapi.json` regenerated.
+- `jsonschema` and `types-jsonschema` added as dev requirements; new
+  `tests/test_ecosystem.py` (schema, loader, derived lists, endpoint).
 
 ### v16.9.48 - Strict Markdown and YAML Lint
 

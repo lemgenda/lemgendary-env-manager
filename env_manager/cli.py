@@ -16,6 +16,7 @@ from env_manager.cli_views.probe import (
 )
 from env_manager.cli_views.update import event_line, plan_table, validation_lines
 from env_manager.cli_views.validate import print_violations, summary_row, summary_table
+from env_manager.ecosystem import SELF_SERVICE_ID, ecosystem
 from env_manager.health_checker import run_full_health_audit
 from env_manager.hooks import install_git_hooks
 from env_manager.orchestrator import PipelineOrchestrator
@@ -24,7 +25,7 @@ from env_manager.system_probe import probe_hardware
 from env_manager.updater import apply_upgrade_plan, build_upgrade_plan
 from env_manager.upgrade.verify import UpgradeTally, validate_upgraded_projects
 from env_manager.utils import purge_workspace_caches
-from env_manager.validator import VALIDATION_TARGETS, validate_workspace
+from env_manager.validator import validate_workspace
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import workspace_root
 
@@ -205,7 +206,7 @@ def validate(
     else:
         console.print("[bold cyan]Validating all projects (full compliance suite)...[/bold cyan]")
     base_dir = workspace_root()
-    node_projects = {name for name, is_node in VALIDATION_TARGETS if is_node}
+    node_projects = {p.folder for p in ecosystem().validated_projects() if p.is_node}
 
     table = summary_table()
     reports = validate_workspace(base_dir, project)
@@ -242,17 +243,25 @@ def clean_command(
 
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", "--host", help="Host interface to bind"),
-    port: int = typer.Option(8000, "--port", help="Port to bind"),
+    host: str | None = typer.Option(
+        None, "--host", help="Host interface to bind (default: identity.bind_host)",
+    ),
+    port: int | None = typer.Option(
+        None, "--port", help="Port to bind (default: the env-manager service port)",
+    ),
 ):
     """Start the FastAPI sidecar server (REST + WebSocket telemetry for AI Studio GUI)."""
+    eco = ecosystem()
+    service = eco.require_service(SELF_SERVICE_ID)
+    host = host or eco.identity.bind_host
+    port = port or service.port
     console.print(
-        "[bold green]Starting LemGendary Environment Manager server on "
+        f"[bold green]Starting {eco.display_name(service.project)} server on "
         f"http://{host}:{port}...[/bold green]"
     )
     console.print(f"  REST API:  http://{host}:{port}/docs")
-    console.print(f"  WebSocket: ws://{host}:{port}/ws/log")
-    uvicorn.run("env_manager.server:app", host=host, port=port, reload=False)
+    console.print(f"  WebSocket: ws://{host}:{port}{service.websocket_path}")
+    uvicorn.run(service.app_import, host=host, port=port, reload=False)
 
 
 @app.command(name="setup-hooks")

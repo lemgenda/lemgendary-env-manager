@@ -5,16 +5,23 @@ import subprocess
 from pathlib import Path
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import ecosystem
 from env_manager.validation.models import FileValidationViolation
 from env_manager.validation.tooling import run_tool
 
 _log = get_logger(__name__)
 
 
-ASSET_STORE_PROJECTS = (
-    "LemGendaryModels", "lemgendary-models", "LemGendaryDatasets", "lemgendary-datasets-store",
-)
-"""Data-only repositories that are exempt from the README changelog check."""
+def asset_store_folders() -> frozenset[str]:
+    """Data-only repositories (``kind: asset`` in ``ecosystem.json``, with legacy folder names).
+
+    They are exempt from the README changelog check.
+    """
+    return frozenset(
+        name
+        for project in ecosystem().projects if project.kind == "asset"
+        for name in (project.folder, *project.legacy_folders)
+    )
 
 
 _HOOK_PY_SCRIPT_RE = re.compile(

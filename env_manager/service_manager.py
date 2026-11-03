@@ -1,8 +1,8 @@
 """Ecosystem background sidecar service lifecycle management module.
 
 Orchestrates starting, stopping, and health checking the tripartite
-services: LemGendary Environment Manager (8000), LemGendary Dataset
-Compiler Suite (8100), and LemGendary Model Training Suite (8200).
+services listed in ``ecosystem/ecosystem.json`` (Environment Manager,
+Dataset Compiler Suite and Model Training Suite).
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from typing import Any
 import psutil
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import SELF_SERVICE_ID, Service, ecosystem
 from env_manager.utils import run_command_simple
 from env_manager.venv_manager import get_venv_python_path
 from env_manager.workspace import workspace_root
@@ -32,59 +33,25 @@ _log = get_logger(__name__)
 STARTUP_TIMEOUT_S = 20.0
 """Seconds a sidecar may take to report healthy; PyTorch/CUDA suites need most of it."""
 
-SERVICE_CONFIGS: dict[str, dict[str, Any]] = {
-    "dataset-compiler": {
-        "canonical_name": "LemGendary Dataset Compiler Suite",
-        "aliases": ["dataset-compiler", "lemgendary-datasets", "datasets"],
-        "project": "lemgendary-datasets",
-        "port": 8100,
-        "health_url": "http://127.0.0.1:8100/api/health",
-        "log_folder": ".lgd_server",
-        "module": "api.server",
-        "app_import": "api.server:app",
-    },
-    "training-suite": {
-        "canonical_name": "LemGendary Model Training Suite",
-        "aliases": ["training-suite", "lemgendary-training-suite", "training"],
-        "project": "lemgendary-training-suite",
-        "port": 8200,
-        "health_url": "http://127.0.0.1:8200/api/health",
-        "log_folder": ".lemtrain_server",
-        "module": "training.server.app",
-        "app_import": "training.server.app:app",
-    },
-    "env-manager": {
-        "canonical_name": "LemGendary Environment Manager",
-        "aliases": ["env-manager", "lemgendary-env-manager", "env"],
-        "project": "lemgendary-env-manager",
-        "port": 8000,
-        "health_url": "http://127.0.0.1:8000/api/health",
-        "log_folder": ".env_server",
-        "module": "env_manager.server",
-        "app_import": "env_manager.server:app",
-    },
-}
+def _name(svc: Service) -> str:
+    """Canonical display name of the project that hosts ``svc``."""
+    return ecosystem().display_name(svc.project)
 
 
-def _project_dir(cfg: dict[str, Any]) -> Path:
+def _health_url(svc: Service) -> str:
+    return ecosystem().service_url(svc, svc.health_path)
+
+
+def _project_dir(svc: Service) -> Path:
     """Return the service's project folder inside the current workspace."""
-    return workspace_root() / cfg["project"]
+    return workspace_root() / svc.project
 
 
-def _resolve_service_key(service_id: str) -> str | None:
-    """Resolve service key from canonical id or aliases."""
-    normalized = service_id.strip().lower()
-    for key, cfg in SERVICE_CONFIGS.items():
-        if normalized == key or normalized in cfg["aliases"]:
-            return key
-    return None
-
-
-def is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+def is_port_in_use(port: int, host: str | None = None) -> bool:
     """Check if TCP port is actively accepting connections."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
-        return sock.connect_ex((host, port)) == 0
+        return sock.connect_ex((host or ecosystem().identity.bind_host, port)) == 0
 
 
 def is_service_healthy(health_url: str, timeout: float = 1.0) -> bool:
@@ -114,18 +81,18 @@ def get_background_python_path(project_dir: Path) -> Path:
     return venv_dir / "bin" / "python"
 
 
-def _preflight_service(key: str, cfg: dict[str, Any]) -> dict[str, Any] | None:
+def _preflight_service(svc: Service) -> dict[str, Any] | None:
     """Return a response when the service must not be launched, else None."""
-    port = cfg["port"]
-    name = cfg["canonical_name"]
-    proj_dir: Path = _project_dir(cfg)
-    if key == "env-manager":
+    port = svc.port
+    name = _name(svc)
+    proj_dir: Path = _project_dir(svc)
+    if svc.id == SELF_SERVICE_ID:
         return {
             "status": "already_running",
             "message": f"{name} is the orchestrator and is currently running on port {port}.",
             "port": port,
         }
-    if is_service_healthy(cfg["health_url"]):
+    if is_service_healthy(_health_url(svc)):
         return {
             "status": "already_running",
             "message": f"{name} is already online and healthy on port {port}.",
@@ -165,18 +132,18 @@ def _read_log_tail(path: Path, limit: int = 500) -> str:
 
 
 def _await_service_health(
-    cfg: dict[str, Any], proc: subprocess.Popen, stderr_path: Path,
+    svc: Service, proc: subprocess.Popen, stderr_path: Path,
 ) -> dict[str, Any]:
     """Poll the health endpoint for ``STARTUP_TIMEOUT_S``; report started, exited or starting.
 
     The window lets PyTorch/CUDA model suites initialise.
     """
-    port = cfg["port"]
-    name = cfg["canonical_name"]
+    port = svc.port
+    name = _name(svc)
     start_time = time.time()
     while time.time() - start_time < STARTUP_TIMEOUT_S:
         time.sleep(0.5)
-        if is_service_healthy(cfg["health_url"]):
+        if is_service_healthy(_health_url(svc)):
             return {
                 "status": "started",
                 "message": f"{name} started successfully on port {port}.",
@@ -214,13 +181,13 @@ def _spawn_detached(cmd: list[str], popen_kwargs: dict[str, Any]) -> subprocess.
     return subprocess.Popen(cmd, **popen_kwargs)
 
 
-def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
+def _launch_service(svc: Service, python_exe: Path) -> dict[str, Any]:
     """Spawn the service detached from any console and wait for it to come up."""
-    port = cfg["port"]
-    name = cfg["canonical_name"]
-    proj_dir: Path = _project_dir(cfg)
+    port = svc.port
+    name = _name(svc)
+    proj_dir: Path = _project_dir(svc)
 
-    log_dir = proj_dir / cfg["log_folder"]
+    log_dir = proj_dir / svc.log_dir
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -233,9 +200,9 @@ def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
         str(python_exe),
         "-m",
         "uvicorn",
-        cfg["app_import"],
+        svc.app_import,
         "--host",
-        "127.0.0.1",
+        ecosystem().identity.bind_host,
         "--port",
         str(port),
     ]
@@ -270,7 +237,7 @@ def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
             port,
         )
 
-        return _await_service_health(cfg, proc, stderr_path)
+        return _await_service_health(svc, proc, stderr_path)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         _log.exception("Failed to launch %s: %s", name, exc)
         return {
@@ -282,20 +249,19 @@ def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
 
 def start_service(service_id: str) -> dict[str, Any]:
     """Start an ecosystem sidecar service daemon in the background."""
-    key = _resolve_service_key(service_id)
-    if not key:
+    svc = ecosystem().service(service_id)
+    if svc is None:
         return {
             "status": "error",
             "message": (
                 f"Unknown service '{service_id}'. "
-                f"Known services: {list(SERVICE_CONFIGS.keys())}"
+                f"Known services: {[s.id for s in ecosystem().services]}"
             ),
         }
-    cfg = SERVICE_CONFIGS[key]
-    blocked = _preflight_service(key, cfg)
+    blocked = _preflight_service(svc)
     if blocked is not None:
         return blocked
-    python_exe = _resolve_service_python(_project_dir(cfg))
+    python_exe = _resolve_service_python(_project_dir(svc))
     if not python_exe.exists():
         return {
             "status": "error",
@@ -304,7 +270,7 @@ def start_service(service_id: str) -> dict[str, Any]:
                 "Please initialize virtual environment before starting service."
             ),
         }
-    return _launch_service(cfg, python_exe)
+    return _launch_service(svc, python_exe)
 
 
 def _kill_process_tree(pid: int) -> bool:
@@ -380,22 +346,21 @@ def _stop_port_holder(port: int) -> bool:
 
 def stop_service(service_id: str) -> dict[str, Any]:
     """Stop an active ecosystem sidecar process by reading PID file or finding listening process."""
-    key = _resolve_service_key(service_id)
-    if not key:
+    svc = ecosystem().service(service_id)
+    if svc is None:
         return {
             "status": "error",
             "message": f"Unknown service '{service_id}'.",
         }
 
-    cfg = SERVICE_CONFIGS[key]
-    name = cfg["canonical_name"]
-    port = cfg["port"]
-    proj_dir: Path = _project_dir(cfg)
+    name = _name(svc)
+    port = svc.port
+    proj_dir: Path = _project_dir(svc)
 
-    if key == "env-manager":
+    if svc.id == SELF_SERVICE_ID:
         def _terminate_self() -> None:
             time.sleep(0.5)
-            _log.info("Terminating Environment Manager (Port 8000) on user request.")
+            _log.info("Terminating %s (port %d) on user request.", name, port)
             _kill_process_tree(os.getpid())
 
         threading.Thread(target=_terminate_self, daemon=True).start()
@@ -405,7 +370,7 @@ def stop_service(service_id: str) -> dict[str, Any]:
             "port": port,
         }
 
-    terminated = _stop_via_pid_files(proj_dir / cfg["log_folder"], name)
+    terminated = _stop_via_pid_files(proj_dir / svc.log_dir, name)
     if not terminated and is_port_in_use(port):
         terminated = _stop_port_holder(port)
 
@@ -425,6 +390,7 @@ def stop_service(service_id: str) -> dict[str, Any]:
 def start_all_services() -> dict[str, Any]:
     """Start all offline ecosystem sidecars."""
     results: dict[str, Any] = {}
-    for key in ["dataset-compiler", "training-suite"]:
-        results[key] = start_service(key)
+    for svc in ecosystem().services:
+        if svc.id != SELF_SERVICE_ID:
+            results[svc.id] = start_service(svc.id)
     return results

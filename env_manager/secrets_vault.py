@@ -30,6 +30,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from env_manager.ecosystem import ecosystem
+
 _log = logging.getLogger("env_manager.secrets_vault")
 
 SECRETS_FILE_NAME = ".secrets.yaml"
@@ -37,8 +39,8 @@ HINT_LENGTH = 4
 MIN_LENGTH_FOR_HINT = 8
 KAGGLE_SERVICE = "kaggle"
 KAGGLE_JSON_LABEL = "~/.kaggle/kaggle.json"
-DATASETS_REPO = "lemgendary-datasets"
-TRAINING_REPO = "lemgendary-training-suite"
+DATASETS_REPO = ecosystem().require_service("dataset-compiler").project
+TRAINING_REPO = ecosystem().require_service("training-suite").project
 
 # Legacy files that hold one token each: (repository, file, id, service, label).
 _SINGLE_TOKEN_SOURCES: tuple[tuple[str, str, str, str, str], ...] = (

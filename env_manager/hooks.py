@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from env_manager.utils import run_command_simple
-from env_manager.validator import VALIDATION_TARGETS
+from env_manager.ecosystem import ecosystem
 from env_manager.workspace import workspace_root
 
 PRE_COMMIT_TEMPLATE = """#!/bin/sh
@@ -102,14 +102,15 @@ def install_git_hooks(
 ) -> list[tuple[str, bool, str]]:
     """Install or update standardized pre-commit hooks across ecosystem projects.
 
-    Covers the projects in ``validator.VALIDATION_TARGETS`` that are git
+    Covers the ``git_hooked`` projects in ``ecosystem.json`` that are git
     repositories. Returns a list of tuples: (project_name, success, message)
     """
     if base_dir is None:
         base_dir = workspace_root()
 
     results: list[tuple[str, bool, str]] = []
-    for proj_name, _is_node in VALIDATION_TARGETS:
+    for project in ecosystem().git_hooked_projects():
+        proj_name = project.folder
         if target_project and proj_name != target_project:
             continue
         proj_dir = base_dir / proj_name

@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from env_manager.ecosystem import ecosystem
 from env_manager.resolver.models import OutdatedPackage, normalize
 from env_manager.venv_manager import (
     get_installed_packages,
@@ -12,13 +13,9 @@ from env_manager.venv_manager import (
 TORCH_FAMILY: tuple[str, ...] = ("torch", "torchvision", "torchaudio")
 
 
-UPGRADE_ORDER: list[str] = [
-    "lemgendary-env-manager",
-    "lemgendary-datasets",
-    "lemgendary-training-suite",
-    "lemgendary-docs",
-    "lemgendary-ai-studio-gui",
-]
+def upgrade_order() -> list[str]:
+    """Managed project folders in upgrade order (``projects[].upgrade_order``)."""
+    return [p.folder for p in ecosystem().managed_projects()]
 
 
 # Paired packages where manual curation matters more than "latest wins".

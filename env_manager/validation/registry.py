@@ -12,7 +12,7 @@ from env_manager.validation.domain.docs_hub import (
 )
 from env_manager.validation.domain.models_training import audit_models_hub, audit_training_suite
 from env_manager.validation.domain.project_hygiene import (
-    ASSET_STORE_PROJECTS,
+    asset_store_folders,
     audit_git_hooks,
     audit_readme_changelog,
 )
@@ -44,7 +44,7 @@ def has_static_html(ctx: ProjectContext) -> bool:
 
 def is_code_project(ctx: ProjectContext) -> bool:
     """Every project except the data-only asset stores."""
-    return ctx.name not in ASSET_STORE_PROJECTS
+    return ctx.name not in asset_store_folders()
 
 
 GATES: list[Gate] = [

@@ -16,6 +16,7 @@ from collections.abc import Callable, Generator
 import psutil
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import ecosystem
 from env_manager.utils import (
     drain_lines,
     run_command_simple,
@@ -362,52 +363,44 @@ def normalize_opencv_variant(
 
 
 def discover_projects(base_dir: Path | None = None) -> list[ProjectVenvInfo]:
-    """Find the known projects under ``base_dir`` and describe each one's environment."""
+    """Find the managed projects under ``base_dir`` and describe each one's environment.
+
+    The projects and their order come from ``ecosystem.json``
+    (``projects[].managed``, ``projects[].upgrade_order``, ``projects[].kind``).
+    """
     if base_dir is None:
         base_dir = workspace_root()
 
-    python_projects = [
-        "lemgendary-env-manager",
-        "lemgendary-datasets",
-        "lemgendary-training-suite",
-        "lemgendary-docs",
-    ]
-    node_projects = ["lemgendary-ai-studio-gui"]
-
     discovered: list[ProjectVenvInfo] = []
-
-    for proj_name in python_projects:
-        p_dir = base_dir / proj_name
-        if p_dir.exists() and p_dir.is_dir():
-            v_dir = p_dir / ".venv"
-            # One interpreter run per project: validity and version together.
-            py_ver = _probe_venv_python(p_dir)
-            valid = py_ver is not None
-            py_path = str(get_venv_python_path(p_dir)) if valid else None
-            pkgs = _pip_list(p_dir) if valid else {}
-
-            discovered.append(
-                ProjectVenvInfo(
-                    name=proj_name, project_dir=str(p_dir), venv_dir=str(v_dir),
-                    python_path=py_path, is_valid=valid, python_version=py_ver,
-                    installed_packages_count=len(pkgs),
-                    is_node_project=False, node_modules_present=False,
-                    has_npm_manifest=(p_dir / "package.json").exists(),
-                )
-            )
-
-    for proj_name in node_projects:
-        p_dir = base_dir / proj_name
-        if p_dir.exists() and p_dir.is_dir():
-            node_modules_present = (p_dir / "node_modules").exists()
-            discovered.append(
-                ProjectVenvInfo(
-                    name=proj_name, project_dir=str(p_dir), venv_dir="",
-                    python_path=None, is_valid=node_modules_present,
-                    python_version=None, installed_packages_count=0,
-                    is_node_project=True, node_modules_present=node_modules_present,
-                    has_npm_manifest=(p_dir / "package.json").exists(),
-                )
-            )
-
+    for project in ecosystem().managed_projects():
+        p_dir = base_dir / project.folder
+        if p_dir.is_dir():
+            describe = _describe_node_project if project.is_node else _describe_python_project
+            discovered.append(describe(project.folder, p_dir))
     return discovered
+
+
+def _describe_python_project(name: str, p_dir: Path) -> ProjectVenvInfo:
+    # One interpreter run per project: validity and version together.
+    py_ver = _probe_venv_python(p_dir)
+    valid = py_ver is not None
+    py_path = str(get_venv_python_path(p_dir)) if valid else None
+    pkgs = _pip_list(p_dir) if valid else {}
+    return ProjectVenvInfo(
+        name=name, project_dir=str(p_dir), venv_dir=str(p_dir / ".venv"),
+        python_path=py_path, is_valid=valid, python_version=py_ver,
+        installed_packages_count=len(pkgs),
+        is_node_project=False, node_modules_present=False,
+        has_npm_manifest=(p_dir / "package.json").exists(),
+    )
+
+
+def _describe_node_project(name: str, p_dir: Path) -> ProjectVenvInfo:
+    node_modules_present = (p_dir / "node_modules").exists()
+    return ProjectVenvInfo(
+        name=name, project_dir=str(p_dir), venv_dir="",
+        python_path=None, is_valid=node_modules_present,
+        python_version=None, installed_packages_count=0,
+        is_node_project=True, node_modules_present=node_modules_present,
+        has_npm_manifest=(p_dir / "package.json").exists(),
+    )

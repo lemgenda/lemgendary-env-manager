@@ -27,6 +27,7 @@ from env_manager.bug_report import (
     UploadRejectedError,
     collect_submission,
 )
+from env_manager.ecosystem import SELF_SERVICE_ID, ecosystem
 from env_manager.hooks import install_git_hooks
 from env_manager.secrets_vault import (
     SecretsListResponse,
@@ -131,10 +132,13 @@ def docs_dir() -> Path:
 @router.get("/api/docs/status")
 async def get_docs_status():
     """Report offline documentation hub availability and official online links."""
+    eco = ecosystem()
     return {
         "offline_available": docs_dir().exists(),
-        "local_url": "http://127.0.0.1:8000/documentation-hub/index.html",
-        "online_url": "https://lemgenda.github.io/ai-training-whitepapers/index.html",
+        "local_url": eco.service_url(
+            eco.require_service(SELF_SERVICE_ID), "/documentation-hub/index.html",
+        ),
+        "online_url": f"{eco.identity.docs_url}/index.html",
     }
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lemgendary-env-manager"
-version = "16.9.48"
+version = "16.9.49"
 description = "Centralized environment and dependency manager for LemGendary projects"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,6 +27,14 @@ lem-env = "env_manager.cli:app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["env_manager*"]
+
+# ecosystem/ecosystem.json (the single source of ecosystem facts) and its
+# schema ship with the wheel; env_manager.ecosystem falls back to this copy.
+[tool.setuptools.data-files]
+"share/lemgendary-env-manager/ecosystem" = [
+    "ecosystem/ecosystem.json",
+    "ecosystem/ecosystem.schema.json",
+]
 
 [tool.pyright]
 include = ["env_manager", "tests"]

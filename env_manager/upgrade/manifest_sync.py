@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import ecosystem
 from env_manager.upgrade.models import PROTECTED_FROM_SYNC
 from env_manager.venv_manager import (
     get_installed_packages,
@@ -14,12 +15,6 @@ from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
-PROJECT_TO_MANIFEST: dict[str, str] = {
-    "lemgendary-training-suite": "requirements-training.txt",
-    "lemgendary-datasets": "requirements-datasets.txt",
-    "lemgendary-env-manager": "requirements-env-manager.txt",
-    "lemgendary-docs": "requirements-documentation.txt",
-}
 
 _PASSTHROUGH_PREFIXES = ("#", "--extra-index-url", "--index-url", "-i ")
 
@@ -83,10 +78,13 @@ def sync_manifests_from_venvs(
     if base_dir is None:
         base_dir = workspace_root()
 
-    manifests_dir = base_dir / "lemgendary-env-manager" / "requirements"
+    manifests_dir = base_dir / ecosystem().self_folder() / "requirements"
     manifests_dir.mkdir(parents=True, exist_ok=True)
 
     return {
-        proj_name: _sync_project(base_dir / proj_name, manifests_dir / manifest_name)
-        for proj_name, manifest_name in PROJECT_TO_MANIFEST.items()
+        project.folder: _sync_project(
+            base_dir / project.folder, manifests_dir / project.requirements_manifest,
+        )
+        for project in ecosystem().projects
+        if project.requirements_manifest is not None
     }

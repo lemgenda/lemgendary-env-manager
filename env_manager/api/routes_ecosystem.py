@@ -21,6 +21,7 @@ from fastapi import (
 from env_manager import __version__
 from env_manager._logging import get_logger
 from env_manager.api.state import manager, orchestrator, recent_events_snapshot
+from env_manager.ecosystem import SELF_SERVICE_ID, Ecosystem, ecosystem
 from env_manager.service_manager import start_all_services, start_service, stop_service
 from env_manager.system_probe import probe_hardware
 from env_manager.venv_manager import discover_projects
@@ -59,12 +60,13 @@ async def get_gui_state():
     hw_future = loop.run_in_executor(None, probe_hardware)
     proj_future = loop.run_in_executor(None, discover_projects)
     hw, projects = await asyncio.gather(hw_future, proj_future)
+    self_service = ecosystem().require_service(SELF_SERVICE_ID)
 
     return {
         "service": {
-            "name": "lemgendary-env-manager",
+            "name": self_service.project,
             "version": __version__,
-            "port": 8000,
+            "port": self_service.port,
             "status": "online",
         },
         "hardware": hw.to_dict(),
@@ -77,37 +79,32 @@ async def get_gui_state():
     }
 
 
+@router.get("/api/ecosystem", response_model=Ecosystem, response_model_by_alias=True)
+async def get_ecosystem() -> Ecosystem:
+    """The ecosystem registry (services, projects, pipeline steps, identity) as stored on disk."""
+    return ecosystem()
+
+
 @router.get("/api/gui/ecosystem")
 async def get_gui_ecosystem():
-    """Multi-sidecar health overview for LemGendary AI Studio Desktop GUI top-bar status."""
-    loop = asyncio.get_running_loop()
-    datasets_probe = await loop.run_in_executor(
-        None,
-        lambda: _probe_sidecar("http://127.0.0.1:8100/api/health", timeout=1.5),
-    )
-    training_probe = await loop.run_in_executor(
-        None,
-        lambda: _probe_sidecar("http://127.0.0.1:8200/api/health", timeout=1.5),
-    )
+    """Multi-sidecar health overview for LemGendary AI Studio Desktop GUI top-bar status.
 
-    return {
-        "env_manager": {
-            "service": "lemgendary-env-manager",
-            "port": 8000,
-            "status": "online",
-            "reachable": True,
-        },
-        "dataset_compiler": {
-            "service": "lemgendary-datasets",
-            "port": 8100,
-            **datasets_probe,
-        },
-        "training_suite": {
-            "service": "lemgendary-training-suite",
-            "port": 8200,
-            **training_probe,
-        },
-    }
+    One entry per service in ``ecosystem.json``, keyed by its id with ``_``
+    for ``-`` (``env_manager``, ``dataset_compiler``, ``training_suite``).
+    """
+    loop = asyncio.get_running_loop()
+    eco = ecosystem()
+    overview: dict[str, dict[str, Any]] = {}
+    for svc in eco.services:
+        if svc.id == SELF_SERVICE_ID:
+            probe: dict[str, Any] = {"status": "online", "reachable": True}
+        else:
+            url = eco.service_url(svc, svc.liveness_path)
+            probe = await loop.run_in_executor(None, _probe_sidecar, url, 1.5)
+        overview[svc.id.replace("-", "_")] = {
+            "service": svc.project, "port": svc.port, **probe,
+        }
+    return overview
 
 
 @router.post("/api/services/{service_id}/start")

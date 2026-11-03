@@ -35,11 +35,11 @@ from env_manager.upgrade.manifest_sync import sync_manifests_from_venvs
 from env_manager.upgrade.models import (
     PROTECTED_FROM_SYNC,
     TORCH_FAMILY,
-    UPGRADE_ORDER,
     EcosystemUpgradePlan,
     ProjectUpgradePlan,
     UpgradeEvent,
     pinned_specs,
+    upgrade_order,
 )
 from env_manager.upgrade.npm import apply_npm_update, find_npm_outdated
 from env_manager.upgrade.plan import build_upgrade_plan
@@ -50,7 +50,6 @@ from env_manager.upgrade.torch_cuda import check_torch_cuda_upgrades, torch_upgr
 __all__ = [
     "PROTECTED_FROM_SYNC",
     "TORCH_FAMILY",
-    "UPGRADE_ORDER",
     "EcosystemUpgradePlan",
     "ProjectUpgradePlan",
     "UpgradeEvent",
@@ -63,4 +62,5 @@ __all__ = [
     "pinned_specs",
     "sync_manifests_from_venvs",
     "torch_upgrade_index",
+    "upgrade_order",
 ]

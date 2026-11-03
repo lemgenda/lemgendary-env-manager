@@ -25,6 +25,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import ecosystem
 from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
@@ -320,33 +321,33 @@ def sync_all_manifests(base_dir: Path | None = None) -> dict[str, tuple[bool, st
     if base_dir is None:
         base_dir = workspace_root()
 
-    env_mgr_dir = base_dir / "lemgendary-env-manager"
-    manifests_dir = env_mgr_dir / "requirements"
+    eco = ecosystem()
+    manifests_dir = base_dir / eco.self_folder() / "requirements"
 
-    mapping = {
-        "lemgendary-training-suite": manifests_dir / "requirements-training.txt",
-        "lemgendary-datasets": manifests_dir / "requirements-datasets.txt",
-        "lemgendary-env-manager": manifests_dir / "requirements-env-manager.txt",
-        "lemgendary-docs": manifests_dir / "requirements-documentation.txt",
-    }
-
+    # Manifest file names per project come from ecosystem.json
+    # (``projects[].requirements_manifest`` and ``projects[].npm_manifest``).
     results: dict[str, tuple[bool, str]] = {}
-    for proj_name, manifest in mapping.items():
-        proj_dir = base_dir / proj_name
-        if proj_dir.exists() and proj_dir.is_dir():
-            res = sync_manifest_to_project(manifest, proj_dir)
-            results[proj_name] = res
+    for project in eco.projects:
+        if project.requirements_manifest is None:
+            continue
+        proj_dir = base_dir / project.folder
+        if proj_dir.is_dir():
+            results[project.folder] = sync_manifest_to_project(
+                manifests_dir / project.requirements_manifest, proj_dir,
+            )
         else:
-            results[proj_name] = (False, f"Project directory does not exist: {proj_dir}")
+            results[project.folder] = (
+                False, f"Project directory does not exist: {proj_dir}",
+            )
 
-    # Synchronize NPM package manifests
-    npm_mappings = {
-        "lemgendary-ai-studio-gui": manifests_dir / "lemgendary-ai-studio-gui.package.json",
-        "lemgendary-env-manager": manifests_dir / "lemgendary-env-manager.package.json",
-    }
-    for proj_name, manifest in npm_mappings.items():
-        proj_dir = base_dir / proj_name
-        if manifest.exists() and proj_dir.exists() and proj_dir.is_dir():
-            results[f"{proj_name} (npm)"] = _sync_npm_manifest(proj_name, manifest, proj_dir)
+    for project in eco.projects:
+        if project.npm_manifest is None:
+            continue
+        manifest = manifests_dir / project.npm_manifest
+        proj_dir = base_dir / project.folder
+        if manifest.exists() and proj_dir.is_dir():
+            results[f"{project.folder} (npm)"] = _sync_npm_manifest(
+                project.folder, manifest, proj_dir,
+            )
 
     return results

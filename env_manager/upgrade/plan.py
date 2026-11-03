@@ -9,11 +9,11 @@ from env_manager.dependency_resolver import (
     find_outdated_packages,
 )
 from env_manager.upgrade.models import (
-    UPGRADE_ORDER,
     EcosystemUpgradePlan,
     ProjectUpgradePlan,
     is_torch_family,
     normalize,
+    upgrade_order,
     venv_package_map,
 )
 from env_manager.upgrade.npm import find_npm_outdated
@@ -81,13 +81,13 @@ def _plan_python_project(p: ProjectVenvInfo, cuda_index_url: str | None) -> Proj
 
 
 def _projects_in_order(base_dir: Path, project: str | None) -> list[ProjectVenvInfo]:
-    """Return the managed projects (or just ``project``) in :data:`UPGRADE_ORDER`."""
+    """Return the managed projects (or just ``project``) in :func:`upgrade_order`."""
     projects = discover_projects(base_dir)
     if project is not None:
         projects = [p for p in projects if p.name == project]
         if not projects:
             raise ValueError(f"Project not found: {project}")
-    order_map = {name: i for i, name in enumerate(UPGRADE_ORDER)}
+    order_map = {name: i for i, name in enumerate(upgrade_order())}
     return sorted(projects, key=lambda p: order_map.get(p.name, 999))
 
 

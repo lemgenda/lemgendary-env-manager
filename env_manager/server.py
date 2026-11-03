@@ -16,8 +16,9 @@ This module builds the FastAPI app (lifespan, CORS and origin-guard
 middleware, the documentation-hub mount) and includes one router per area
 from ``env_manager.api``; shared state lives in ``env_manager.api.state``.
 
-Start-Process "http://127.0.0.1:8000/docs" opens Swagger UI, which lets you click
-through every endpoint manually.
+``/docs`` on the env-manager service (host and port in
+``ecosystem/ecosystem.json``) opens Swagger UI, which lets you click through
+every endpoint manually.
 """
 
 import asyncio

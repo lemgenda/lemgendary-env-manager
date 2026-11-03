@@ -13,6 +13,7 @@ This module also keeps the public names that callers import from
 
 from pathlib import Path
 
+from env_manager.ecosystem import ecosystem
 from env_manager.validation import registry
 from env_manager.validation.gate import Bucket, Gate, ProjectContext
 from env_manager.validation.gates.data_formats import run_jsonlint, run_yamllint
@@ -34,16 +35,6 @@ from env_manager.validation.models import (
     ProjectValidationReport,
 )
 
-VALIDATION_TARGETS: tuple[tuple[str, bool], ...] = (
-    ("lemgendary-training-suite", False),
-    ("lemgendary-datasets", False),
-    ("lemgendary-env-manager", False),
-    ("lemgendary-ai-studio-gui", True),
-    ("lemgendary-docs", False),
-    ("LemGendaryDatasets", False),
-    ("LemGendaryModels", False),
-)
-"""Projects that ``lem-env validate`` and ``POST /api/validate`` check: ``(name, is_node)``."""
 
 
 def run_gates(
@@ -65,18 +56,22 @@ def run_domain_verification(project_dir: Path) -> list[FileValidationViolation]:
 def validate_workspace(
     base_dir: Path, project: str | None = None,
 ) -> dict[str, ProjectValidationReport]:
-    """Validate every target project present under ``base_dir``, or only ``project``.
+    """Validate every validated project present under ``base_dir``, or only ``project``.
+
+    The projects (and whether each is an npm project) come from
+    ``ecosystem.json`` (``projects[].validated``, ``projects[].kind``).
 
     The one implementation behind the CLI and the API, so both check the
     same projects with the same ``is_node_project`` flags.
     """
     reports: dict[str, ProjectValidationReport] = {}
-    for name, is_node in VALIDATION_TARGETS:
+    for target in ecosystem().validated_projects():
+        name = target.folder
         if project is not None and name != project:
             continue
         project_dir = base_dir / name
         if project_dir.exists():
-            reports[name] = validate_project(project_dir, is_node_project=is_node)
+            reports[name] = validate_project(project_dir, is_node_project=target.is_node)
     return reports
 
 
@@ -106,7 +101,6 @@ def validate_project(project_dir: Path, is_node_project: bool = False) -> Projec
 
 __all__ = [
     "TOOL_ERROR",
-    "VALIDATION_TARGETS",
     "FileValidationViolation",
     "ProjectValidationReport",
     "compile_python_file",
