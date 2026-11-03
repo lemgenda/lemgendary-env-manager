@@ -24,20 +24,32 @@ import collections
 import difflib
 import io
 import json
+import os
+import platform
 import py_compile
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import unittest
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import yaml
 
 from env_manager._logging import get_logger
 from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
 
 _log = get_logger(__name__)
+
+# Failures reading a JSON/YAML manifest and walking it: unreadable file
+# (OSError), invalid JSON or encoding (ValueError), invalid YAML
+# (yaml.YAMLError), and a document whose shape differs from the expected
+# schema (AttributeError for a non-mapping node, TypeError for a wrong value
+# type). Each is reported as a manifest violation.
+_MANIFEST_READ_ERRORS = (OSError, ValueError, yaml.YAMLError, AttributeError, TypeError)
 
 
 @dataclass
@@ -116,7 +128,7 @@ def scan_file_for_emojis(file_path: Path) -> List[FileValidationViolation]:
                         message="Emoji character detected in source file.",
                     )
                 )
-    except Exception as exc:
+    except OSError as exc:
         violations.append(
             FileValidationViolation(
                 file_path=str(file_path),
@@ -142,7 +154,7 @@ def compile_python_file(file_path: Path) -> Optional[FileValidationViolation]:
             violation_type="syntax_error",
             message=str(err),
         )
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         return FileValidationViolation(
             file_path=str(file_path),
             line_number=0,
@@ -155,7 +167,6 @@ def compile_python_file(file_path: Path) -> Optional[FileValidationViolation]:
 
 def _get_env_manager_python() -> Optional[str]:
     """Return the path to the env-manager .venv Python executable."""
-    import platform
     env_mgr_dir = Path(__file__).resolve().parent.parent
     if platform.system().lower() == "windows":
         py = env_mgr_dir / ".venv" / "Scripts" / "python.exe"
@@ -246,7 +257,7 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
             )
     except FileNotFoundError:
         _log.warning("yamllint not found — install it in the env-manager venv: pip install yamllint")
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("yamllint failed for %s: %s", project_dir, exc)
     return violations
 
@@ -279,7 +290,7 @@ def run_jsonlint(project_dir: Path) -> List[FileValidationViolation]:
                             message=f"{exc.msg} (col {exc.colno})",
                         )
                     )
-                except Exception as exc:
+                except (OSError, ValueError) as exc:
                     violations.append(
                         FileValidationViolation(
                             file_path=str(f_path),
@@ -383,7 +394,7 @@ def run_markdownlint(project_dir: Path) -> List[FileValidationViolation]:
                         message=m.group(4),
                     )
                 )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("markdownlint-cli failed for %s: %s", project_dir, exc)
     return violations
 
@@ -459,7 +470,7 @@ def run_eslint(project_dir: Path) -> List[FileValidationViolation]:
                             message=msg.get("message", "").strip(),
                         )
                     )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("ESLint failed for %s: %s", project_dir, exc)
     return violations
 
@@ -497,7 +508,7 @@ def run_typescript_check(project_dir: Path) -> List[FileValidationViolation]:
                             message=m.group(3).strip(),
                         )
                     )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("tsc --noEmit failed for %s: %s", project_dir, exc)
     return violations
 
@@ -544,7 +555,7 @@ def run_html_validate(project_dir: Path) -> List[FileValidationViolation]:
                         message=f"{m.group(4)} — {m.group(5)}",
                     )
                 )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("html-validate failed for %s: %s", project_dir, exc)
     return violations
 
@@ -599,7 +610,7 @@ def run_pa11y_wcag(project_dir: Path) -> List[FileValidationViolation]:
                         )
                     )
                     current_issue = None
-        except Exception as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             _log.warning("pa11y WCAG audit failed for %s: %s", html_file, exc)
 
     return violations
@@ -615,7 +626,6 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
     which was prone to hitting the Windows ``CreateProcess`` 32K-character
     limit on projects with many scripts.
     """
-    import platform
     violations: List[FileValidationViolation] = []
     if platform.system().lower() != "windows":
         return violations
@@ -713,13 +723,13 @@ def run_psscriptanalyzer(project_dir: Path) -> List[FileValidationViolation]:
                             message=message,
                         )
                     )
-                except (ValueError, IndexError):
+                except (ValueError, IndexError) as exc:
+                    _log.debug("Unparsable PSScriptAnalyzer line %r: %s", line, exc)
                     continue
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("PSScriptAnalyzer execution failed: %s", exc)
     finally:
         try:
-            import os
             os.unlink(list_file)
         except OSError as exc:
             _log.debug("Failed to unlink temporary PSScriptAnalyzer file %s: %s", list_file, exc)
@@ -852,7 +862,7 @@ def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
                             ),
                         )
                     )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("README changelog audit skipped for %s: %s", project_dir, exc)
 
     return violations
@@ -899,7 +909,6 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
                 dj = json.load(f)
             with open(cap_j_path, "r", encoding="utf-8") as f:
                 cj = json.load(f)
-            import yaml
             with open(cap_y_path, "r", encoding="utf-8") as f:
                 cy = yaml.safe_load(f)
 
@@ -944,7 +953,7 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
                         message="canonical_capabilities.yaml is not strictly identical in structure to canonical_capabilities.json",
                     )
                 )
-        except Exception as exc:
+        except _MANIFEST_READ_ERRORS as exc:
             violations.append(
                 FileValidationViolation(
                     file_path=str(doc_m_path),
@@ -1051,7 +1060,7 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
                         message=f"[{doc_id}] Length ratio anomaly: ratio={ratio:.2f} (HTML={len(h_raw)}, MD={len(m_raw)})",
                     )
                 )
-    except Exception as exc:
+    except _MANIFEST_READ_ERRORS as exc:
         violations.append(
             FileValidationViolation(
                 file_path=str(manifest_path),
@@ -1072,8 +1081,6 @@ def _audit_documentation_suite(docs_dir: Path) -> List[FileValidationViolation]:
         return violations
 
     try:
-        import unittest
-
         loader = unittest.TestLoader()
         suite = loader.discover(start_dir=str(tests_dir), pattern="test_*.py")
         runner = unittest.TextTestRunner(stream=io.StringIO(), verbosity=1)
@@ -1090,7 +1097,7 @@ def _audit_documentation_suite(docs_dir: Path) -> List[FileValidationViolation]:
                     message=f"[{t_id}] {err_line}",
                 )
             )
-    except Exception as exc:
+    except (ImportError, OSError) as exc:
         violations.append(
             FileValidationViolation(
                 file_path=str(tests_dir),
@@ -1108,7 +1115,6 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
     unified_yaml = project_dir / "unified_data.yaml"
     if unified_yaml.exists():
         try:
-            import yaml
             data = yaml.safe_load(unified_yaml.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 violations.append(
@@ -1128,7 +1134,7 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
                         message="unified_data.yaml missing required '_registry_metadata' block",
                     )
                 )
-        except Exception as exc:
+        except _MANIFEST_READ_ERRORS as exc:
             violations.append(
                 FileValidationViolation(
                     file_path=str(unified_yaml),
@@ -1143,7 +1149,6 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
         models_yaml = project_dir / "models_metadata.yaml"
     if models_yaml.exists():
         try:
-            import yaml
             data = yaml.safe_load(models_yaml.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 violations.append(
@@ -1163,7 +1168,7 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
                         message="models_metadata.yaml missing required 'task_metadata' block",
                     )
                 )
-        except Exception as exc:
+        except _MANIFEST_READ_ERRORS as exc:
             violations.append(
                 FileValidationViolation(
                     file_path=str(models_yaml),
@@ -1179,7 +1184,6 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
     )
     for d_info in info_files:
         try:
-            import yaml
             info = yaml.safe_load(d_info.read_text(encoding="utf-8"))
             if not isinstance(info, dict):
                 violations.append(
@@ -1201,7 +1205,7 @@ def _audit_dataset_manifests(project_dir: Path) -> List[FileValidationViolation]
                                 message=f"dataset_info.yaml missing required field '{req_key}'",
                             )
                         )
-        except Exception as exc:
+        except _MANIFEST_READ_ERRORS as exc:
             violations.append(
                 FileValidationViolation(
                     file_path=str(d_info),
@@ -1345,7 +1349,6 @@ def _audit_training_suite(project_dir: Path) -> List[FileValidationViolation]:
     v2_models = project_dir / "unified_models_v2.yaml"
     if v2_models.exists():
         try:
-            import yaml
             data = yaml.safe_load(v2_models.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 violations.append(
@@ -1365,7 +1368,7 @@ def _audit_training_suite(project_dir: Path) -> List[FileValidationViolation]:
                         message="unified_models_v2.yaml missing '_registry_metadata'",
                     )
                 )
-        except Exception as exc:
+        except _MANIFEST_READ_ERRORS as exc:
             violations.append(
                 FileValidationViolation(
                     file_path=str(v2_models),
@@ -1400,7 +1403,8 @@ def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
             if hook_file.is_file() and not hook_file.name.endswith(".sample"):
                 try:
                     canon = hook_file.resolve()
-                except Exception:
+                except (OSError, RuntimeError) as exc:
+                    _log.warning("Cannot resolve git hook path %s: %s", hook_file, exc)
                     canon = hook_file
                 if canon in checked_hooks:
                     continue
@@ -1440,7 +1444,7 @@ def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
                                         message=f"Hook references nonexistent script '{py_script}'.",
                                     )
                                 )
-                except Exception as exc:
+                except OSError as exc:
                     violations.append(
                         FileValidationViolation(
                             file_path=str(hook_file),
@@ -1510,7 +1514,8 @@ def validate_project(project_dir: Path, is_node_project: bool = False) -> Projec
             try:
                 if f_path.stat().st_size > 1024 * 1024:
                     continue
-            except Exception:
+            except OSError as exc:
+                _log.warning("Cannot stat %s, skipping: %s", f_path, exc)
                 continue
 
             if ext == ".py":

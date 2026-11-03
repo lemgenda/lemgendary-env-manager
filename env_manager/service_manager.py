@@ -7,7 +7,7 @@ Compiler Suite (8100), and LemGendary Model Training Suite (8200).
 
 from __future__ import annotations
 
-import logging
+import http.client
 import os
 import socket
 import subprocess
@@ -21,9 +21,10 @@ from typing import Any
 
 import psutil
 
+from env_manager._logging import get_logger
 from env_manager.venv_manager import get_venv_python_path
 
-_log = logging.getLogger("env_manager.service_manager")
+_log = get_logger(__name__)
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -86,7 +87,10 @@ def is_service_healthy(health_url: str, timeout: float = 1.0) -> bool:
         )
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.status == 200
-    except Exception:
+    except (OSError, http.client.HTTPException) as exc:
+        # URLError and socket timeouts are OSError subclasses. An offline
+        # service is an expected state, so this is debug-level.
+        _log.debug("Health probe %s failed: %s", health_url, exc)
         return False
 
 
@@ -101,62 +105,101 @@ def get_background_python_path(project_dir: Path) -> Path:
     return venv_dir / "bin" / "python"
 
 
-def start_service(service_id: str) -> dict[str, Any]:  # noqa: PLR0911
-    """Start an ecosystem sidecar service daemon in the background."""
-    key = _resolve_service_key(service_id)
-    if not key:
-        return {
-            "status": "error",
-            "message": (
-                f"Unknown service '{service_id}'. "
-                f"Known services: {list(SERVICE_CONFIGS.keys())}"
-            ),
-        }
-
-    cfg = SERVICE_CONFIGS[key]
+def _preflight_service(key: str, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a response when the service must not be launched, else None."""
     port = cfg["port"]
     name = cfg["canonical_name"]
-    health_url = cfg["health_url"]
     proj_dir: Path = cfg["project_dir"]
-
     if key == "env-manager":
         return {
             "status": "already_running",
             "message": f"{name} is the orchestrator and is currently running on port {port}.",
             "port": port,
         }
-
-    if is_service_healthy(health_url):
+    if is_service_healthy(cfg["health_url"]):
         return {
             "status": "already_running",
             "message": f"{name} is already online and healthy on port {port}.",
             "port": port,
         }
-
     if is_port_in_use(port):
         return {
             "status": "starting",
             "message": f"{name} is currently binding/starting on port {port}.",
             "port": port,
         }
-
     if not proj_dir.exists():
         return {
             "status": "error",
             "message": f"Project directory does not exist: {proj_dir}",
         }
+    return None
 
+
+def _resolve_service_python(proj_dir: Path) -> Path:
+    """Prefer the windowless interpreter; fall back to the venv's python."""
     python_exe = get_background_python_path(proj_dir)
     if not python_exe.exists():
         python_exe = get_venv_python_path(proj_dir)
-    if not python_exe.exists():
-        return {
-            "status": "error",
-            "message": (
-                f"Virtual environment python not found at {python_exe}. "
-                "Please initialize virtual environment before starting service."
-            ),
-        }
+    return python_exe
+
+
+def _read_log_tail(path: Path, limit: int = 500) -> str:
+    """Return the last ``limit`` characters of a log file, or a reason it is unreadable."""
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[-limit:]
+    except OSError as exc:
+        _log.warning("Cannot read %s: %s", path, exc)
+        return f"(log unreadable: {exc})"
+
+
+def _await_service_health(
+    cfg: dict[str, Any], proc: subprocess.Popen, stderr_path: Path,
+) -> dict[str, Any]:
+    """Poll the health endpoint up to 20 s; report started, exited or still starting.
+
+    The 20 s window lets PyTorch/CUDA model suites initialise.
+    """
+    port = cfg["port"]
+    name = cfg["canonical_name"]
+    start_time = time.time()
+    while time.time() - start_time < 20.0:
+        time.sleep(0.5)
+        if is_service_healthy(cfg["health_url"]):
+            return {
+                "status": "started",
+                "message": f"{name} started successfully on port {port}.",
+                "port": port,
+                "pid": proc.pid,
+            }
+        if proc.poll() is not None:
+            err_text = _read_log_tail(stderr_path)
+            return {
+                "status": "error",
+                "message": (
+                    f"{name} process exited with code {proc.returncode}. "
+                    f"Logs: {err_text.strip() or 'No error output'}"
+                ),
+                "port": port,
+            }
+    return {
+        "status": "starting",
+        "message": (
+            f"{name} daemon launched (PID {proc.pid}), "
+            f"waiting for health check on port {port}..."
+        ),
+        "port": port,
+        "pid": proc.pid,
+    }
+
+
+def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
+    """Spawn the service detached from any console and wait for it to come up."""
+    port = cfg["port"]
+    name = cfg["canonical_name"]
+    proj_dir: Path = cfg["project_dir"]
 
     log_dir = proj_dir / cfg["log_folder"]
     try:
@@ -208,52 +251,41 @@ def start_service(service_id: str) -> dict[str, Any]:  # noqa: PLR0911
             port,
         )
 
-        # Poll health endpoint up to 20.0 seconds to confirm startup
-        # (allows PyTorch/CUDA model suites to initialize)
-        start_time = time.time()
-        while time.time() - start_time < 20.0:
-            time.sleep(0.5)
-            if is_service_healthy(health_url):
-                return {
-                    "status": "started",
-                    "message": f"{name} started successfully on port {port}.",
-                    "port": port,
-                    "pid": proc.pid,
-                }
-            if proc.poll() is not None:
-                # Process terminated prematurely
-                err_text = ""
-                if stderr_path.exists():
-                    try:
-                        err_text = stderr_path.read_text(encoding="utf-8")[-500:]
-                    except Exception:
-                        pass
-                return {
-                    "status": "error",
-                    "message": (
-                        f"{name} process exited with code {proc.returncode}. "
-                        f"Logs: {err_text.strip() or 'No error output'}"
-                    ),
-                    "port": port,
-                }
-
-        return {
-            "status": "starting",
-            "message": (
-                f"{name} daemon launched (PID {proc.pid}), "
-                f"waiting for health check on port {port}..."
-            ),
-            "port": port,
-            "pid": proc.pid,
-        }
-
-    except Exception as exc:
+        return _await_service_health(cfg, proc, stderr_path)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         _log.exception("Failed to launch %s: %s", name, exc)
         return {
             "status": "error",
             "message": f"Failed to launch {name}: {exc!s}",
             "port": port,
         }
+
+
+def start_service(service_id: str) -> dict[str, Any]:
+    """Start an ecosystem sidecar service daemon in the background."""
+    key = _resolve_service_key(service_id)
+    if not key:
+        return {
+            "status": "error",
+            "message": (
+                f"Unknown service '{service_id}'. "
+                f"Known services: {list(SERVICE_CONFIGS.keys())}"
+            ),
+        }
+    cfg = SERVICE_CONFIGS[key]
+    blocked = _preflight_service(key, cfg)
+    if blocked is not None:
+        return blocked
+    python_exe = _resolve_service_python(cfg["project_dir"])
+    if not python_exe.exists():
+        return {
+            "status": "error",
+            "message": (
+                f"Virtual environment python not found at {python_exe}. "
+                "Please initialize virtual environment before starting service."
+            ),
+        }
+    return _launch_service(cfg, python_exe)
 
 
 def _kill_process_tree(pid: int) -> bool:
@@ -277,16 +309,16 @@ def _kill_process_tree(pid: int) -> bool:
             try:
                 child.terminate()
             except psutil.NoSuchProcess:
-                pass
+                _log.debug("Child PID %d exited before terminate", child.pid)
         parent.terminate()
         _, alive = psutil.wait_procs([parent, *children], timeout=3)
         for p in alive:
             try:
                 p.kill()
             except psutil.NoSuchProcess:
-                pass
+                _log.debug("PID %d exited before kill", p.pid)
         return True
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError, psutil.Error) as exc:
         _log.warning("Failed to terminate process tree for PID %d: %s", pid, exc)
         return False
 
@@ -333,18 +365,19 @@ def stop_service(service_id: str) -> dict[str, Any]:
                     terminated = _kill_process_tree(pid)
                     _log.info("Terminated process tree for %s (PID %d) via PID file", name, pid)
                 pfile.unlink(missing_ok=True)
-            except Exception as exc:
+            except (OSError, ValueError) as exc:
                 _log.warning("Error stopping %s via PID file %s: %s", name, pfile, exc)
 
     # If still listening on port, terminate the process holding the port and all descendants
     if not terminated and is_port_in_use(port):
         for conn in psutil.net_connections(kind="inet"):
             if conn.laddr and conn.laddr.port == port and conn.pid:
-                try:
-                    terminated = _kill_process_tree(conn.pid)
+                terminated = _kill_process_tree(conn.pid)
+                if terminated:
                     _log.info("Terminated process tree on port %d (PID %d)", port, conn.pid)
-                except Exception as exc:
-                    _log.warning("Could not terminate process holding port %d: %s", port, exc)
+                else:
+                    _log.warning("Could not terminate process holding port %d (PID %d)",
+                                 port, conn.pid)
 
     if terminated:
         return {

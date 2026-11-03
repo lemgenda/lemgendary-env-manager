@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Callable, Generator
 
+from env_manager._logging import get_logger
 from env_manager.bootstrap import verify_prerequisites
 from env_manager.dependency_resolver import (
     classify_safe_upgrades,
@@ -38,6 +39,8 @@ from env_manager.venv_manager import (
     stream_install_requirements,
 )
 
+_log = get_logger(__name__)
+
 
 # Which OpenCV provider each project should end up with.
 # The datasets project needs mediapipe's contrib modules (SIFT, aruco,
@@ -57,12 +60,24 @@ def _get_active_venv() -> Path | None:
     """Return the .venv directory that the current process is running from."""
     try:
         exe = Path(sys.executable).resolve()
-    except Exception:
+    except (OSError, RuntimeError) as exc:
+        _log.warning("Cannot resolve the running interpreter %s: %s", sys.executable, exc)
         return None
     for parent in exe.parents:
         if parent.name == ".venv":
             return parent
     return None
+
+
+def _is_same_venv(venv_dir: Path, active_venv: Path | None) -> bool:
+    """Return True when ``venv_dir`` is the venv this process runs from."""
+    if active_venv is None:
+        return False
+    try:
+        return venv_dir.resolve() == active_venv
+    except (OSError, RuntimeError) as exc:
+        _log.warning("Cannot resolve venv path %s: %s", venv_dir, exc)
+        return False
 
 
 def _purge_node_modules(nm_dir: Path) -> str | None:
@@ -89,6 +104,108 @@ class PipelineEvent:
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary."""
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class PipProgress:
+    """Install progress known before a pip output line is parsed."""
+
+    project_name: str
+    completed_count: int
+    total_reqs: int
+    current_pkg: str
+
+    def advanced(self) -> tuple[int, float]:
+        """Return the completed count after one more requirement and its percent."""
+        completed = min(self.total_reqs, self.completed_count + 1)
+        return completed, round((completed / max(1, self.total_reqs)) * 100, 1)
+
+
+# A rule maps (progress, stripped pip line) to (completed_count, current_pkg,
+# message), or None when the line is not the kind the rule handles.
+PipProgressRule = Callable[[PipProgress, str], "tuple[int, str, str] | None"]
+
+
+def _pip_rule_collecting(progress: PipProgress, trimmed: str) -> tuple[int, str, str] | None:
+    if not trimmed.startswith("Collecting "):
+        return None
+    parts = trimmed.split()
+    pkg_name = parts[1] if len(parts) > 1 else ""
+    cleaned_pkg = pkg_name.split(">=")[0].split("==")[0].split("<")[0].split(";")[0]
+    completed, pct = progress.advanced()
+    msg = (
+        f"INSTALLING: {progress.project_name} - {pct}%"
+        f" [{completed}/{progress.total_reqs} requirements, Collecting {cleaned_pkg}...]"
+    )
+    return completed, cleaned_pkg, msg
+
+
+def _pip_rule_already_satisfied(
+    progress: PipProgress, trimmed: str,
+) -> tuple[int, str, str] | None:
+    if not trimmed.startswith("Requirement already satisfied"):
+        return None
+    completed, pct = progress.advanced()
+    pkg_info = trimmed.split(":", 1)[1].strip() if ":" in trimmed else trimmed
+    cleaned_pkg = pkg_info.split()[0] if pkg_info else ""
+    msg = (
+        f"INSTALLING: {progress.project_name} - {pct}%"
+        f" [{completed}/{progress.total_reqs} requirements, satisfied {cleaned_pkg}]"
+    )
+    return completed, progress.current_pkg, msg
+
+
+_PIP_BAR_GLYPHS = re.compile(r"[\u2580-\u259F\u2500-\u257F\u2501\u2588\-=|]")
+
+
+def _pip_rule_downloading(progress: PipProgress, trimmed: str) -> tuple[int, str, str] | None:
+    is_download = (
+        trimmed.startswith("Downloading ")
+        or "MB/s" in trimmed
+        or "kB/s" in trimmed
+        or "eta" in trimmed.lower()
+    )
+    clean_dl = _PIP_BAR_GLYPHS.sub("", trimmed).strip() if is_download else ""
+    if not clean_dl:
+        return None
+    msg = f"DOWNLOADING: {progress.current_pkg or progress.project_name} - {clean_dl}"
+    return progress.completed_count, progress.current_pkg, msg
+
+
+def _pip_rule_installing(progress: PipProgress, trimmed: str) -> tuple[int, str, str] | None:
+    if not trimmed.startswith("Installing collected packages"):
+        return None
+    msg = (
+        f"INSTALLING: {progress.project_name}"
+        " - 95.0% [Building wheels and installing collected packages...]"
+    )
+    return progress.completed_count, progress.current_pkg, msg
+
+
+def _pip_rule_installed(progress: PipProgress, trimmed: str) -> tuple[int, str, str] | None:
+    if not trimmed.startswith("Successfully installed"):
+        return None
+    msg = f"INSTALLING: {progress.project_name} - 100% [Successfully installed dependencies]"
+    return progress.completed_count, progress.current_pkg, msg
+
+
+_PIP_PROGRESS_RULES: tuple[PipProgressRule, ...] = (
+    _pip_rule_collecting,
+    _pip_rule_already_satisfied,
+    _pip_rule_downloading,
+    _pip_rule_installing,
+    _pip_rule_installed,
+)
+
+
+@dataclass(frozen=True)
+class _StepContext:
+    """Inputs shared by the single-step handlers of the orchestrator."""
+
+    emit: Callable[..., "PipelineEvent"]
+    target_project: str | None
+    clean: bool
+    active_venv: Path | None
 
 
 class PipelineOrchestrator:
@@ -126,11 +243,12 @@ class PipelineOrchestrator:
         active_venv = _get_active_venv()
         install_failures: list[str] = []
 
-        def emit(  # noqa: PLR0917
+        def emit(
             step_num: int,
             step_name: str,
             status: str,
             msg: str,
+            *,
             data: dict[str, Any] | None = None,
             is_progress: bool = False,
         ) -> PipelineEvent:
@@ -160,7 +278,7 @@ class PipelineOrchestrator:
                 "success",
                 f"Detected platform {hw.os_name} ({hw.architecture}) with backend: "
                 f"{hw.primary_backend.upper()} [{', '.join(accel_names)}].",
-                hw.to_dict(),
+                data=hw.to_dict(),
             )
 
             # Step 2: Global Prerequisites Audit
@@ -173,7 +291,7 @@ class PipelineOrchestrator:
                     "Toolchain Audit",
                     "error",
                     f"Toolchain prerequisites missing: {', '.join(boot.missing_prerequisites)}",
-                    boot.to_dict(),
+                    data=boot.to_dict(),
                 )
             else:
                 yield emit(
@@ -181,7 +299,7 @@ class PipelineOrchestrator:
                     "Toolchain Audit",
                     "success",
                     f"Python {boot.python_version} and Git verified successfully.",
-                    boot.to_dict(),
+                    data=boot.to_dict(),
                 )
 
             # Step 3: Project Discovery & Venv Provisioning
@@ -220,12 +338,7 @@ class PipelineOrchestrator:
 
                 venv_dir = p_dir / ".venv"
 
-                is_active_venv = False
-                if active_venv is not None:
-                    try:
-                        is_active_venv = venv_dir.resolve() == active_venv
-                    except Exception:
-                        is_active_venv = False
+                is_active_venv = _is_same_venv(venv_dir, active_venv)
 
                 if clean and is_active_venv:
                     yield emit(
@@ -308,7 +421,7 @@ class PipelineOrchestrator:
                         "Codebase Verification",
                         "error",
                         f"{p.name} validation failed: {err_summary}",
-                        report.to_dict(),
+                        data=report.to_dict(),
                     )
 
             if all_validation_passed:
@@ -357,7 +470,7 @@ class PipelineOrchestrator:
                 status_type,
                 f"Pipeline execution completed. "
                 f"Ecosystem healthy status: {final_report.overall_healthy}.",
-                final_report.to_dict(),
+                data=final_report.to_dict(),
             )
 
             self.is_running = False
@@ -370,27 +483,29 @@ class PipelineOrchestrator:
                        f"Unhandled pipeline exception: {exc}")
             raise
 
-    def run_pipeline_single_step(  # noqa: PLR0911
+    def run_pipeline_single_step(
         self,
         step_number: int,
         event_callback: Callable[[PipelineEvent], None] | None = None,
         target_project: str | None = None,
         clean: bool = False,
     ) -> Generator[PipelineEvent, None, Any]:
-        """Execute an individual step from the 7-step pipeline in isolation."""
+        """Execute an individual step from the 7-step pipeline in isolation.
+
+        Each step is a generator method registered in ``step_handlers``; the
+        handler's return value becomes this generator's return value.
+        """
         self.is_running = True
         self.current_step = step_number
         self.last_status = "running"
         self.last_run_timestamp = datetime.now(UTC).isoformat()
 
-        active_venv = _get_active_venv()
-        install_failures: list[str] = []
-
-        def emit(  # noqa: PLR0917
+        def emit(
             step_num: int,
             step_name: str,
             status: str,
             msg: str,
+            *,
             data: dict[str, Any] | None = None,
             is_progress: bool = False,
         ) -> PipelineEvent:
@@ -408,241 +523,24 @@ class PipelineOrchestrator:
                 event_callback(ev)
             return ev
 
+        ctx = _StepContext(
+            emit=emit,
+            target_project=target_project,
+            clean=clean,
+            active_venv=_get_active_venv(),
+        )
+        step_handlers = {
+            1: self._single_step_hardware_discovery,
+            2: self._single_step_toolchain_audit,
+            3: self._single_step_virtual_environments,
+            4: self._single_step_requirements_install,
+            5: self._single_step_dependency_upgrades,
+            6: self._single_step_codebase_verification,
+            7: self._single_step_health_matrix,
+        }
+        handler = step_handlers.get(step_number)
         try:
-            if step_number == 1:
-                # Step 1: System Probe & Hardware Detection
-                yield emit(1, "Hardware Discovery", "info",
-                           "Probing system hardware and accelerators...")
-                hw = probe_hardware()
-                accel_names = [a.name for a in hw.accelerators] or ["None (CPU Fallback)"]
-                yield emit(
-                    1,
-                    "Hardware Discovery",
-                    "success",
-                    f"Detected platform {hw.os_name} ({hw.architecture}) with backend: "
-                    f"{hw.primary_backend.upper()} [{', '.join(accel_names)}].",
-                    hw.to_dict(),
-                )
-                self.last_status = "success"
-                return hw
-
-            elif step_number == 2:
-                # Step 2: Global Prerequisites Audit
-                yield emit(2, "Toolchain Audit", "info",
-                           "Verifying Python, Git, and NPM toolchains...")
-                boot = verify_prerequisites()
-                if not boot.python_valid or not boot.git_installed:
-                    self.last_status = "warning"
-                    yield emit(
-                        2,
-                        "Toolchain Audit",
-                        "error",
-                        f"Toolchain prerequisites missing: {', '.join(boot.missing_prerequisites)}",
-                        boot.to_dict(),
-                    )
-                else:
-                    self.last_status = "success"
-                    yield emit(
-                        2,
-                        "Toolchain Audit",
-                        "success",
-                        f"Python {boot.python_version} and Git verified successfully.",
-                        boot.to_dict(),
-                    )
-                return boot
-
-            elif step_number == 3:
-                # Step 3: Project Discovery & Venv Provisioning
-                yield emit(3, "Virtual Environments", "info",
-                           "Discovering managed projects and virtual environments...")
-                projects = discover_projects(self.base_dir)
-                if target_project:
-                    projects = [p for p in projects if p.name == target_project]
-
-                for p in projects:
-                    p_dir = Path(p.project_dir)
-
-                    if p.is_node_project:
-                        if clean:
-                            nm_dir = p_dir / "node_modules"
-                            if nm_dir.exists():
-                                yield emit(
-                                    3, "Virtual Environments", "info",
-                                    f"Purging node_modules for {p.name} (clean install)...",
-                                )
-                                purge_error = _purge_node_modules(nm_dir)
-                                if purge_error:
-                                    yield emit(
-                                        3, "Virtual Environments", "error",
-                                        f"Failed to purge node_modules for {p.name}: {purge_error}",
-                                    )
-                        if p.node_modules_present and not clean:
-                            yield emit(3, "Virtual Environments", "info",
-                                       f"Existing node_modules verified for {p.name}.")
-                        else:
-                            yield emit(3, "Virtual Environments", "info",
-                                       f"node_modules will be installed for {p.name} in Step 4.")
-                        continue
-
-                    venv_dir = p_dir / ".venv"
-                    is_active_venv = False
-                    if active_venv is not None:
-                        try:
-                            is_active_venv = venv_dir.resolve() == active_venv
-                        except Exception:
-                            is_active_venv = False
-
-                    if clean and is_active_venv:
-                        yield emit(
-                            3,
-                            "Virtual Environments",
-                            "warning",
-                            f"Skipping clean purge for active environment {p.name} "
-                            f"(cannot delete active runtime venv).",
-                        )
-                    elif clean or not is_venv_valid(p_dir):
-                        action_label = "Recreating fresh" if clean else "Creating fresh"
-                        yield emit(3, "Virtual Environments", "info",
-                                   f"{action_label} virtual environment for {p.name}...")
-                        success, msg = create_venv(p_dir)
-                        if success:
-                            yield emit(3, "Virtual Environments", "success",
-                                       f"Virtual environment verified for {p.name}.")
-                        else:
-                            yield emit(3, "Virtual Environments", "error",
-                                       f"Failed to create .venv for {p.name}: {msg}")
-                    else:
-                        yield emit(3, "Virtual Environments", "info",
-                                   f"Existing .venv verified for {p.name}.")
-                self.last_status = "success"
-                return projects
-
-            elif step_number == 4:
-                # Step 4: Requirements Manifest Sync & Installation
-                yield emit(4, "Requirements Synchronization", "info",
-                           "Synchronizing centralized manifests to projects...")
-                sync_results = sync_all_manifests(self.base_dir)
-                for p_name, (ok, s_msg) in sync_results.items():
-                    if target_project and p_name != target_project:
-                        continue
-                    if ok:
-                        yield emit(4, "Requirements Synchronization", "success", s_msg)
-                    else:
-                        yield emit(4, "Requirements Synchronization", "warning", s_msg)
-
-                yield emit(4, "Package Installation", "info",
-                           "Installing dependencies into target environments...")
-                hw = probe_hardware()
-                projects = discover_projects(self.base_dir)
-                if target_project:
-                    projects = [p for p in projects if p.name == target_project]
-
-                failures = yield from self._execute_package_installation(
-                projects, target_project, hw, emit
-            )
-                install_failures.extend(failures)
-                self.last_status = "success" if not install_failures else "warning"
-                return sync_results
-
-            elif step_number == 5:
-                # Step 5: Safe Dependency Audit & Upgrades
-                yield emit(
-                    5, "Dependency Upgrades", "info",
-                    "Auditing outdated packages and applying safe upgrades bottom-up...",
-                )
-                hw = probe_hardware()
-                projects = discover_projects(self.base_dir)
-                if target_project:
-                    projects = [p for p in projects if p.name == target_project]
-                yield from self._execute_safe_upgrades(projects, hw, emit)
-                self.last_status = "success"
-                return None
-            elif step_number == 6:
-                # Step 6: Bytecode Compilation, Zero-Emoji & Full Linting Validation
-                yield emit(6, "Codebase Verification", "info",
-                           "Running full validation suite (py_compile, emoji, lint, PS1)...")
-                projects = discover_projects(self.base_dir)
-                if target_project:
-                    projects = [p for p in projects if p.name == target_project]
-
-                all_validation_passed = True
-                for p in projects:
-                    p_dir = Path(p.project_dir)
-                    report = validate_project(
-                        p_dir,
-                        is_node_project=(
-                            p.is_node_project if hasattr(p, "is_node_project") else False
-                        ),
-                    )
-                    if report.passed:
-                        yield emit(
-                            6,
-                            "Codebase Verification",
-                            "success",
-                            f"{p.name}: Compiled {report.compiled_files_count} files, "
-                            f"0 syntax errors, 0 emoji violations.",
-                        )
-                    else:
-                        all_validation_passed = False
-                        err_summary = (
-                            f"Syntax: {len(report.compile_errors)}, "
-                            f"Emoji: {len(report.emoji_violations)}, "
-                            f"Lint: {len(report.lint_errors)}, "
-                            f"YAML: {len(report.yaml_errors)}, "
-                            f"HTML: {len(report.html_errors)}, "
-                            f"WCAG: {len(report.wcag_violations)}"
-                        )
-                        yield emit(
-                            6,
-                            "Codebase Verification",
-                            "error",
-                            f"{p.name} validation failed: {err_summary}",
-                            report.to_dict(),
-                        )
-
-                if all_validation_passed:
-                    yield emit(6, "Codebase Verification", "info",
-                               "All projects passed validation. Syncing manifests...")
-                    sync_result = sync_all_manifests(self.base_dir)
-                    sync_ok = all(ok for ok, _ in sync_result.values()) if sync_result else False
-                    sync_msg = "; ".join(
-                        f"{name}: {msg}" for name, (_, msg) in sync_result.items()
-                    ) if sync_result else "no manifests processed"
-                    yield emit(
-                        6,
-                        "Codebase Verification",
-                        "success" if sync_ok else "warning",
-                        f"Manifest sync completed: {sync_msg}",
-                    )
-                else:
-                    yield emit(
-                        6,
-                        "Codebase Verification",
-                        "warning",
-                        "Manifest sync skipped due to validation failures. Fix errors and re-run.",
-                    )
-                self.last_status = "success" if all_validation_passed else "warning"
-                return all_validation_passed
-
-            elif step_number == 7:
-                # Step 7: Final Health Report Generation
-                yield emit(7, "Health Matrix", "info",
-                           "Generating ecosystem health report...")
-                final_report = run_full_health_audit(self.base_dir)
-                self.last_report = final_report
-                self.last_status = "success" if final_report.overall_healthy else "warning"
-
-                status_type = "success" if final_report.overall_healthy else "warning"
-                yield emit(
-                    7,
-                    "Health Matrix",
-                    status_type,
-                    f"Step 7 completed. Ecosystem healthy status: {final_report.overall_healthy}.",
-                    final_report.to_dict(),
-                )
-                return final_report
-
-            else:
+            if handler is None:
                 yield emit(
                     0,
                     "Invalid Step",
@@ -651,7 +549,7 @@ class PipelineOrchestrator:
                 )
                 self.last_status = "error"
                 return None
-
+            return (yield from handler(ctx))
         except Exception as exc:
             self.last_status = "failed"
             yield emit(step_number, f"Step {step_number} Error", "error",
@@ -659,6 +557,268 @@ class PipelineOrchestrator:
             raise
         finally:
             self.is_running = False
+
+    def _single_step_hardware_discovery(
+        self, ctx: _StepContext,
+    ) -> Generator[PipelineEvent, None, Any]:
+        """Step 1 of :meth:`run_pipeline_single_step`."""
+        emit = ctx.emit
+        # Step 1: System Probe & Hardware Detection
+        yield emit(1, "Hardware Discovery", "info",
+                   "Probing system hardware and accelerators...")
+        hw = probe_hardware()
+        accel_names = [a.name for a in hw.accelerators] or ["None (CPU Fallback)"]
+        yield emit(
+            1,
+            "Hardware Discovery",
+            "success",
+            f"Detected platform {hw.os_name} ({hw.architecture}) with backend: "
+            f"{hw.primary_backend.upper()} [{', '.join(accel_names)}].",
+            data=hw.to_dict(),
+        )
+        self.last_status = "success"
+        return hw
+
+    def _single_step_toolchain_audit(
+        self, ctx: _StepContext,
+    ) -> Generator[PipelineEvent, None, Any]:
+        """Step 2 of :meth:`run_pipeline_single_step`."""
+        emit = ctx.emit
+        # Step 2: Global Prerequisites Audit
+        yield emit(2, "Toolchain Audit", "info",
+                   "Verifying Python, Git, and NPM toolchains...")
+        boot = verify_prerequisites()
+        if not boot.python_valid or not boot.git_installed:
+            self.last_status = "warning"
+            yield emit(
+                2,
+                "Toolchain Audit",
+                "error",
+                f"Toolchain prerequisites missing: {', '.join(boot.missing_prerequisites)}",
+                data=boot.to_dict(),
+            )
+        else:
+            self.last_status = "success"
+            yield emit(
+                2,
+                "Toolchain Audit",
+                "success",
+                f"Python {boot.python_version} and Git verified successfully.",
+                data=boot.to_dict(),
+            )
+        return boot
+
+    def _single_step_virtual_environments(
+        self, ctx: _StepContext,
+    ) -> Generator[PipelineEvent, None, Any]:
+        """Step 3 of :meth:`run_pipeline_single_step`."""
+        emit = ctx.emit
+        target_project = ctx.target_project
+        clean = ctx.clean
+        active_venv = ctx.active_venv
+        # Step 3: Project Discovery & Venv Provisioning
+        yield emit(3, "Virtual Environments", "info",
+                   "Discovering managed projects and virtual environments...")
+        projects = discover_projects(self.base_dir)
+        if target_project:
+            projects = [p for p in projects if p.name == target_project]
+
+        for p in projects:
+            p_dir = Path(p.project_dir)
+
+            if p.is_node_project:
+                if clean:
+                    nm_dir = p_dir / "node_modules"
+                    if nm_dir.exists():
+                        yield emit(
+                            3, "Virtual Environments", "info",
+                            f"Purging node_modules for {p.name} (clean install)...",
+                        )
+                        purge_error = _purge_node_modules(nm_dir)
+                        if purge_error:
+                            yield emit(
+                                3, "Virtual Environments", "error",
+                                f"Failed to purge node_modules for {p.name}: {purge_error}",
+                            )
+                if p.node_modules_present and not clean:
+                    yield emit(3, "Virtual Environments", "info",
+                               f"Existing node_modules verified for {p.name}.")
+                else:
+                    yield emit(3, "Virtual Environments", "info",
+                               f"node_modules will be installed for {p.name} in Step 4.")
+                continue
+
+            venv_dir = p_dir / ".venv"
+            is_active_venv = _is_same_venv(venv_dir, active_venv)
+
+            if clean and is_active_venv:
+                yield emit(
+                    3,
+                    "Virtual Environments",
+                    "warning",
+                    f"Skipping clean purge for active environment {p.name} "
+                    f"(cannot delete active runtime venv).",
+                )
+            elif clean or not is_venv_valid(p_dir):
+                action_label = "Recreating fresh" if clean else "Creating fresh"
+                yield emit(3, "Virtual Environments", "info",
+                           f"{action_label} virtual environment for {p.name}...")
+                success, msg = create_venv(p_dir)
+                if success:
+                    yield emit(3, "Virtual Environments", "success",
+                               f"Virtual environment verified for {p.name}.")
+                else:
+                    yield emit(3, "Virtual Environments", "error",
+                               f"Failed to create .venv for {p.name}: {msg}")
+            else:
+                yield emit(3, "Virtual Environments", "info",
+                           f"Existing .venv verified for {p.name}.")
+        self.last_status = "success"
+        return projects
+
+    def _single_step_requirements_install(
+        self, ctx: _StepContext,
+    ) -> Generator[PipelineEvent, None, Any]:
+        """Step 4 of :meth:`run_pipeline_single_step`."""
+        emit = ctx.emit
+        target_project = ctx.target_project
+        # Step 4: Requirements Manifest Sync & Installation
+        yield emit(4, "Requirements Synchronization", "info",
+                   "Synchronizing centralized manifests to projects...")
+        sync_results = sync_all_manifests(self.base_dir)
+        for p_name, (ok, s_msg) in sync_results.items():
+            if target_project and p_name != target_project:
+                continue
+            if ok:
+                yield emit(4, "Requirements Synchronization", "success", s_msg)
+            else:
+                yield emit(4, "Requirements Synchronization", "warning", s_msg)
+
+        yield emit(4, "Package Installation", "info",
+                   "Installing dependencies into target environments...")
+        hw = probe_hardware()
+        projects = discover_projects(self.base_dir)
+        if target_project:
+            projects = [p for p in projects if p.name == target_project]
+
+        failures = yield from self._execute_package_installation(
+            projects, target_project, hw, emit
+        )
+        self.last_status = "success" if not failures else "warning"
+        return sync_results
+
+    def _single_step_dependency_upgrades(
+        self, ctx: _StepContext,
+    ) -> Generator[PipelineEvent, None, Any]:
+        """Step 5 of :meth:`run_pipeline_single_step`."""
+        emit = ctx.emit
+        target_project = ctx.target_project
+        # Step 5: Safe Dependency Audit & Upgrades
+        yield emit(
+            5, "Dependency Upgrades", "info",
+            "Auditing outdated packages and applying safe upgrades bottom-up...",
+        )
+        hw = probe_hardware()
+        projects = discover_projects(self.base_dir)
+        if target_project:
+            projects = [p for p in projects if p.name == target_project]
+        yield from self._execute_safe_upgrades(projects, hw, emit)
+        self.last_status = "success"
+
+    def _single_step_codebase_verification(
+        self, ctx: _StepContext,
+    ) -> Generator[PipelineEvent, None, Any]:
+        """Step 6 of :meth:`run_pipeline_single_step`."""
+        emit = ctx.emit
+        target_project = ctx.target_project
+        # Step 6: Bytecode Compilation, Zero-Emoji & Full Linting Validation
+        yield emit(6, "Codebase Verification", "info",
+                   "Running full validation suite (py_compile, emoji, lint, PS1)...")
+        projects = discover_projects(self.base_dir)
+        if target_project:
+            projects = [p for p in projects if p.name == target_project]
+
+        all_validation_passed = True
+        for p in projects:
+            p_dir = Path(p.project_dir)
+            report = validate_project(
+                p_dir,
+                is_node_project=(
+                    p.is_node_project if hasattr(p, "is_node_project") else False
+                ),
+            )
+            if report.passed:
+                yield emit(
+                    6,
+                    "Codebase Verification",
+                    "success",
+                    f"{p.name}: Compiled {report.compiled_files_count} files, "
+                    f"0 syntax errors, 0 emoji violations.",
+                )
+            else:
+                all_validation_passed = False
+                err_summary = (
+                    f"Syntax: {len(report.compile_errors)}, "
+                    f"Emoji: {len(report.emoji_violations)}, "
+                    f"Lint: {len(report.lint_errors)}, "
+                    f"YAML: {len(report.yaml_errors)}, "
+                    f"HTML: {len(report.html_errors)}, "
+                    f"WCAG: {len(report.wcag_violations)}"
+                )
+                yield emit(
+                    6,
+                    "Codebase Verification",
+                    "error",
+                    f"{p.name} validation failed: {err_summary}",
+                    data=report.to_dict(),
+                )
+
+        if all_validation_passed:
+            yield emit(6, "Codebase Verification", "info",
+                       "All projects passed validation. Syncing manifests...")
+            sync_result = sync_all_manifests(self.base_dir)
+            sync_ok = all(ok for ok, _ in sync_result.values()) if sync_result else False
+            sync_msg = "; ".join(
+                f"{name}: {msg}" for name, (_, msg) in sync_result.items()
+            ) if sync_result else "no manifests processed"
+            yield emit(
+                6,
+                "Codebase Verification",
+                "success" if sync_ok else "warning",
+                f"Manifest sync completed: {sync_msg}",
+            )
+        else:
+            yield emit(
+                6,
+                "Codebase Verification",
+                "warning",
+                "Manifest sync skipped due to validation failures. Fix errors and re-run.",
+            )
+        self.last_status = "success" if all_validation_passed else "warning"
+        return all_validation_passed
+
+    def _single_step_health_matrix(
+        self, ctx: _StepContext,
+    ) -> Generator[PipelineEvent, None, Any]:
+        """Step 7 of :meth:`run_pipeline_single_step`."""
+        emit = ctx.emit
+        # Step 7: Final Health Report Generation
+        yield emit(7, "Health Matrix", "info",
+                   "Generating ecosystem health report...")
+        final_report = run_full_health_audit(self.base_dir)
+        self.last_report = final_report
+        self.last_status = "success" if final_report.overall_healthy else "warning"
+
+        status_type = "success" if final_report.overall_healthy else "warning"
+        yield emit(
+            7,
+            "Health Matrix",
+            status_type,
+            f"Step 7 completed. Ecosystem healthy status: {final_report.overall_healthy}.",
+            data=final_report.to_dict(),
+        )
+        return final_report
+
 
     def get_status(self) -> dict[str, Any]:
         """Return current status and telemetry of the pipeline."""
@@ -678,79 +838,25 @@ class PipelineOrchestrator:
         self.last_status = "idle"
 
     @staticmethod
-    def _parse_pip_line_to_event(  # noqa: PLR0911 PLR0917
-        project_name: str,
+    def _parse_pip_line_to_event(
+        progress: PipProgress,
         line: str,
-        completed_count: int,
-        total_reqs: int,
-        current_pkg: str,
         emit_fn: Callable[..., PipelineEvent],
     ) -> tuple[int, str, PipelineEvent] | None:
-        """Parse raw pip stdout line into a structured live telemetry progress event."""
+        """Parse a raw pip stdout line into a live telemetry progress event.
+
+        Returns ``(completed_count, current_pkg, event)`` for a recognised
+        line, else None. Recognition rules live in ``_PIP_PROGRESS_RULES``.
+        """
         trimmed = line.strip()
         if not trimmed:
             return None
-
-        # Check Collecting
-        if trimmed.startswith("Collecting "):
-            parts = trimmed.split()
-            pkg_name = parts[1] if len(parts) > 1 else ""
-            cleaned_pkg = pkg_name.split(">=")[0].split("==")[0].split("<")[0].split(";")[0]
-            completed_count = min(total_reqs, completed_count + 1)
-            pct = round((completed_count / max(1, total_reqs)) * 100, 1)
-            msg = (
-                f"INSTALLING: {project_name} - {pct}%"
-                f" [{completed_count}/{total_reqs} requirements, Collecting {cleaned_pkg}...]"
-            )
-            return completed_count, cleaned_pkg, emit_fn(
-                4, "Package Installation", "info", msg, is_progress=True
-            )
-
-        # Check Requirement already satisfied
-        if trimmed.startswith("Requirement already satisfied"):
-            completed_count = min(total_reqs, completed_count + 1)
-            pct = round((completed_count / max(1, total_reqs)) * 100, 1)
-            pkg_info = trimmed.split(":", 1)[1].strip() if ":" in trimmed else trimmed
-            cleaned_pkg = pkg_info.split()[0] if pkg_info else ""
-            msg = (
-                f"INSTALLING: {project_name} - {pct}%"
-                f" [{completed_count}/{total_reqs} requirements, satisfied {cleaned_pkg}]"
-            )
-            return completed_count, current_pkg, emit_fn(
-                4, "Package Installation", "info", msg, is_progress=True
-            )
-
-        # Check Downloading
-        if (
-            trimmed.startswith("Downloading ")
-            or "MB/s" in trimmed
-            or "kB/s" in trimmed
-            or "eta" in trimmed.lower()
-        ):
-            clean_dl = re.sub(r"[\u2580-\u259F\u2500-\u257F━█─\-=|]", "", trimmed).strip()
-            if clean_dl:
-                msg = f"DOWNLOADING: {current_pkg or project_name} - {clean_dl}"
-                return completed_count, current_pkg, emit_fn(
-                    4, "Package Installation", "info", msg, is_progress=True
-                )
-
-        # Check Installing collected packages
-        if trimmed.startswith("Installing collected packages"):
-            msg = (
-                f"INSTALLING: {project_name}"
-                f" - 95.0% [Building wheels and installing collected packages...]"
-            )
-            return completed_count, current_pkg, emit_fn(
-                4, "Package Installation", "info", msg, is_progress=True
-            )
-
-        # Check Successfully installed
-        if trimmed.startswith("Successfully installed"):
-            msg = f"INSTALLING: {project_name} - 100% [Successfully installed dependencies]"
-            return completed_count, current_pkg, emit_fn(
-                4, "Package Installation", "info", msg, is_progress=True
-            )
-
+        for rule in _PIP_PROGRESS_RULES:
+            outcome = rule(progress, trimmed)
+            if outcome is not None:
+                completed_count, current_pkg, msg = outcome
+                event = emit_fn(4, "Package Installation", "info", msg, is_progress=True)
+                return completed_count, current_pkg, event
         return None
 
     def _execute_package_installation(
@@ -811,7 +917,8 @@ class PipelineOrchestrator:
                 declared_req_count = max(
                     1, len([r for r in parsed_reqs if r.name and not r.is_index_url])
                 )
-            except Exception:
+            except (OSError, ValueError) as exc:
+                _log.warning("Cannot read %s for progress estimation: %s", req_file, exc)
                 declared_req_count = 10
 
             yield emit(
@@ -836,7 +943,9 @@ class PipelineOrchestrator:
                 while True:
                     line = next(pip_gen)
                     prog_info = self._parse_pip_line_to_event(
-                        p.name, line, completed_count, declared_req_count, current_pkg, emit
+                        PipProgress(p.name, completed_count, declared_req_count, current_pkg),
+                        line,
+                        emit,
                     )
                     if prog_info is not None:
                         completed_count, current_pkg, ev = prog_info
@@ -900,7 +1009,8 @@ class PipelineOrchestrator:
 
         try:
             sync_manifests_from_venvs(self.base_dir)
-        except Exception as sync_err:
+        except OSError as sync_err:
+            _log.warning("Manifest sync after upgrades failed: %s", sync_err)
             yield emit(
                 5, "Dependency Upgrades", "info",
                 f"Manifest sync notice: {sync_err}",

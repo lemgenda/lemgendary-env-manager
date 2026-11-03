@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from packaging.markers import UndefinedComparison, UndefinedEnvironmentName
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 
@@ -51,10 +52,18 @@ def _normalize(name: str) -> str:
     return name.lower().replace("-", "_").replace(".", "_")
 
 
-def _version_lt(a: str, b: str) -> bool:
+def _marker_applies(req: Requirement) -> bool:
+    """Return True when ``req`` has no marker or its marker holds here.
+
+    A marker that cannot be evaluated in this environment is treated as not
+    applying; the reason is logged so a malformed requirement stays visible.
+    """
+    if req.marker is None:
+        return True
     try:
-        return Version(a.split("+", maxsplit=1)[0]) < Version(b.split("+", maxsplit=1)[0])
-    except (InvalidVersion, AttributeError):
+        return bool(req.marker.evaluate())
+    except (UndefinedComparison, UndefinedEnvironmentName) as exc:
+        _log.debug("Skipping requirement %s: marker not evaluable: %s", req, exc)
         return False
 
 
@@ -166,7 +175,9 @@ def _get_reverse_dependencies(project_dir: Path) -> dict[str, list[tuple[str, st
         for req_str in meta.get("requires_dist") or []:
             try:
                 r = Requirement(req_str)
-            except InvalidRequirement:
+            except InvalidRequirement as exc:
+                _log.debug("Ignoring unparsable requirement %r of %s: %s",
+                           req_str, req_name_raw, exc)
                 continue
             if r.marker is not None:
                 # Explicitly exclude extras-conditional requirements. These are
@@ -177,11 +188,8 @@ def _get_reverse_dependencies(project_dir: Path) -> dict[str, list[tuple[str, st
                 # that does not rely on packaging internals.
                 if "extra" in str(r.marker):
                     continue
-                try:
-                    if not r.marker.evaluate():
-                        continue
-                except Exception:
-                    continue
+            if not _marker_applies(r):
+                continue
             dep_name = _normalize(r.name)
             reverse.setdefault(dep_name, []).append((req_name, str(r.specifier)))
     return reverse
@@ -208,7 +216,8 @@ def _check_reverse_deps(
             continue
         try:
             spec_set = Requirement(f"x{spec}").specifier
-        except InvalidRequirement:
+        except InvalidRequirement as exc:
+            _log.debug("Ignoring unparsable specifier %r from %s: %s", spec, req_pkg, exc)
             continue
         if new_ver not in spec_set:
             return f"{req_pkg} requires {pkg_name}{spec}"
@@ -249,18 +258,17 @@ def _diagnose_pinned_reason(
     for req_str in requires_dist:
         try:
             r = Requirement(req_str)
-        except InvalidRequirement:
+        except InvalidRequirement as exc:
+            _log.debug("Ignoring unparsable PyPI requirement %r of %s: %s",
+                       req_str, pkg_name, exc)
             continue
         # Skip extras-only requirements — they are not active constraints.
         if r.marker is not None:
             marker_str = str(r.marker)
             if "extra" in marker_str:
                 continue
-            try:
-                if not r.marker.evaluate():
-                    continue
-            except Exception:
-                continue
+        if not _marker_applies(r):
+            continue
         if not r.specifier:
             continue
         dep_norm = _normalize(r.name)
@@ -269,7 +277,8 @@ def _diagnose_pinned_reason(
             continue
         try:
             installed = Version(installed_ver.split("+")[0])
-        except InvalidVersion:
+        except InvalidVersion as exc:
+            _log.debug("Installed %s has unparsable version %r: %s", dep_norm, installed_ver, exc)
             continue
         if installed not in r.specifier:
             return (
@@ -347,7 +356,7 @@ def _write_constraints_file(pins: dict[str, str]) -> str:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             for name, version in pins.items():
                 f.write(f"{name}=={version}\n")
-    except Exception:
+    except (OSError, ValueError):
         try:
             os.unlink(path)
         except OSError as exc:
@@ -421,7 +430,8 @@ def constraint_preserving_dry_run(
 
     try:
         constraint_path = _write_constraints_file(constraint_pins)
-    except Exception as exc:
+    except OSError as exc:
+        _log.error("Dry-run aborted for %s: cannot write constraints: %s", project_dir, exc)
         return False, {}, f"failed to write constraints: {exc}"
 
     python_path = get_venv_python_path(project_dir)
@@ -452,8 +462,6 @@ def constraint_preserving_dry_run(
                 changed[name] = new_ver
 
         return True, changed, "ok"
-    except Exception as exc:
-        return False, {}, str(exc)
     finally:
         try:
             os.unlink(constraint_path)

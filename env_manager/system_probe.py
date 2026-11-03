@@ -23,15 +23,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import psutil
+
 from env_manager._logging import get_logger
 from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
 
 _log = get_logger(__name__)
-
-try:
-    import psutil
-except ImportError:
-    psutil = None
 
 
 @dataclass
@@ -123,9 +120,10 @@ def probe_nvidia_smi() -> List[AcceleratorDevice]:
                                 driver_version=driver,
                             )
                         )
-                    except (ValueError, IndexError):
+                    except ValueError as exc:
+                        _log.warning("Unparsable nvidia-smi line %r: %s", line, exc)
                         continue
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("nvidia-smi probe failed: %s", exc)
     return devices
 
@@ -157,7 +155,7 @@ def probe_rocm_smi() -> List[AcceleratorDevice]:
                             backend="rocm",
                         )
                     )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("rocm-smi probe failed: %s", exc)
     return devices
 
@@ -190,6 +188,9 @@ def probe_directml() -> List[AcceleratorDevice]:
             if isinstance(data, dict):
                 data = [data]
             for idx, item in enumerate(data):
+                if not isinstance(item, dict):
+                    _log.warning("Unexpected DirectML WMI entry: %r", item)
+                    continue
                 name = item.get("Name", "DirectX Video Controller")
                 ram_bytes = item.get("AdapterRAM", 0) or 0
                 ram_mb = int(ram_bytes / (1024 * 1024))
@@ -202,8 +203,9 @@ def probe_directml() -> List[AcceleratorDevice]:
                     )
                 )
     except subprocess.TimeoutExpired:
-        _log.debug("DirectML WMI probe timed out after 20s")
-    except Exception as exc:
+        _log.warning("DirectML WMI probe timed out after 20s")
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError) as exc:
+        # ValueError covers invalid JSON; TypeError a non-numeric AdapterRAM.
         _log.warning("DirectML WMI probe failed: %s", exc)
     return devices
 
@@ -216,10 +218,10 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
         return None
 
     if sys.platform == "win32":
-        try:
-            import ctypes
-            from ctypes import wintypes
+        import ctypes  # Windows-only API surface (windll); imported on demand.
+        from ctypes import wintypes
 
+        try:
             size = ctypes.windll.version.GetFileVersionInfoSizeW(str(exe_path), None)
             if size > 0:
                 res = ctypes.create_string_buffer(size)
@@ -252,7 +254,7 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
                         v_ms = fixed.dwFileVersionMS
                         v_ls = fixed.dwFileVersionLS
                         return f"{v_ms >> 16}.{v_ms & 0xffff}.{v_ls >> 16}.{v_ls & 0xffff}"
-        except Exception as exc:
+        except (OSError, ValueError, ctypes.ArgumentError) as exc:
             _log.debug("In-process ctypes version extraction failed for %s: %s", exe_path, exc)
 
     shell = _preferred_shell()
@@ -274,8 +276,8 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
             version = (proc.stdout or "").strip()
             if version:
                 return version
-    except Exception as exc:
-        _log.debug("Version read failed for %s: %s", exe_path, exc)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("Version read failed for %s: %s", exe_path, exc)
     return None
 
 
@@ -289,10 +291,7 @@ def _mt5_registry_probe() -> Optional[MetaTrader5Info]:
     """
     if sys.platform != "win32":
         return None
-    try:
-        import winreg
-    except ImportError:
-        return None
+    import winreg  # Windows-only module; guarded by the platform check above.
 
     candidates = [
         (winreg.HKEY_CURRENT_USER,  r"SOFTWARE\MetaQuotes\Terminal"),
@@ -379,7 +378,7 @@ def _mt5_get_package_probe(timeout: int = 45) -> Optional[MetaTrader5Info]:
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "Get-Package -Name '*MetaTrader*' -ErrorAction SilentlyContinue "
+        "Get-Package -Name '*MetaTrader*' "
         "| Select-Object -Property Name, Version "
         "| ConvertTo-Json -Compress",
     ]
@@ -392,25 +391,30 @@ def _mt5_get_package_probe(timeout: int = 45) -> Optional[MetaTrader5Info]:
             creationflags=WINDOWS_NO_WINDOW,
         )
         if proc.returncode != 0 or not proc.stdout.strip():
+            # Get-Package exits non-zero when no MetaTrader package exists,
+            # which is the normal "not installed" answer.
+            _log.debug("Get-Package found no MT5 (exit %s): %s",
+                       proc.returncode, (proc.stderr or "").strip()[:200])
             return None
 
         data = json.loads(proc.stdout.strip())
         if isinstance(data, dict):
             data = [data]
-        if not data:
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            _log.warning("Get-Package MT5 probe returned unexpected JSON: %r", data)
             return None
 
         entry = data[0]
         version = entry.get("Version") or None
         return MetaTrader5Info(installed=True, version=str(version) if version else None)
     except subprocess.TimeoutExpired:
-        _log.debug("Get-Package MT5 probe timed out after %ss", timeout)
+        _log.warning("Get-Package MT5 probe timed out after %ss", timeout)
         return None
-    except (json.JSONDecodeError, KeyError, IndexError) as exc:
-        _log.debug("Get-Package MT5 probe JSON parse failed: %s", exc)
+    except json.JSONDecodeError as exc:
+        _log.warning("Get-Package MT5 probe JSON parse failed: %s", exc)
         return None
-    except Exception as exc:
-        _log.debug("Get-Package MT5 probe failed: %s", exc)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("Get-Package MT5 probe failed: %s", exc)
         return None
 
 
@@ -464,7 +468,9 @@ def select_cuda_torch_index(driver_version: Optional[str]) -> str:
         elif major >= 535:
             return "https://download.pytorch.org/whl/cu121"
         return "https://download.pytorch.org/whl/cu118"
-    except (ValueError, IndexError):
+    except ValueError as exc:
+        _log.warning("Unparsable NVIDIA driver version %r, defaulting to cu126: %s",
+                     driver_version, exc)
         return "https://download.pytorch.org/whl/cu126"
 
 
@@ -479,14 +485,9 @@ def probe_hardware() -> HardwareProfile:
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     python_executable = sys.executable
 
-    if psutil:
-        cpu_logical = psutil.cpu_count(logical=True) or os.cpu_count() or 1
-        cpu_physical = psutil.cpu_count(logical=False) or 1
-        ram_mb = int(psutil.virtual_memory().total / (1024 * 1024))
-    else:
-        cpu_logical = os.cpu_count() or 1
-        cpu_physical = cpu_logical
-        ram_mb = 0
+    cpu_logical = psutil.cpu_count(logical=True) or os.cpu_count() or 1
+    cpu_physical = psutil.cpu_count(logical=False) or 1
+    ram_mb = int(psutil.virtual_memory().total / (1024 * 1024))
 
     accelerators: List[AcceleratorDevice] = []
 

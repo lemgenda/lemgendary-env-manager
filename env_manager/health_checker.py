@@ -11,20 +11,16 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-try:
-    from packaging.markers import Marker
-except ImportError:
-    Marker = None
+from packaging.markers import (
+    InvalidMarker,
+    Marker,
+    UndefinedComparison,
+    UndefinedEnvironmentName,
+)
+from rich.table import Table
 
-try:
-    from rich.table import Table
-    _RICH_AVAILABLE = True
-except ImportError:
-    Table: Optional[Any] = None
-    _RICH_AVAILABLE = False
-
-from env_manager.bootstrap import BootstrapStatus, verify_prerequisites
 from env_manager._logging import get_logger
+from env_manager.bootstrap import BootstrapStatus, verify_prerequisites
 from env_manager.dependency_resolver import (
     OutdatedPackage,
     classify_safe_upgrades,
@@ -33,6 +29,7 @@ from env_manager.dependency_resolver import (
 from env_manager.npm_manager import NpmPackageStatus, audit_npm_workspaces
 from env_manager.requirements_manager import parse_requirements_file
 from env_manager.system_probe import HardwareProfile, probe_hardware
+from env_manager.updater import _check_torch_cuda_upgrades
 from env_manager.venv_manager import (
     ProjectVenvInfo,
     discover_projects,
@@ -210,6 +207,19 @@ def _classify_pin_type(specifier: str) -> str:
 
 # ─── Manifest parsing ───────────────────────────────────────────────────────
 
+def _marker_matches(marker: str) -> bool:
+    """Evaluate a PEP 508 marker for this platform.
+
+    An unparsable or non-evaluable marker counts as matching (the entry is
+    kept as declared, the conservative choice) and the reason is logged.
+    """
+    try:
+        return bool(Marker(marker).evaluate())
+    except (InvalidMarker, UndefinedComparison, UndefinedEnvironmentName) as exc:
+        _log.warning("PEP 508 marker %r could not be evaluated, keeping entry: %s", marker, exc)
+        return True
+
+
 def _load_project_manifest(req_file: Path) -> ProjectManifest:
     """Parse a requirements.txt into a ProjectManifest.
 
@@ -224,15 +234,9 @@ def _load_project_manifest(req_file: Path) -> ProjectManifest:
         if entry.is_index_url or entry.is_editable:
             continue
 
-        if entry.marker and Marker:
-            try:
-                matches = Marker(entry.marker).evaluate()
-            except Exception as exc:
-                _log.debug("Marker evaluation failed for '%s': %s", entry.marker, exc)
-                matches = True  # conservative: keep as declared
-            if not matches:
-                manifest.platform_skipped.append(entry.name)
-                continue
+        if entry.marker and not _marker_matches(entry.marker):
+            manifest.platform_skipped.append(entry.name)
+            continue
 
         name = normalize_package_name(entry.name)
         manifest.pins[name] = PinInfo(
@@ -257,19 +261,11 @@ def _classify_torch_via_cuda_index(
     cuda_index_url: str,
 ) -> Dict[str, UpgradeStatus]:
     """Resolve torch-family upgrade candidates against the CUDA index."""
-    try:
-        from env_manager.updater import _check_torch_cuda_upgrades
-    except Exception as exc:
-        _log.debug("Cannot import CUDA-aware torch check: %s", exc)
-        return {}
-
-    try:
-        candidates, _reason = _check_torch_cuda_upgrades(
-            project_dir, cuda_index_url, current_state,
-        )
-    except Exception as exc:
-        _log.debug("CUDA-aware torch check failed for %s: %s", project_dir, exc)
-        return {}
+    candidates, reason = _check_torch_cuda_upgrades(
+        project_dir, cuda_index_url, current_state,
+    )
+    if not candidates:
+        _log.debug("No CUDA torch candidates for %s: %s", project_dir, reason)
 
     result: Dict[str, UpgradeStatus] = {}
     for pkg in candidates:
@@ -291,12 +287,7 @@ def _classify_project_upgrades(
     if not project.venv_exists:
         return {}
 
-    try:
-        raw: List[OutdatedPackage] = find_outdated_packages(p_dir)
-    except Exception as exc:
-        _log.debug("find_outdated_packages failed for %s: %s", project.name, exc)
-        return {}
-
+    raw: List[OutdatedPackage] = find_outdated_packages(p_dir)
     if not raw:
         return {}
 
@@ -312,24 +303,21 @@ def _classify_project_upgrades(
     result: Dict[str, UpgradeStatus] = {}
 
     if non_torch_raw:
-        try:
-            safe, blocked = classify_safe_upgrades(
-                p_dir, non_torch_raw, cuda_index_url=cuda_index_url,
+        safe, blocked = classify_safe_upgrades(
+            p_dir, non_torch_raw, cuda_index_url=cuda_index_url,
+        )
+        for pkg in safe:
+            result[normalize_package_name(pkg.name)] = UpgradeStatus(
+                current=pkg.current_version,
+                latest=pkg.latest_version,
+                safe=True, reason=None,
             )
-            for pkg in safe:
-                result[normalize_package_name(pkg.name)] = UpgradeStatus(
-                    current=pkg.current_version,
-                    latest=pkg.latest_version,
-                    safe=True, reason=None,
-                )
-            for pkg, reason in blocked:
-                result[normalize_package_name(pkg.name)] = UpgradeStatus(
-                    current=pkg.current_version,
-                    latest=pkg.latest_version,
-                    safe=False, reason=reason,
-                )
-        except Exception as exc:
-            _log.debug("classify_safe_upgrades failed for %s: %s", project.name, exc)
+        for pkg, reason in blocked:
+            result[normalize_package_name(pkg.name)] = UpgradeStatus(
+                current=pkg.current_version,
+                latest=pkg.latest_version,
+                safe=False, reason=reason,
+            )
 
     if torch_raw:
         if cuda_index_url:
@@ -342,22 +330,19 @@ def _classify_project_upgrades(
             )
             result.update(cuda_result)
         else:
-            try:
-                safe, blocked = classify_safe_upgrades(p_dir, torch_raw)
-                for pkg in safe:
-                    result[normalize_package_name(pkg.name)] = UpgradeStatus(
-                        current=pkg.current_version,
-                        latest=pkg.latest_version,
-                        safe=True, reason=None,
-                    )
-                for pkg, reason in blocked:
-                    result[normalize_package_name(pkg.name)] = UpgradeStatus(
-                        current=pkg.current_version,
-                        latest=pkg.latest_version,
-                        safe=False, reason=reason,
-                    )
-            except Exception as exc:
-                _log.debug("Torch classification failed for %s: %s", project.name, exc)
+            safe, blocked = classify_safe_upgrades(p_dir, torch_raw)
+            for pkg in safe:
+                result[normalize_package_name(pkg.name)] = UpgradeStatus(
+                    current=pkg.current_version,
+                    latest=pkg.latest_version,
+                    safe=True, reason=None,
+                )
+            for pkg, reason in blocked:
+                result[normalize_package_name(pkg.name)] = UpgradeStatus(
+                    current=pkg.current_version,
+                    latest=pkg.latest_version,
+                    safe=False, reason=reason,
+                )
 
     return result
 
@@ -380,11 +365,8 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
         pkg_json = p_dir / "package.json"
         total_req = 0
         if pkg_json.is_file():
-            try:
-                data = json.loads(pkg_json.read_text(encoding="utf-8"))
-                total_req = len(data.get("dependencies", {})) + len(data.get("devDependencies", {}))
-            except Exception:
-                pass
+            data = _read_json_object(pkg_json)
+            total_req = len(data.get("dependencies") or {}) + len(data.get("devDependencies") or {})
         node_mods = _read_node_modules_versions(p_dir) if project_info.node_modules_present else {}
         return ProjectHealth(
             name=project_info.name,
@@ -406,15 +388,8 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
         for entry in parsed:
             if entry.is_index_url:
                 continue
-            if entry.marker and Marker:
-                try:
-                    if not Marker(entry.marker).evaluate():
-                        continue
-                except Exception as exc:
-                    _log.debug(
-                        "PEP 508 marker evaluation failed for '%s': %s",
-                        entry.marker, exc,
-                    )
+            if entry.marker and not _marker_matches(entry.marker):
+                continue
             total_required += 1
             pkg_name = normalize_package_name(entry.name)
             if pkg_name in _OPENCV_VARIANTS_NORMALIZED and has_installed_opencv:
@@ -610,6 +585,25 @@ def compute_single_manifest_packages(
 
 # ─── NPM drift ──────────────────────────────────────────────────────────────
 
+def _read_json_object(path: Path) -> Dict[str, Any]:
+    """Return the JSON object stored at ``path``, or ``{}`` when unavailable.
+
+    A missing file is an expected condition and returns ``{}`` silently. An
+    unreadable file, invalid JSON or a non-object document is logged.
+    """
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _log.warning("Cannot read JSON from %s: %s", path, exc)
+        return {}
+    if not isinstance(data, dict):
+        _log.warning("JSON document at %s is not an object", path)
+        return {}
+    return data
+
+
 def _read_node_modules_versions(workspace_dir: Path) -> Dict[str, str]:
     installed: Dict[str, str] = {}
     node_modules = workspace_dir / "node_modules"
@@ -623,27 +617,15 @@ def _read_node_modules_versions(workspace_dir: Path) -> Dict[str, str]:
             name = entry.name
             if name.startswith("@"):
                 for scoped in entry.iterdir():
-                    pkg_json = scoped / "package.json"
-                    if pkg_json.is_file():
-                        try:
-                            data = json.loads(pkg_json.read_text(encoding="utf-8"))
-                            ver = data.get("version")
-                            if ver:
-                                installed[f"{name}/{scoped.name}"] = str(ver)
-                        except Exception:
-                            continue
+                    ver = _read_json_object(scoped / "package.json").get("version")
+                    if ver:
+                        installed[f"{name}/{scoped.name}"] = str(ver)
             else:
-                pkg_json = entry / "package.json"
-                if pkg_json.is_file():
-                    try:
-                        data = json.loads(pkg_json.read_text(encoding="utf-8"))
-                        ver = data.get("version")
-                        if ver:
-                            installed[name] = str(ver)
-                    except Exception:
-                        continue
-    except Exception as exc:
-        _log.debug("node_modules walk failed for %s: %s", workspace_dir, exc)
+                ver = _read_json_object(entry / "package.json").get("version")
+                if ver:
+                    installed[name] = str(ver)
+    except OSError as exc:
+        _log.warning("node_modules walk failed for %s: %s", workspace_dir, exc)
 
     return installed
 
@@ -654,13 +636,8 @@ def _read_package_json_specifiers(
     specifiers: Dict[str, str] = {}
     dev_names: Set[str] = set()
     pkg_json = workspace_dir / "package.json"
-    if not pkg_json.is_file():
-        return specifiers, dev_names
-
-    try:
-        data = json.loads(pkg_json.read_text(encoding="utf-8"))
-    except Exception as exc:
-        _log.debug("package.json parse failed for %s: %s", workspace_dir, exc)
+    data = _read_json_object(pkg_json)
+    if not data:
         return specifiers, dev_names
 
     for name, spec in (data.get("dependencies") or {}).items():
@@ -763,11 +740,8 @@ def _format_cell(
     return base
 
 
-def render_drift_matrix(entries: List[VersionDriftEntry]) -> Optional["Table"]:
+def render_drift_matrix(entries: List[VersionDriftEntry]) -> Table:
     """Return a Rich Table showing Python drift, pins, and upgrade status."""
-    if not _RICH_AVAILABLE or Table is None:
-        return None
-
     projects: List[str] = []
     for e in entries:
         for name in e.versions.keys():
@@ -804,11 +778,8 @@ def render_drift_matrix(entries: List[VersionDriftEntry]) -> Optional["Table"]:
 
 def render_manifest_coverage_table(
     entries: List[ManifestCoverageEntry],
-) -> Optional["Table"]:
+) -> Table:
     """Return a Rich Table showing declared-vs-installed coverage per project."""
-    if not _RICH_AVAILABLE or Table is None:
-        return None
-
     table = Table(
         title="Manifest Coverage (Declared vs Installed)",
         show_lines=False,
@@ -844,11 +815,8 @@ def render_manifest_coverage_table(
 
 def render_single_manifest_table(
     entries: List[SingleManifestEntry],
-) -> Optional["Table"]:
+) -> Table:
     """Return a Rich Table showing packages declared in only one manifest."""
-    if not _RICH_AVAILABLE or Table is None:
-        return None
-
     table = Table(
         title="Packages Declared in Only One Manifest",
         show_lines=False,
@@ -868,11 +836,8 @@ def render_single_manifest_table(
     return table
 
 
-def render_npm_drift_matrix(entries: List[NpmDriftEntry]) -> Optional["Table"]:
+def render_npm_drift_matrix(entries: List[NpmDriftEntry]) -> Table:
     """Return a Rich Table showing npm workspace drift."""
-    if not _RICH_AVAILABLE or Table is None:
-        return None
-
     workspaces: List[str] = []
     for e in entries:
         for name in e.versions.keys():

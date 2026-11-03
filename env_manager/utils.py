@@ -86,7 +86,12 @@ def _looks_like_cache_corruption(stderr: str, stdout: str) -> bool:
 
 
 def _purge_pip_cache(python_path: Path) -> None:
-    """Best-effort purge of pip's HTTP cache. Never raises."""
+    """Best-effort purge of pip's HTTP cache.
+
+    Launch failures and timeouts are logged and swallowed deliberately: the
+    purge is an optimisation before a retry, and the retry reports its own
+    errors.
+    """
     try:
         subprocess.run(
             [str(python_path), "-m", "pip", "cache", "purge"],
@@ -94,8 +99,8 @@ def _purge_pip_cache(python_path: Path) -> None:
             errors="replace", timeout=120, check=False, env=pip_env(),
             creationflags=WINDOWS_NO_WINDOW,
         )
-    except Exception as exc:
-        _log.debug("pip cache purge failed: %s", exc)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("pip cache purge failed for %s: %s", python_path, exc)
 
 
 # ─── Pip runner with recovery ───────────────────────────────────────────────
@@ -196,8 +201,8 @@ def stream_pip_with_recovery(
                 args=cmd, returncode=124, stdout="\n".join(output_lines),
                 stderr="\n".join([*error_lines, f"pip command timed out after {timeout}s: {exc}"]),
             )
-        except Exception as exc:
-            _log.warning("pip command crashed before completion: %s", exc)
+        except (OSError, ValueError) as exc:
+            _log.warning("pip command could not be run (%s): %s", cmd, exc)
             return subprocess.CompletedProcess(
                 args=cmd, returncode=1, stdout="\n".join(output_lines),
                 stderr="\n".join([*error_lines, str(exc)]),
@@ -256,10 +261,7 @@ def run_pip_with_recovery(
         while True:
             line = next(gen)
             if on_line:
-                try:
-                    on_line(line)
-                except Exception as cb_exc:
-                    _log.debug("pip on_line callback failed: %s", cb_exc)
+                on_line(line)
     except StopIteration as stop:
         return stop.value
 
@@ -282,8 +284,8 @@ def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
                     shutil.rmtree(cache_path)
                     total_reclaimed += size
                     cleaned_count += 1
-                except Exception as exc:
-                    _log.debug("Failed to remove __pycache__ dir %s: %s", cache_path, exc)
+                except OSError as exc:
+                    _log.warning("Failed to remove __pycache__ dir %s: %s", cache_path, exc)
                 dirs.remove(d)
 
         for f in files:
@@ -294,8 +296,8 @@ def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
                     item.unlink()
                     total_reclaimed += size
                     cleaned_count += 1
-                except Exception as exc:
-                    _log.debug("Failed to remove bytecode file %s: %s", item, exc)
+                except OSError as exc:
+                    _log.warning("Failed to remove bytecode file %s: %s", item, exc)
 
     return cleaned_count, total_reclaimed
 

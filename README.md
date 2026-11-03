@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.18-STABLE)
+# LemGendary Environment Manager (v16.9.19-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,27 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.19 - Narrow, Logged Exception Handling and One Version
+
+- **No silent exception handlers (ROBOTS.md zero-swallow rule)**: every `except Exception`, `except ...: pass` and silent `continue`/default in `env_manager/` now catches the specific errors the call can raise (`OSError`, `subprocess.SubprocessError`, `ValueError`/`json.JSONDecodeError`, `yaml.YAMLError`, `psutil.Error`, `packaging` marker and requirement errors) and logs them with context, re-raises with `from`, or returns a typed error. Conditions that are expected (service offline, process already gone, unparsable third-party metadata) stay non-fatal but are logged.
+  - Calls that already report failures through their return value (`run_pip_with_recovery`, `find_outdated_packages`, `classify_safe_upgrades`, `_check_torch_cuda_upgrades`, `probe_hardware`) are no longer wrapped in catch-all handlers.
+  - `on_line` callbacks of `run_pip_with_recovery`, `run_npm_install` and `install_requirements` are no longer wrapped: a failing callback now propagates instead of being hidden.
+  - `rmtree` read-only hook re-raises when the retry fails, so a half-deleted venv is reported.
+  - Safe-update jobs run on a `ThreadPoolExecutor`; the `Future` records a runner failure on the job, so no catch-all handler is needed. Interpreter shutdown now waits for a running upgrade instead of killing pip mid-write.
+  - WebSocket broadcast and `/ws/log` catch only disconnect-class errors (`WebSocketDisconnect`, `RuntimeError`, `OSError`) and always unregister the client.
+  - Manifest validation and save catch only `yaml.YAMLError`/`ValueError`; the save handler chains the cause (`raise ... from exc`).
+  - Validator manifest audits use one documented error tuple, `_MANIFEST_READ_ERRORS`.
+  - `Get-Package` MT5 probe no longer uses `-ErrorAction SilentlyContinue`; a non-zero exit (no package) is logged.
+- **Required dependencies imported directly**: the `ImportError` fallbacks for `packaging`, `rich` and `psutil` (all declared dependencies) are removed together with their dead branches. Function-local imports of `yaml`, `os`, `signal`, `time`, `stat`, `psutil`, `platform` and `unittest` moved to module level; only the Windows-only `ctypes.windll` and `winreg` imports stay inside their platform guards.
+- **Inline suppressions removed** (all five `# noqa`):
+  - `run_pipeline_single_step` dispatches to one generator method per step through a handler table (`_single_step_*`) instead of a seven-branch `if` chain.
+  - `_parse_pip_line_to_event` takes a `PipProgress` value and applies a rule table (`_PIP_PROGRESS_RULES`), one small function per pip line kind.
+  - The pipeline `emit` helpers take `data` and `is_progress` as keyword-only arguments.
+  - `start_service` is split into `_preflight_service`, `_resolve_service_python`, `_launch_service` and `_await_service_health`.
+- **Cleanup**: unused `_version_lt` removed; `service_manager` uses the shared `lem_env` logger; console UTF-8 reconfiguration in the CLI moved into `_configure_windows_console()` after the imports.
+- **One version string**: `env_manager.__version__`, `pyproject.toml`, both `package.json` copies, the FastAPI `app.version` (now read from `__version__`, also used by `/api/ping` and `/api/gui/state`), `openapi.json` and the PowerShell banner all read `16.9.19`. `tests/test_readme_version.py` checks every one against the README title.
+- Tests: `tests/test_orchestrator.py` updated for the `PipProgress` signature.
 
 ### v16.9.18 - Bug Report Endpoint
 

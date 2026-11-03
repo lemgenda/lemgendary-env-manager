@@ -53,6 +53,9 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
 
     try:
         data = json.loads(pkg_json_file.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            _log.warning("package.json at %s is not a JSON object", package_dir)
+            return None
         deps = data.get("dependencies", {})
         dev_deps = data.get("devDependencies", {})
         nm_dir = package_dir / "node_modules"
@@ -75,9 +78,11 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
             if pkg_nm_json.exists():
                 try:
                     p_data = json.loads(pkg_nm_json.read_text(encoding="utf-8"))
-                    inst_ver = p_data.get("version")
-                except Exception:
-                    inst_ver = None
+                except (OSError, ValueError) as exc:
+                    _log.warning("Unreadable installed package manifest %s: %s", pkg_nm_json, exc)
+                else:
+                    if isinstance(p_data, dict):
+                        inst_ver = p_data.get("version")
             detailed_pkgs.append(
                 NpmDependencyDetail(
                     name=name,
@@ -101,7 +106,7 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
             node_modules_present=node_modules,
             detailed_packages=detailed_pkgs,
         )
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         _log.warning("Failed to parse package.json at %s: %s", package_dir, exc)
         return None
 
@@ -142,8 +147,10 @@ def stream_npm_install(
             return True, "\n".join(lines) or "ok"
         return False, "\n".join(lines) or "NPM install failed."
     except subprocess.TimeoutExpired as exc:
+        _log.warning("npm install in %s timed out after %ss", package_dir, timeout)
         return False, f"npm install timed out after {timeout}s: {exc}"
-    except Exception as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        _log.warning("npm install in %s could not be run: %s", package_dir, exc)
         return False, str(exc)
 
 
@@ -157,10 +164,7 @@ def run_npm_install(
         while True:
             line = next(gen)
             if on_line:
-                try:
-                    on_line(line)
-                except Exception as cb_exc:
-                    _log.debug("npm install callback error: %s", cb_exc)
+                on_line(line)
     except StopIteration as stop:
         return stop.value
 

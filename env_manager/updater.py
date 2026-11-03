@@ -153,17 +153,13 @@ def _detect_cuda() -> tuple[str | None, str]:
 
     The index URL is the single source of truth for CUDA availability.
     """
-    try:
-        hw = probe_hardware()
-        backend = (getattr(hw, "primary_backend", "") or "").lower()
-        index_url = getattr(hw, "recommended_torch_index", None)
-        accel = ", ".join(a.name for a in getattr(hw, "accelerators", [])) or "none"
-        if backend in ("cuda", "rocm") and index_url:
-            return str(index_url), f"{backend.upper()} via {accel}"
-        return None, f"no CUDA backend ({accel})"
-    except Exception as exc:
-        _log.debug("CUDA detection failed: %s", exc)
-        return None, "detection error"
+    hw = probe_hardware()
+    backend = (hw.primary_backend or "").lower()
+    index_url = hw.recommended_torch_index
+    accel = ", ".join(a.name for a in hw.accelerators) or "none"
+    if backend in ("cuda", "rocm") and index_url:
+        return str(index_url), f"{backend.upper()} via {accel}"
+    return None, f"no CUDA backend ({accel})"
 
 
 def _torch_installed(project_dir: Path) -> bool:
@@ -190,7 +186,8 @@ def _verify_torch_cuda_runtime(project_dir: Path) -> tuple[bool, str]:
         if cuda_flag == "1":
             return True, f"torch {version} CUDA runtime verified"
         return False, f"torch {version} reports cuda.is_available() == False"
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("torch CUDA runtime check failed for %s: %s", project_dir, exc)
         return False, str(exc)
 
 
@@ -198,13 +195,10 @@ def _pip_check(project_dir: Path) -> tuple[bool, str]:
     if not is_venv_valid(project_dir):
         return True, "no venv"
     python_path = get_venv_python_path(project_dir)
-    try:
-        proc = run_pip_with_recovery(python_path, ["check"], timeout=60)
-        if proc.returncode == 0:
-            return True, "all dependency constraints satisfied"
-        return False, (proc.stdout or proc.stderr or "").strip()[:400] or "pip check failed"
-    except Exception as exc:
-        return False, str(exc)
+    proc = run_pip_with_recovery(python_path, ["check"], timeout=60)
+    if proc.returncode == 0:
+        return True, "all dependency constraints satisfied"
+    return False, (proc.stdout or proc.stderr or "").strip()[:400] or "pip check failed"
 
 
 # ─── Snapshot / rollback ────────────────────────────────────────────────────
@@ -213,12 +207,11 @@ def _snapshot_freeze(project_dir: Path) -> str | None:
     if not is_venv_valid(project_dir):
         return None
     python_path = get_venv_python_path(project_dir)
-    try:
-        proc = run_pip_with_recovery(python_path, ["freeze"], timeout=60)
-        if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout
-    except Exception as exc:
-        _log.debug("pip freeze failed for %s: %s", project_dir, exc)
+    proc = run_pip_with_recovery(python_path, ["freeze"], timeout=60)
+    if proc.returncode == 0 and proc.stdout.strip():
+        return proc.stdout
+    _log.warning("pip freeze failed for %s (exit %s): %s",
+                 project_dir, proc.returncode, (proc.stderr or "").strip()[-300:])
     return None
 
 
@@ -240,7 +233,8 @@ def _restore_freeze(project_dir: Path, freeze_text: str) -> tuple[bool, str]:
         if proc.returncode == 0:
             return True, "restored from snapshot"
         return False, (proc.stderr or proc.stdout)[:300]
-    except Exception as exc:
+    except OSError as exc:
+        _log.error("Cannot write restore snapshot for %s: %s", project_dir, exc)
         return False, str(exc)
     finally:
         try:
@@ -321,6 +315,9 @@ def _find_npm_outdated(project_dir: Path) -> list[OutdatedPackage]:
         )
         if proc.stdout.strip():
             data = json.loads(proc.stdout.strip())
+            if not isinstance(data, dict):
+                _log.warning("npm outdated for %s returned non-object JSON", project_dir)
+                return []
             return [
                 OutdatedPackage(
                     name=name,
@@ -329,8 +326,9 @@ def _find_npm_outdated(project_dir: Path) -> list[OutdatedPackage]:
                     package_type="npm",
                 )
                 for name, info in data.items()
+                if isinstance(info, dict)
             ]
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
         _log.warning("npm outdated query failed for %s: %s", project_dir, exc)
     return []
 
@@ -350,7 +348,8 @@ def _apply_npm_update(project_dir: Path) -> tuple[bool, str]:
         if proc.returncode == 0:
             return True, proc.stdout
         return False, proc.stderr or proc.stdout or "npm update failed."
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("npm update failed for %s: %s", project_dir, exc)
         return False, str(exc)
 
 
@@ -773,7 +772,8 @@ def sync_manifests_from_venvs(
             manifest_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
             shutil.copy2(manifest_path, p_dir / "requirements.txt")
             results[proj_name] = (True, f"Manifest {manifest_name} updated and synced.")
-        except Exception as exc:
+        except OSError as exc:
+            _log.error("Manifest sync for %s failed: %s", proj_name, exc)
             results[proj_name] = (False, str(exc))
 
     return results

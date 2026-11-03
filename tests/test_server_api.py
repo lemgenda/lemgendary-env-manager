@@ -10,6 +10,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+import env_manager
 from env_manager.server import (
     app,
     get_gui_ecosystem,
@@ -30,7 +31,7 @@ class TestServerApi(unittest.TestCase):
 
     def test_app_metadata(self) -> None:
         self.assertEqual(app.title, "LemGendary Environment Manager API")
-        self.assertEqual(app.version, "2.0.0")
+        self.assertEqual(app.version, env_manager.__version__)
 
     def test_get_hardware_endpoint(self) -> None:
         data = asyncio.run(get_hardware())

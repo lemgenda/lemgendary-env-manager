@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
+from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator, PipProgress
 
 
 class TestPipelineOrchestrator(unittest.TestCase):
@@ -91,7 +91,7 @@ class TestPipelineOrchestrator(unittest.TestCase):
 
         # 1. Collecting line
         res = PipelineOrchestrator._parse_pip_line_to_event(
-            "lemgendary-datasets", "Collecting torch>=2.2.0", 0, 40, "", emit_dummy
+            PipProgress("lemgendary-datasets", 0, 40, ""), "Collecting torch>=2.2.0", emit_dummy
         )
         self.assertIsNotNone(res)
         assert res is not None
@@ -103,7 +103,9 @@ class TestPipelineOrchestrator(unittest.TestCase):
 
         # 2. Downloading line
         res_dl = PipelineOrchestrator._parse_pip_line_to_event(
-            "lemgendary-datasets", "   ━━━ 1.2/2.4 GB 25.1 MB/s eta 0:00:48", 1, 40, "torch", emit_dummy
+            PipProgress("lemgendary-datasets", 1, 40, "torch"),
+            "   ━━━ 1.2/2.4 GB 25.1 MB/s eta 0:00:48",
+            emit_dummy,
         )
         self.assertIsNotNone(res_dl)
         assert res_dl is not None
@@ -113,7 +115,9 @@ class TestPipelineOrchestrator(unittest.TestCase):
 
         # 3. Installing collected packages
         res_inst = PipelineOrchestrator._parse_pip_line_to_event(
-            "lemgendary-datasets", "Installing collected packages: torch, torchvision", 40, 40, "torch", emit_dummy
+            PipProgress("lemgendary-datasets", 40, 40, "torch"),
+            "Installing collected packages: torch, torchvision",
+            emit_dummy,
         )
         self.assertIsNotNone(res_inst)
         assert res_inst is not None

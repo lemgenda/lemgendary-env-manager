@@ -2,19 +2,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-if sys.platform == "win32":
-    try:
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        if hasattr(sys.stderr, "reconfigure"):
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from env_manager._logging import get_logger
 from env_manager.bootstrap import verify_prerequisites
 from env_manager.health_checker import (
     render_drift_matrix,
@@ -31,6 +23,29 @@ from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
 from env_manager.utils import purge_project_cache
 from env_manager.validator import validate_project
 from env_manager.venv_manager import discover_projects
+
+_log = get_logger(__name__)
+
+
+def _configure_windows_console() -> None:
+    """Switch the Windows console streams to UTF-8 so rich output never crashes.
+
+    A stream that cannot be reconfigured (for example a detached or
+    non-text stream) keeps its current encoding; the reason is logged.
+    """
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError) as exc:
+            _log.warning("Could not switch console stream to UTF-8: %s", exc)
+
+
+_configure_windows_console()
 
 app = typer.Typer(
     name="lem-env",

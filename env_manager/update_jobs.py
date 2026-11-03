@@ -5,11 +5,18 @@ handler, which froze the event loop for up to 20 minutes (review finding
 D-04). This module runs the upgrade on a worker thread instead. A lock makes
 sure only one update runs at a time, and the job state can be read at any
 time through `UpdateJobManager.snapshot()`.
+
+The worker is a ``ThreadPoolExecutor``: its ``Future`` captures whatever the
+runner raises, so a failure is recorded on the job without a catch-all
+handler. The executor thread is not a daemon, so interpreter shutdown waits
+for a running upgrade instead of killing pip half-way through a venv write.
 """
 
 import logging
 import threading
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
+from functools import partial
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, UTC
 from pathlib import Path
@@ -91,6 +98,7 @@ class UpdateJobManager:
         self._run_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._job: UpdateJob | None = None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="update-job")
 
     @property
     def is_running(self) -> bool:
@@ -122,19 +130,20 @@ class UpdateJobManager:
             initial = job.to_dict()
 
         try:
-            worker = threading.Thread(
-                target=self._run,
-                args=(job, publish),
-                name=f"update-job-{job.job_id[:8]}",
-                daemon=True,
-            )
-            worker.start()
+            future = self._executor.submit(self._run, job, publish)
         except RuntimeError:
+            # The executor was shut down; no job will run, so free the lock.
             self._run_lock.release()
             raise
+        future.add_done_callback(partial(self._finish, job, publish))
         return initial
 
-    def _run(self, job: UpdateJob, publish: EventSink) -> None:
+    def _run(self, job: UpdateJob, publish: EventSink) -> str:
+        """Worker body: run the update and return its final status.
+
+        Exceptions propagate into the ``Future`` and are recorded by
+        :meth:`_finish`.
+        """
         scope = job.project or "all projects"
         publish(lifecycle_event(job, "info", f"Safe update started for {scope}."))
 
@@ -143,26 +152,32 @@ class UpdateJobManager:
                 job.events.append(ev)
             publish(ev)
 
-        error: str | None = None
+        return self._runner(job.project, emit)
+
+    def _finish(self, job: UpdateJob, publish: EventSink, future: Future[str]) -> None:
+        """Record the job outcome, announce it, and free the run lock."""
         try:
-            try:
-                final_status = self._runner(job.project, emit)
-            except Exception as exc:  # job boundary: record the failure, never lose it
-                _log.exception("Safe update job %s failed", job.job_id)
+            scope = job.project or "all projects"
+            error: str | None = None
+            exc = future.exception()
+            if exc is None:
+                final_status = future.result()
+            else:
+                _log.error("Safe update job %s failed", job.job_id, exc_info=exc)
                 final_status = "failed"
                 error = str(exc)
             with self._state_lock:
                 job.status = final_status
                 job.error = error
                 job.finished_at = _now()
+
+            if final_status == "failed":
+                publish(lifecycle_event(job, "error", f"Safe update failed for {scope}: {error}"))
+            elif final_status == "partial":
+                message = f"Safe update finished with errors for {scope}."
+                publish(lifecycle_event(job, "warning", message))
+            else:
+                message = f"Safe update finished for {scope} ({final_status})."
+                publish(lifecycle_event(job, "success", message))
         finally:
             self._run_lock.release()
-
-        if final_status == "failed":
-            publish(lifecycle_event(job, "error", f"Safe update failed for {scope}: {error}"))
-        elif final_status == "partial":
-            message = f"Safe update finished with errors for {scope}."
-            publish(lifecycle_event(job, "warning", message))
-        else:
-            message = f"Safe update finished for {scope} ({final_status})."
-            publish(lifecycle_event(job, "success", message))

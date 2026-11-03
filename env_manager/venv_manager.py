@@ -4,14 +4,18 @@ import json
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+
+import psutil
 
 from env_manager._logging import get_logger
 from env_manager.utils import (
@@ -69,8 +73,8 @@ def is_venv_valid(project_dir: Path) -> bool:
     try:
         proc = run_command_simple([str(python_path), "--version"])
         return proc.returncode == 0
-    except Exception as exc:
-        _log.debug("venv python --version check failed for %s: %s", project_dir, exc)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("venv python --version check failed for %s: %s", project_dir, exc)
         return False
 
 
@@ -82,18 +86,24 @@ def get_venv_python_version(project_dir: Path) -> Optional[str]:
         proc = run_command_simple([str(python_path), "--version"])
         if proc.returncode == 0:
             return proc.stdout.strip()
-    except Exception as exc:
-        _log.debug("venv python version query failed for %s: %s", project_dir, exc)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("venv python version query failed for %s: %s", project_dir, exc)
     return None
 
 
 def _handle_remove_readonly(func, path, exc):
-    import stat
+    """``shutil.rmtree`` onexc hook: clear the read-only bit and retry once.
+
+    If the retry fails too, the error is logged and re-raised so rmtree
+    reports it to the caller instead of leaving a half-deleted tree silently.
+    """
+    _log.debug("rmtree hit %s on %s; clearing read-only bit and retrying", exc, path)
     try:
         os.chmod(path, stat.S_IWRITE)
         func(path)
-    except Exception as error:
-        _log.debug("Failed to clear read-only file lock for %s: %s", path, error)
+    except OSError as error:
+        _log.warning("Failed to remove %s after clearing read-only bit: %s", path, error)
+        raise
 
 
 def _is_inside_active_venv(venv_dir: Path) -> bool:
@@ -114,7 +124,6 @@ def _is_inside_active_venv(venv_dir: Path) -> bool:
 
 def find_processes_in_venv(venv_dir: Path) -> List[Any]:
     """Find all active processes whose executable or working directory is inside the venv."""
-    import psutil
     procs = []
     try:
         venv_resolved = str(venv_dir.resolve()).lower()
@@ -123,16 +132,16 @@ def find_processes_in_venv(venv_dir: Path) -> List[Any]:
                 exe = p.info.get("exe")
                 if exe and str(Path(exe).resolve()).lower().startswith(venv_resolved):
                     procs.append(p)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+                _log.debug("Skipping process during venv lock scan: %s", exc)
                 continue
-    except Exception as exc:
-        _log.debug("Process discovery in venv %s failed: %s", venv_dir, exc)
+    except (OSError, psutil.Error) as exc:
+        _log.warning("Process discovery in venv %s failed: %s", venv_dir, exc)
     return procs
 
 
 def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[bool, List[int]]:
     """Terminate any active processes locking files inside the virtual environment."""
-    import psutil
     procs = find_processes_in_venv(venv_dir)
     if not procs:
         return True, []
@@ -142,15 +151,15 @@ def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[b
     for p in procs:
         try:
             p.terminate()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            _log.warning("Could not terminate PID %d: %s", p.pid, exc)
 
     gone, alive = psutil.wait_procs(procs, timeout=timeout)
     for p in alive:
         try:
             p.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            _log.warning("Could not kill PID %d: %s", p.pid, exc)
 
     return len(alive) == 0, pids
 
@@ -172,7 +181,6 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
             terminate_processes_in_venv(venv_dir)
 
             if platform.system().lower() == "windows":
-                import time
                 temp_trash = project_dir / f".venv_trash_{int(time.time())}"
                 try:
                     venv_dir.rename(temp_trash)
@@ -213,7 +221,8 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
             return False, f"Venv spawned, but core upgrade failed: {upgrade_proc.stderr}"
 
         return True, "Virtual environment created and upgraded successfully."
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.error("Creating the venv for %s failed: %s", project_dir, exc)
         return False, str(exc)
 
 
@@ -284,10 +293,7 @@ def install_requirements(
         while True:
             line = next(gen)
             if on_line:
-                try:
-                    on_line(line)
-                except Exception as cb_exc:
-                    _log.debug("install_requirements callback error: %s", cb_exc)
+                on_line(line)
     except StopIteration as stop:
         return stop.value
 

@@ -18,13 +18,18 @@ Start-Process "http://127.0.0.1:8000/docs" opens Swagger UI, which lets you clic
 import asyncio
 import json
 import logging
-from pathlib import Path
+import os
+import signal
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
+
+import yaml
 
 from fastapi import (
     FastAPI,
@@ -40,6 +45,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from env_manager import __version__
 from env_manager.bug_report import (
     DEFAULT_SETTINGS as BUG_REPORT_SETTINGS,
     BugReportFields,
@@ -75,6 +81,11 @@ from env_manager.updater import UPGRADE_ORDER, build_upgrade_plan
 from env_manager.utils import purge_project_cache
 from env_manager.venv_manager import discover_projects
 
+# Failures a WebSocket send/receive raises once the peer has gone away:
+# starlette's disconnect signal, RuntimeError for a closed socket, and
+# OSError (uvicorn's ClientDisconnected) for a dropped transport.
+_WEBSOCKET_GONE_ERRORS = (WebSocketDisconnect, RuntimeError, OSError)
+
 _log = logging.getLogger("env_manager.server")
 
 
@@ -96,8 +107,8 @@ class ConnectionManager:
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
-            except Exception as exc:
-                _log.debug("Failed to broadcast message to websocket client: %s", exc)
+            except _WEBSOCKET_GONE_ERRORS as exc:
+                _log.info("Dropping websocket client after failed broadcast: %s", exc)
                 self.disconnect(connection)
 
 
@@ -108,13 +119,10 @@ orchestrator = PipelineOrchestrator()
 
 
 async def _drain_event_queue():
-    try:
-        while True:
-            ev = await _event_queue.get()
-            await manager.broadcast(ev)
-            _event_queue.task_done()
-    except asyncio.CancelledError:
-        raise
+    while True:
+        ev = await _event_queue.get()
+        await manager.broadcast(ev)
+        _event_queue.task_done()
 
 
 @asynccontextmanager
@@ -135,7 +143,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="LemGendary Environment Manager API",
-    version="2.0.0",
+    version=__version__,
     description="REST and WebSocket sidecar service for LemGendary AI Studio.",
     lifespan=lifespan,
 )
@@ -478,14 +486,6 @@ async def sync_manifests():
     return {"status": "success", "results": formatted}
 
 
-class CleanRequest(BaseModel):
-    project: Optional[str] = None
-
-
-class ValidateRequest(BaseModel):
-    project: Optional[str] = None
-
-
 class ManifestValidateRequest(BaseModel):
     name: str
     content: str
@@ -567,7 +567,6 @@ async def read_manifest(name: str = Query(..., description="Target manifest name
 @app.post("/api/manifests/validate")
 async def validate_manifest_content(req: ManifestValidateRequest):
     """Validate syntax for YAML, JSON, or text manifest content."""
-    import yaml
     target_path = _resolve_manifest_target(req.name)
     ext = target_path.suffix.lstrip(".") if target_path else "yaml"
     try:
@@ -576,15 +575,14 @@ async def validate_manifest_content(req: ManifestValidateRequest):
         elif ext == "json":
             json.loads(req.content)
         return {"valid": True, "error": None}
-    except Exception as exc:
+    except (yaml.YAMLError, ValueError) as exc:
+        _log.info("Manifest %s failed syntax validation: %s", req.name, exc)
         return {"valid": False, "error": str(exc)}
 
 
 @app.post("/api/manifests/save")
 async def save_manifest_content(req: ManifestSaveRequest):
     """Safely validate, back up, and atomically write manifest content to disk."""
-    import yaml
-    from fastapi import HTTPException
     target_path = _resolve_manifest_target(req.name)
     if not target_path:
         raise HTTPException(status_code=404, detail=f"Unknown manifest '{req.name}'")
@@ -594,8 +592,9 @@ async def save_manifest_content(req: ManifestSaveRequest):
             yaml.safe_load(req.content)
         elif ext == "json":
             json.loads(req.content)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Syntax validation failed: {exc}")
+    except (yaml.YAMLError, ValueError) as exc:
+        _log.info("Rejected manifest %s save: %s", req.name, exc)
+        raise HTTPException(status_code=400, detail=f"Syntax validation failed: {exc}") from exc
 
     # Backup existing file
     if target_path.exists():
@@ -813,7 +812,7 @@ async def get_gui_state():
     return {
         "service": {
             "name": "lemgendary-env-manager",
-            "version": "2.0.0",
+            "version": __version__,
             "port": 8000,
             "status": "online",
         },
@@ -895,12 +894,7 @@ async def graceful_shutdown():
     Schedules process termination after a short delay so the HTTP response
     is delivered to the caller before the process exits.
     """
-    import threading
-
     def _exit_after_delay() -> None:
-        import os
-        import signal
-        import time
         time.sleep(0.5)
         _log.info("Graceful shutdown requested via /api/shutdown - terminating server process.")
         os.kill(os.getpid(), signal.SIGTERM)
@@ -917,16 +911,14 @@ async def graceful_shutdown():
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
     await manager.connect(websocket)
-    for ev in recent_events[-20:]:
-        try:
-            await websocket.send_json(ev)
-        except Exception as exc:
-            _log.debug("Error sending replay event to websocket: %s", exc)
-            break
-
     try:
+        for ev in recent_events[-20:]:
+            await websocket.send_json(ev)
         while True:
             await websocket.receive_text()
-    except (WebSocketDisconnect, Exception) as exc:
-        _log.debug("WebSocket disconnected: %s", exc)
+    except WebSocketDisconnect as exc:
+        _log.debug("WebSocket client disconnected (code %s)", exc.code)
+    except (RuntimeError, OSError) as exc:
+        _log.warning("WebSocket connection failed: %s", exc)
+    finally:
         manager.disconnect(websocket)

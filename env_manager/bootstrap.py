@@ -80,7 +80,7 @@ def check_git() -> Tuple[bool, Optional[str]]:
         )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("git version check failed: %s", exc)
     return False, None
 
@@ -99,7 +99,7 @@ def check_npm() -> Tuple[bool, Optional[str]]:
         )
         if proc.returncode == 0:
             return True, proc.stdout.strip()
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("npm version check failed: %s", exc)
     return False, None
 
@@ -109,7 +109,8 @@ def check_venv() -> bool:
     try:
         proc = run_command_simple([sys.executable, "-m", "venv", "--help"])
         return proc.returncode == 0
-    except Exception:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("venv module check failed: %s", exc)
         return False
 
 
@@ -184,10 +185,8 @@ def _run_winget(
             )
         else:
             _log.warning("winget subprocess failed (winerror=%s): %s", winerror, exc)
-    except subprocess.TimeoutExpired:
-        _log.debug("winget subprocess timed out after %ss: args=%s", timeout, args)
-    except Exception as exc:
-        _log.warning("winget subprocess crashed: %s", exc)
+    except subprocess.SubprocessError as exc:
+        _log.warning("winget subprocess failed for args=%s (timeout=%ss): %s", args, timeout, exc)
 
     return None
 
@@ -391,7 +390,8 @@ def install_software(name: str) -> Tuple[bool, str]:
             proc.stderr or proc.stdout
             or f"winget install failed (exit {proc.returncode})."
         )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("winget install of %s failed: %s", pkg_id, exc)
         return False, str(exc)
 
 

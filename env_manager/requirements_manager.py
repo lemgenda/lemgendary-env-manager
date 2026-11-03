@@ -20,13 +20,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
-
-try:
-    from packaging.requirements import Requirement
-except ImportError:
-    Requirement = None
 
 from env_manager._logging import get_logger
 
@@ -83,22 +79,22 @@ def parse_requirements_file(file_path: Path) -> List[ParsedRequirement]:
             )
             continue
 
-        if Requirement:
-            try:
-                req = Requirement(stripped)
-                marker_str = str(req.marker) if req.marker else None
-                spec_str = str(req.specifier) if req.specifier else ""
-                results.append(
-                    ParsedRequirement(
-                        raw_line=stripped,
-                        name=req.name.lower(),
-                        specifier=spec_str,
-                        marker=marker_str,
-                    )
+        try:
+            req = Requirement(stripped)
+            marker_str = str(req.marker) if req.marker else None
+            spec_str = str(req.specifier) if req.specifier else ""
+            results.append(
+                ParsedRequirement(
+                    raw_line=stripped,
+                    name=req.name.lower(),
+                    specifier=spec_str,
+                    marker=marker_str,
                 )
-                continue
-            except Exception as exc:
-                _log.debug("packaging.Requirement parse failed for line '%s': %s", stripped, exc)
+            )
+            continue
+        except InvalidRequirement as exc:
+            _log.debug("packaging.Requirement parse failed for line '%s', using fallback "
+                       "parser: %s", stripped, exc)
 
         # Fallback regex parser
         match = re.match(r"^([A-Za-z0-9_\-\.\[\]]+)\s*([<>=!~]+[^;]*)?(?:;\s*(.*))?$", stripped)
@@ -210,7 +206,8 @@ def _npm_floor(spec: str) -> Version | None:
         return None
     try:
         return Version(match.group(1))
-    except InvalidVersion:
+    except InvalidVersion as exc:
+        _log.debug("Cannot parse npm version floor from %r: %s", spec, exc)
         return None
 
 
@@ -285,7 +282,8 @@ def sync_manifest_to_project(
 
         target_req_path.write_text("\n".join(clean_lines) + "\n", encoding="utf-8")
         return True, f"Synchronized sanitized {manifest_path.name} to {target_req_path}."
-    except Exception as exc:
+    except OSError as exc:
+        _log.error("Failed to synchronize %s to %s: %s", manifest_path, target_req_path, exc)
         return False, f"Failed to synchronize manifest: {exc}"
 
 
@@ -343,7 +341,8 @@ def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool,
                 if not target_pkg.exists() or target_pkg.read_text(encoding="utf-8") != manifest.read_text(encoding="utf-8"):
                     shutil.copy2(manifest, target_pkg)
                 results[f"{proj_name} (npm)"] = (True, f"Synchronized {manifest.name} to {target_pkg}.")
-            except Exception as exc:
+            except OSError as exc:
+                _log.error("Failed to synchronize %s to %s: %s", manifest, target_pkg, exc)
                 results[f"{proj_name} (npm)"] = (False, f"Failed to synchronize {proj_name} npm manifest: {exc}")
 
     return results
