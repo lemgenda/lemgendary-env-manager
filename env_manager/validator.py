@@ -20,8 +20,6 @@ HTML/CSS projects (lemgendary-docs):
   - pa11y (WCAG 2.2 AA accessibility against static HTML)
 """
 
-import collections
-import difflib
 import io
 import json
 import os
@@ -33,9 +31,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -916,7 +914,7 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
             c_base = cj.get("document_baseline")
             y_base = cy.get("document_baseline")
 
-            if not (d_base == c_base == y_base):
+            if not d_base == c_base == y_base:
                 violations.append(
                     FileValidationViolation(
                         file_path=str(cap_j_path),

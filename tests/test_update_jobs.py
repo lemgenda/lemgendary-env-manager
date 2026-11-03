@@ -6,6 +6,7 @@ patches `env_manager.server.update_jobs`.
 
 import asyncio
 import threading
+from dataclasses import dataclass, field
 import time
 import unittest
 from pathlib import Path
@@ -22,14 +23,14 @@ from env_manager.update_jobs import (
 )
 
 
+@dataclass
 class _BlockingRunner:
     """Runner that waits until the test releases it."""
 
-    def __init__(self, final_status: str = "success"):
-        self.release = threading.Event()
-        self.started = threading.Event()
-        self.projects: list[str | None] = []
-        self.final_status = final_status
+    final_status: str = "success"
+    release: threading.Event = field(default_factory=threading.Event)
+    started: threading.Event = field(default_factory=threading.Event)
+    projects: list[str | None] = field(default_factory=list)
 
     def __call__(self, project: str | None, emit) -> str:
         self.projects.append(project)

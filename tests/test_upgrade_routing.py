@@ -9,6 +9,7 @@ D-09: ``lem-env update --project X`` must plan and apply only project X.
 All upgrade functions are mocked; no real pip or npm command runs.
 """
 
+import shutil
 import tempfile
 import unittest
 from datetime import datetime, UTC
@@ -69,8 +70,9 @@ class TestStep5Routing(unittest.TestCase):
     """Step 5 dispatches pip and npm upgrades from project metadata."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name)
+        self._tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp_dir)
+        self.root = Path(self._tmp_dir)
         self.pip_pkg = OutdatedPackage("rich", "13.0.0", "13.1.0", "pip")
         self.npm_pkg = OutdatedPackage("eslint", "9.0.0", "9.1.0", "npm")
         self.npm_outdated = patch(
@@ -97,12 +99,11 @@ class TestStep5Routing(unittest.TestCase):
 
     def tearDown(self) -> None:
         patch.stopall()
-        self._tmp.cleanup()
 
     def _run(self, project: SimpleNamespace) -> list[PipelineEvent]:
         orchestrator = PipelineOrchestrator(base_dir=self.root)
         hw = MagicMock(recommended_torch_index=None)
-        return list(orchestrator._execute_safe_upgrades([project], hw, _emit))
+        return list(orchestrator.execute_safe_upgrades([project], hw, _emit))
 
     def test_dual_stack_project_gets_pip_and_npm(self) -> None:
         proj = _project("lemgendary-env-manager", self.root, is_node=False, has_npm=True)

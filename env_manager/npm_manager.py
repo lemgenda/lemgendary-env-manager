@@ -9,10 +9,10 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, List, Optional
 
 from env_manager._logging import get_logger
-from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
+from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, wait_or_kill
 
 _log = get_logger(__name__)
 
@@ -121,7 +121,7 @@ def stream_npm_install(
         return False, "NPM executable not found on system PATH."
 
     try:
-        proc = subprocess.Popen(
+        with subprocess.Popen(
             [npm_path, "install"],
             cwd=str(package_dir),
             stdout=subprocess.PIPE,
@@ -131,21 +131,21 @@ def stream_npm_install(
             errors="replace",
             env=pip_env(),
             creationflags=WINDOWS_NO_WINDOW,
-        )
-        lines: List[str] = []
-        if proc.stdout:
-            try:
-                for raw_line in iter(proc.stdout.readline, ""):
-                    stripped = raw_line.strip()
-                    if stripped:
-                        lines.append(stripped)
-                        yield stripped
-            finally:
-                proc.stdout.close()
-        proc.wait(timeout=timeout)
-        if proc.returncode == 0:
-            return True, "\n".join(lines) or "ok"
-        return False, "\n".join(lines) or "NPM install failed."
+        ) as proc:
+            lines: List[str] = []
+            if proc.stdout:
+                try:
+                    for raw_line in iter(proc.stdout.readline, ""):
+                        stripped = raw_line.strip()
+                        if stripped:
+                            lines.append(stripped)
+                            yield stripped
+                finally:
+                    proc.stdout.close()
+            wait_or_kill(proc, timeout)
+            if proc.returncode == 0:
+                return True, "\n".join(lines) or "ok"
+            return False, "\n".join(lines) or "NPM install failed."
     except subprocess.TimeoutExpired as exc:
         _log.warning("npm install in %s timed out after %ss", package_dir, timeout)
         return False, f"npm install timed out after {timeout}s: {exc}"

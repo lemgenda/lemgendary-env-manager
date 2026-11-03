@@ -134,7 +134,7 @@ def venv_has_real_packages(project_dir: Path) -> bool:
     return venv_package_count(project_dir) > 0
 
 
-def _installed_package_versions(project_dir: Path) -> dict[str, str]:
+def installed_package_versions(project_dir: Path) -> dict[str, str]:
     """Return {normalized_name: version} for every installed package.
 
     Returns ``{}`` only for a missing/invalid venv. For a valid venv, an
@@ -394,7 +394,7 @@ def _require_installed_state(
     """
     if current_state is None:
         try:
-            current_state = _installed_package_versions(project_dir)
+            current_state = installed_package_versions(project_dir)
         except PipJsonError as exc:
             _log.error("Dry-run aborted, installed state unknown: %s", exc)
             return {}, f"installed package state unavailable: {exc}"
@@ -481,7 +481,7 @@ def classify_safe_upgrades(
         return [], [(pkg, "invalid venv") for pkg in candidates]
 
     try:
-        current_state = _installed_package_versions(project_dir)
+        current_state = installed_package_versions(project_dir)
         reverse_deps = _get_reverse_dependencies(project_dir)
     except PipJsonError as exc:
         # Fail closed: without the installed set and its requirements no

@@ -6,6 +6,7 @@ server is patched so no real ``.secrets.yaml`` or credential file is touched.
 """
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,16 +43,16 @@ class SecretsVaultApiTests(unittest.TestCase):
     """HTTP-level checks of GET/POST /api/secrets on a temporary workspace."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name) / "workspace"
-        self.home_kaggle = Path(self._tmp.name) / "home" / ".kaggle"
+        self._tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp_dir)
+        self.root = Path(self._tmp_dir) / "workspace"
+        self.home_kaggle = Path(self._tmp_dir) / "home" / ".kaggle"
         for repo in ("lemgendary-datasets", "lemgendary-training-suite"):
             (self.root / repo).mkdir(parents=True)
         vault = SecretsVault(self.root, self.home_kaggle)
         patcher = mock.patch.object(server, "_secrets_vault", return_value=vault)
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.addCleanup(self._tmp.cleanup)
         self.client = TestClient(server.app)
         self.secrets_file = self.root / ".secrets.yaml"
 

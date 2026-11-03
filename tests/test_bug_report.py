@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -77,9 +78,9 @@ class BugReportApiTests(unittest.TestCase):
     """HTTP-level checks on a temporary workspace (not a git repository)."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.root = (Path(self._tmp.name) / "workspace").resolve()
+        self._tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp_dir)
+        self.root = (Path(self._tmp_dir) / "workspace").resolve()
         self.root.mkdir()
         self.platform = FakePlatform()
         self._use_service(self.platform)
@@ -272,9 +273,9 @@ class BugReportServiceTests(unittest.TestCase):
     """Reports-folder resolution and git safety."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.root = (Path(self._tmp.name) / "workspace").resolve()
+        self._tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp_dir)
+        self.root = (Path(self._tmp_dir) / "workspace").resolve()
         self.root.mkdir()
         self.submission = BugReportSubmission(fields=BugReportFields(**_form()))
 
@@ -283,7 +284,7 @@ class BugReportServiceTests(unittest.TestCase):
         return BugReportService(self.root, settings, FakePlatform())
 
     def test_reports_dir_must_stay_inside_workspace(self) -> None:
-        outside = str(Path(self._tmp.name).resolve() / "elsewhere")
+        outside = str(Path(self._tmp_dir).resolve() / "elsewhere")
         for reports_dir in ("..", "../elsewhere", ".", outside):
             with self.subTest(reports_dir=reports_dir), self.assertRaises(ReportsDirError):
                 self._service(reports_dir).submit(self.submission)

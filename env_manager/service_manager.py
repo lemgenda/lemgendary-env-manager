@@ -195,6 +195,16 @@ def _await_service_health(
     }
 
 
+def _spawn_detached(cmd: list[str], popen_kwargs: dict[str, Any]) -> subprocess.Popen:
+    """Start a sidecar daemon and hand its process handle to the caller.
+
+    The child must outlive this call (it is a long-running service), so the
+    handle is returned instead of being scoped to a ``with`` block, which
+    would wait for the daemon to exit.
+    """
+    return subprocess.Popen(cmd, **popen_kwargs)
+
+
 def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
     """Spawn the service detached from any console and wait for it to come up."""
     port = cfg["port"]
@@ -242,7 +252,7 @@ def _launch_service(cfg: dict[str, Any], python_exe: Path) -> dict[str, Any]:
                 # POSIX (Linux & macOS): detach process into its own session without any terminal
                 popen_kwargs["start_new_session"] = True
 
-            proc = subprocess.Popen(cmd, **popen_kwargs)
+            proc = _spawn_detached(cmd, popen_kwargs)
 
         _log.info(
             "Launched %s sidecar process (PID %d) on port %d",

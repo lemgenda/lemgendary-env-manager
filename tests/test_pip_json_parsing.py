@@ -32,7 +32,7 @@ class TestPipStreamsAreSeparated(unittest.TestCase):
         )
         real_popen = subprocess.Popen
 
-        def fake_popen(cmd, **kwargs):
+        def fake_popen(_cmd, **kwargs):
             return real_popen([sys.executable, "-c", script], **kwargs)
 
         streamed = []
@@ -59,8 +59,8 @@ class TestInstalledStateParsing(_VenvPatched):
     def test_stderr_warning_is_logged_and_json_still_parsed(self) -> None:
         with patch.object(dr, "run_pip_with_recovery",
                           return_value=_completed(json.dumps(_PIP_LIST), _WARNING)), \
-                self.assertLogs(dr._log, level="WARNING") as logs:
-            versions = dr._installed_package_versions(self.project)
+                self.assertLogs("lem_env.dependency_resolver", level="WARNING") as logs:
+            versions = dr.installed_package_versions(self.project)
 
         self.assertEqual(versions, {"numpy": "2.5.4", "pip": "26.0"})
         self.assertTrue(any("Ignoring invalid distribution" in line for line in logs.output))
@@ -69,12 +69,12 @@ class TestInstalledStateParsing(_VenvPatched):
         with patch.object(dr, "run_pip_with_recovery",
                           return_value=_completed(_WARNING + "\n" + json.dumps(_PIP_LIST))):
             with self.assertRaises(dr.PipJsonError):
-                dr._installed_package_versions(self.project)
+                dr.installed_package_versions(self.project)
 
     def test_empty_package_list_raises(self) -> None:
         with patch.object(dr, "run_pip_with_recovery", return_value=_completed("[]")):
             with self.assertRaises(dr.PipJsonError):
-                dr._installed_package_versions(self.project)
+                dr.installed_package_versions(self.project)
 
 
 class TestClassifierFailsClosed(_VenvPatched):
@@ -87,7 +87,7 @@ class TestClassifierFailsClosed(_VenvPatched):
 
     def test_unparseable_pip_list_blocks_every_candidate(self) -> None:
         with patch.object(dr, "run_pip_with_recovery", return_value=_completed("not json")), \
-                self.assertLogs(dr._log, level="ERROR"):
+                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
             safe, blocked = dr.classify_safe_upgrades(self.project, self.candidates)
 
         self.assertEqual(safe, [])
@@ -97,7 +97,7 @@ class TestClassifierFailsClosed(_VenvPatched):
     def test_failed_pip_inspect_blocks_every_candidate(self) -> None:
         responses = [_completed(json.dumps(_PIP_LIST)), _completed("", "ERROR: boom", returncode=1)]
         with patch.object(dr, "run_pip_with_recovery", side_effect=responses), \
-                self.assertLogs(dr._log, level="ERROR"):
+                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
             safe, blocked = dr.classify_safe_upgrades(self.project, self.candidates)
 
         self.assertEqual(safe, [])
@@ -106,7 +106,7 @@ class TestClassifierFailsClosed(_VenvPatched):
     def test_unparseable_dry_run_report_is_a_failure(self) -> None:
         with patch.object(dr, "run_pip_with_recovery",
                           return_value=_completed("Would install numpy-2.6.0", _WARNING)), \
-                self.assertLogs(dr._log, level="ERROR"):
+                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
             ok, changed, msg = dr.constraint_preserving_dry_run(
                 self.project, ["numpy"], current_state={"numpy": "2.5.4", "pip": "26.0"},
             )
@@ -117,7 +117,7 @@ class TestClassifierFailsClosed(_VenvPatched):
 
     def test_empty_installed_state_aborts_dry_run(self) -> None:
         with patch.object(dr, "run_pip_with_recovery") as runner, \
-                self.assertLogs(dr._log, level="ERROR"):
+                self.assertLogs("lem_env.dependency_resolver", level="ERROR"):
             ok, _, _ = dr.constraint_preserving_dry_run(self.project, ["numpy"], current_state={})
 
         self.assertFalse(ok)

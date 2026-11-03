@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,9 +46,9 @@ class TestPipelineOrchestrator(unittest.TestCase):
     @patch("env_manager.orchestrator.discover_projects")
     def test_pipeline_step_event_emission(
         self,
-        mock_discover: MagicMock,
-        mock_sync: MagicMock,
-        mock_prereqs: MagicMock,
+        _mock_discover: MagicMock,
+        _mock_sync: MagicMock,
+        _mock_prereqs: MagicMock,
         mock_probe: MagicMock,
     ) -> None:
         """Verify event emissions across initial pipeline steps with event callbacks."""
@@ -90,7 +91,7 @@ class TestPipelineOrchestrator(unittest.TestCase):
             )
 
         # 1. Collecting line
-        res = PipelineOrchestrator._parse_pip_line_to_event(
+        res = PipelineOrchestrator.parse_pip_line_to_event(
             PipProgress("lemgendary-datasets", 0, 40, ""), "Collecting torch>=2.2.0", emit_dummy
         )
         self.assertIsNotNone(res)
@@ -102,7 +103,7 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertIn("INSTALLING: lemgendary-datasets - 2.5%", ev.message)
 
         # 2. Downloading line
-        res_dl = PipelineOrchestrator._parse_pip_line_to_event(
+        res_dl = PipelineOrchestrator.parse_pip_line_to_event(
             PipProgress("lemgendary-datasets", 1, 40, "torch"),
             "   ━━━ 1.2/2.4 GB 25.1 MB/s eta 0:00:48",
             emit_dummy,
@@ -114,7 +115,7 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertIn("DOWNLOADING: torch - 1.2/2.4 GB 25.1 MB/s eta 0:00:48", ev_dl.message)
 
         # 3. Installing collected packages
-        res_inst = PipelineOrchestrator._parse_pip_line_to_event(
+        res_inst = PipelineOrchestrator.parse_pip_line_to_event(
             PipProgress("lemgendary-datasets", 40, 40, "torch"),
             "Installing collected packages: torch, torchvision",
             emit_dummy,
@@ -133,8 +134,9 @@ class TestPipelineDestructiveOptIn(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        root = Path(self._tmp.name)
+        self._tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp_dir)
+        root = Path(self._tmp_dir)
         self.node_dir = root / "node-project"
         self.py_dir = root / "py-project"
         (self.node_dir / "node_modules").mkdir(parents=True)
@@ -162,14 +164,13 @@ class TestPipelineDestructiveOptIn(unittest.TestCase):
 
     def tearDown(self) -> None:
         patch.stopall()
-        self._tmp.cleanup()
 
     def _run_through_step_3(self, clean: bool | None = None) -> list[PipelineEvent]:
         """Drive the pipeline generator until Step 4 starts, then stop it.
 
         ``clean=None`` omits the argument to exercise the default.
         """
-        orchestrator = PipelineOrchestrator(base_dir=Path(self._tmp.name))
+        orchestrator = PipelineOrchestrator(base_dir=Path(self._tmp_dir))
         if clean is None:
             gen = orchestrator.run_clean_install_pipeline()
         else:

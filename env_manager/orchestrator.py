@@ -378,7 +378,7 @@ class PipelineOrchestrator:
             yield emit(4, "Package Installation", "info",
                        "Installing dependencies into target environments...")
             failures = yield from self._execute_package_installation(
-                projects, target_project, hw, emit
+                projects, hw, emit
             )
             install_failures.extend(failures)
 
@@ -387,7 +387,7 @@ class PipelineOrchestrator:
                 5, "Dependency Upgrades", "info",
                 "Auditing outdated packages and applying safe upgrades bottom-up...",
             )
-            yield from self._execute_safe_upgrades(projects, hw, emit)
+            yield from self.execute_safe_upgrades(projects, hw, emit)
             # Step 6: Bytecode Compilation, Zero-Emoji & Full Linting Validation
             yield emit(6, "Codebase Verification", "info",
                        "Running full validation suite (py_compile, emoji, lint, PS1)...")
@@ -702,7 +702,7 @@ class PipelineOrchestrator:
             projects = [p for p in projects if p.name == target_project]
 
         failures = yield from self._execute_package_installation(
-            projects, target_project, hw, emit
+            projects, hw, emit
         )
         self.last_status = "success" if not failures else "warning"
         return sync_results
@@ -722,7 +722,7 @@ class PipelineOrchestrator:
         projects = discover_projects(self.base_dir)
         if target_project:
             projects = [p for p in projects if p.name == target_project]
-        yield from self._execute_safe_upgrades(projects, hw, emit)
+        yield from self.execute_safe_upgrades(projects, hw, emit)
         self.last_status = "success"
 
     def _single_step_codebase_verification(
@@ -838,7 +838,7 @@ class PipelineOrchestrator:
         self.last_status = "idle"
 
     @staticmethod
-    def _parse_pip_line_to_event(
+    def parse_pip_line_to_event(
         progress: PipProgress,
         line: str,
         emit_fn: Callable[..., PipelineEvent],
@@ -862,7 +862,6 @@ class PipelineOrchestrator:
     def _execute_package_installation(
         self,
         projects: list[Any],
-        target_project: str | None,
         hw: Any,
         emit: Callable[..., PipelineEvent],
     ) -> Generator[PipelineEvent, None, list[str]]:
@@ -942,7 +941,7 @@ class PipelineOrchestrator:
             try:
                 while True:
                     line = next(pip_gen)
-                    prog_info = self._parse_pip_line_to_event(
+                    prog_info = self.parse_pip_line_to_event(
                         PipProgress(p.name, completed_count, declared_req_count, current_pkg),
                         line,
                         emit,
@@ -987,7 +986,7 @@ class PipelineOrchestrator:
 
         return install_failures
 
-    def _execute_safe_upgrades(
+    def execute_safe_upgrades(
         self,
         projects: list[Any],
         hw: Any,

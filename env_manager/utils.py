@@ -128,6 +128,21 @@ def _pump_stream(
         sink.put((tag, None))
 
 
+def wait_or_kill(proc: subprocess.Popen, timeout: float) -> int:
+    """Wait for ``proc``; on timeout kill it, reap it, and re-raise ``TimeoutExpired``.
+
+    Killing first matters inside ``with Popen(...)``: the context manager
+    waits for the child on exit, which would otherwise block forever.
+    """
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _log.warning("Killing PID %d after %ss timeout", proc.pid, timeout)
+        proc.kill()
+        proc.wait()
+        raise
+
+
 def stream_pip_with_recovery(
     python_path: Path,
     args: List[str],
@@ -153,7 +168,7 @@ def stream_pip_with_recovery(
         try:
             cmd_env = pip_env(no_cache=use_no_cache)
             cmd_env["PYTHONUNBUFFERED"] = "1"
-            proc = subprocess.Popen(
+            with subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -162,39 +177,39 @@ def stream_pip_with_recovery(
                 errors="replace",
                 env=cmd_env,
                 creationflags=WINDOWS_NO_WINDOW,
-            )
-            sink: queue.Queue[tuple[str, str | None]] = queue.Queue()
-            readers = [
-                threading.Thread(target=_pump_stream, args=(stream, tag, sink), daemon=True)
-                for stream, tag in ((proc.stdout, _STDOUT), (proc.stderr, _STDERR))
-                if stream is not None
-            ]
-            for reader in readers:
-                reader.start()
-            open_streams = len(readers)
-            while open_streams:
-                tag, line = sink.get()
-                if line is None:
-                    open_streams -= 1
-                    continue
-                if tag == _STDOUT:
-                    # Keep stdout byte-for-byte (minus the newline) so JSON
-                    # documents stay intact.
-                    output_lines.append(line.rstrip("\r\n"))
-                else:
-                    error_lines.append(line.rstrip("\r\n"))
-                stripped = line.strip()
-                if stripped:
-                    yield stripped
-            for reader in readers:
-                reader.join()
-            proc.wait(timeout=timeout)
-            completed = subprocess.CompletedProcess(
-                args=cmd,
-                returncode=proc.returncode,
-                stdout="\n".join(output_lines),
-                stderr="\n".join(error_lines),
-            )
+            ) as proc:
+                sink: queue.Queue[tuple[str, str | None]] = queue.Queue()
+                readers = [
+                    threading.Thread(target=_pump_stream, args=(stream, tag, sink), daemon=True)
+                    for stream, tag in ((proc.stdout, _STDOUT), (proc.stderr, _STDERR))
+                    if stream is not None
+                ]
+                for reader in readers:
+                    reader.start()
+                open_streams = len(readers)
+                while open_streams:
+                    tag, line = sink.get()
+                    if line is None:
+                        open_streams -= 1
+                        continue
+                    if tag == _STDOUT:
+                        # Keep stdout byte-for-byte (minus the newline) so JSON
+                        # documents stay intact.
+                        output_lines.append(line.rstrip("\r\n"))
+                    else:
+                        error_lines.append(line.rstrip("\r\n"))
+                    stripped = line.strip()
+                    if stripped:
+                        yield stripped
+                for reader in readers:
+                    reader.join()
+                wait_or_kill(proc, timeout)
+                completed = subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=proc.returncode,
+                    stdout="\n".join(output_lines),
+                    stderr="\n".join(error_lines),
+                )
         except subprocess.TimeoutExpired as exc:
             _log.warning("pip command timed out after %ss: %s", timeout, cmd)
             return subprocess.CompletedProcess(

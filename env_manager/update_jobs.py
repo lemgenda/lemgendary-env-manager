@@ -90,19 +90,28 @@ def run_safe_update(project: str | None, emit: EventSink, base_dir: Path) -> str
     return "success" if all_ok else "partial"
 
 
+def _new_worker_pool() -> ThreadPoolExecutor:
+    """Create the single-worker pool that runs update jobs for the manager's lifetime."""
+    return ThreadPoolExecutor(max_workers=1, thread_name_prefix="update-job")
+
+
 class UpdateJobManager:
     """Runs at most one update job at a time on a background thread."""
 
     def __init__(self, runner: UpdateRunner):
         self._runner = runner
-        self._run_lock = threading.Lock()
+        # Guards ``_job`` and ``_busy``. ``_busy`` is set by ``start`` and
+        # cleared by ``_finish`` on the worker thread, so it is a flag under a
+        # lock rather than a lock held across threads.
         self._state_lock = threading.Lock()
+        self._busy = False
         self._job: UpdateJob | None = None
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="update-job")
+        self._executor = _new_worker_pool()
 
     @property
     def is_running(self) -> bool:
-        return self._run_lock.locked()
+        with self._state_lock:
+            return self._busy
 
     def snapshot(self) -> dict[str, Any] | None:
         """Copy of the current or last job, or None if no job ran yet."""
@@ -112,13 +121,8 @@ class UpdateJobManager:
     def start(self, project: str | None, publish: EventSink) -> dict[str, Any]:
         """Start a job and return its initial state without waiting for it.
 
-        Raises UpdateAlreadyRunningError if another job holds the lock.
+        Raises UpdateAlreadyRunningError if another job is running.
         """
-        if not self._run_lock.acquire(blocking=False):
-            current = self.snapshot()
-            job_id = current["job_id"] if current else "unknown"
-            raise UpdateAlreadyRunningError(f"An update is already running (job {job_id}).")
-
         job = UpdateJob(
             job_id=uuid.uuid4().hex,
             project=project,
@@ -126,14 +130,18 @@ class UpdateJobManager:
             started_at=_now(),
         )
         with self._state_lock:
+            if self._busy:
+                job_id = self._job.job_id if self._job else "unknown"
+                raise UpdateAlreadyRunningError(f"An update is already running (job {job_id}).")
+            self._busy = True
             self._job = job
             initial = job.to_dict()
 
         try:
             future = self._executor.submit(self._run, job, publish)
         except RuntimeError:
-            # The executor was shut down; no job will run, so free the lock.
-            self._run_lock.release()
+            # The executor was shut down; no job will run, so clear the flag.
+            self._set_idle()
             raise
         future.add_done_callback(partial(self._finish, job, publish))
         return initial
@@ -180,4 +188,8 @@ class UpdateJobManager:
                 message = f"Safe update finished for {scope} ({final_status})."
                 publish(lifecycle_event(job, "success", message))
         finally:
-            self._run_lock.release()
+            self._set_idle()
+
+    def _set_idle(self) -> None:
+        with self._state_lock:
+            self._busy = False

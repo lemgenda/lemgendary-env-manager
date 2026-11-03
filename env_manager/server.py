@@ -58,8 +58,9 @@ from env_manager.bug_report import (
 )
 
 from env_manager.health_checker import run_full_health_audit
+from env_manager.hooks import install_git_hooks
 from env_manager.npm_manager import audit_npm_workspaces
-from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
+from env_manager.orchestrator import PipelineOrchestrator
 from env_manager.security import (
     ALLOWED_HEADERS,
     ALLOWED_METHODS,
@@ -74,11 +75,13 @@ from env_manager.secrets_vault import (
     SecretsValidationError,
     SecretsVault,
 )
+from env_manager.requirements_manager import sync_all_manifests
 from env_manager.service_manager import start_all_services, start_service, stop_service
 from env_manager.system_probe import probe_hardware
 from env_manager.update_jobs import UpdateAlreadyRunningError, UpdateJobManager, run_safe_update
 from env_manager.updater import UPGRADE_ORDER, build_upgrade_plan
 from env_manager.utils import purge_project_cache
+from env_manager.validator import validate_project
 from env_manager.venv_manager import discover_projects
 
 # Failures a WebSocket send/receive raises once the peer has gone away:
@@ -126,7 +129,7 @@ async def _drain_event_queue():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     drain_task = asyncio.create_task(_drain_event_queue())
     # Automatically ensure tripartite sidecars are started on startup
     loop = asyncio.get_running_loop()
@@ -479,7 +482,6 @@ async def get_manifests():
 
 @app.post("/api/manifests/sync")
 async def sync_manifests():
-    from env_manager.requirements_manager import sync_all_manifests
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, sync_all_manifests)
     formatted = {k: {"success": ok, "message": msg} for k, (ok, msg) in results.items()}
@@ -549,7 +551,6 @@ async def get_manifest_registry():
 @app.get("/api/manifests/read")
 async def read_manifest(name: str = Query(..., description="Target manifest name")):
     """Read full text content of a registered manifest."""
-    from fastapi import HTTPException
     target_path = _resolve_manifest_target(name)
     if not target_path or not target_path.exists():
         raise HTTPException(status_code=404, detail=f"Manifest '{name}' not found")
@@ -725,7 +726,6 @@ async def clean_artifacts(request: Optional[CleanRequest] = None):
 
 @app.post("/api/validate")
 async def validate_codebase(request: Optional[ValidateRequest] = None):
-    from env_manager.validator import validate_project
     base_dir = Path(__file__).resolve().parent.parent.parent
     projects = discover_projects(base_dir)
     target_name = request.project if request else None
@@ -754,8 +754,6 @@ class HooksInstallRequest(BaseModel):
 @app.post("/api/hooks/install")
 async def install_hooks_endpoint(request: Optional[HooksInstallRequest] = None):
     """Install or repair standardized pre-commit hooks across all ecosystem projects."""
-    from env_manager.hooks import install_git_hooks
-
     base_dir = Path(__file__).resolve().parent.parent.parent
     target_project = request.project if request else None
 

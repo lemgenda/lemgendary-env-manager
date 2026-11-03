@@ -23,7 +23,6 @@ class TestCliCommands(unittest.TestCase):
         self.runner = CliRunner()
 
     def test_cli_probe_command(self) -> None:
-        from unittest.mock import patch
         with patch("env_manager.bootstrap.check_winget_updates", return_value=[]):
             result = self.runner.invoke(app, ["probe"])
             self.assertEqual(result.exit_code, 0, f"probe command failed: {result.output}")

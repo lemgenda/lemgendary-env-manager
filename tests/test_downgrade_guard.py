@@ -5,6 +5,7 @@ sibling repositories are never read or written.
 """
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,15 +21,13 @@ from env_manager.requirements_manager import (
 
 class _TempWorkspace(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
-        self.base = Path(self._tmp.name)
+        self._tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp_dir)
+        self.base = Path(self._tmp_dir)
         self.central_dir = self.base / "lemgendary-env-manager" / "requirements"
         self.central_dir.mkdir(parents=True)
         self.sibling = self.base / "lemgendary-datasets"
         self.sibling.mkdir()
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
 
     def write(self, path: Path, text: str) -> Path:
         path.write_text(text, encoding="utf-8")

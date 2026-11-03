@@ -8,11 +8,8 @@ import stat
 import subprocess
 import sys
 import time
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
 import psutil
@@ -20,7 +17,6 @@ import psutil
 from env_manager._logging import get_logger
 from env_manager.utils import (
     WINDOWS_NO_WINDOW,
-    pip_env,
     run_command_simple,
     run_pip_with_recovery,
     stream_pip_with_recovery,
@@ -154,7 +150,7 @@ def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[b
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
             _log.warning("Could not terminate PID %d: %s", p.pid, exc)
 
-    gone, alive = psutil.wait_procs(procs, timeout=timeout)
+    _gone, alive = psutil.wait_procs(procs, timeout=timeout)
     for p in alive:
         try:
             p.kill()
@@ -164,7 +160,57 @@ def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[b
     return len(alive) == 0, pids
 
 
+def _remove_existing_venv(project_dir: Path, venv_dir: Path) -> str | None:
+    """Delete ``venv_dir`` after stopping processes that lock it.
+
+    Returns an error message when Windows file locks prevent the removal.
+    On Windows the tree is renamed first so a locked file fails fast.
+    """
+    terminate_processes_in_venv(venv_dir)
+    if platform.system().lower() != "windows":
+        shutil.rmtree(venv_dir, onexc=_handle_remove_readonly)
+        return None
+    temp_trash = project_dir / f".venv_trash_{int(time.time())}"
+    try:
+        venv_dir.rename(temp_trash)
+        shutil.rmtree(temp_trash, onexc=_handle_remove_readonly)
+    except OSError as lock_exc:
+        remaining = find_processes_in_venv(venv_dir)
+        rem_info = [f"PID {p.pid} ({p.name()})" for p in remaining]
+        _log.warning("Cannot remove %s: %s", venv_dir, lock_exc)
+        return (
+            f"Cannot recreate virtual environment for {project_dir.name}: "
+            f"files are locked by active process(es): {', '.join(rem_info) or str(lock_exc)}. "
+            f"Stop all running background services, workers, or terminals using this environment."
+        )
+    return None
+
+
+def _build_venv(project_dir: Path, venv_dir: Path) -> Tuple[bool, str]:
+    """Create ``venv_dir`` with the base interpreter and upgrade pip, wheel and setuptools."""
+    base_python = getattr(sys, "_base_executable", sys.executable)
+    proc = subprocess.run(
+        [str(base_python), "-m", "venv", str(venv_dir)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=120, check=False,
+        creationflags=WINDOWS_NO_WINDOW,
+    )
+    if proc.returncode != 0:
+        return False, proc.stderr or f"Failed to execute venv module via {base_python}."
+    if not (venv_dir / "pyvenv.cfg").exists():
+        return False, "Failed to create virtual environment: no pyvenv.cfg file created."
+    upgrade_proc = run_pip_with_recovery(
+        get_venv_python_path(project_dir),
+        ["install", "--upgrade", "pip", "wheel", "setuptools"],
+        timeout=300,
+    )
+    if upgrade_proc.returncode != 0:
+        return False, f"Venv spawned, but core upgrade failed: {upgrade_proc.stderr}"
+    return True, "Virtual environment created and upgraded successfully."
+
+
 def create_venv(project_dir: Path) -> Tuple[bool, str]:
+    """(Re)create ``project_dir/.venv``; refuses to replace the running interpreter's venv."""
     venv_dir = project_dir / ".venv"
 
     if _is_inside_active_venv(venv_dir):
@@ -178,49 +224,10 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
 
     try:
         if venv_dir.exists():
-            terminate_processes_in_venv(venv_dir)
-
-            if platform.system().lower() == "windows":
-                temp_trash = project_dir / f".venv_trash_{int(time.time())}"
-                try:
-                    venv_dir.rename(temp_trash)
-                    shutil.rmtree(temp_trash, onexc=_handle_remove_readonly)
-                except (PermissionError, OSError) as lock_exc:
-                    remaining = find_processes_in_venv(venv_dir)
-                    rem_info = [f"PID {p.pid} ({p.name()})" for p in remaining]
-                    return False, (
-                        f"Cannot recreate virtual environment for {project_dir.name}: "
-                        f"files are locked by active process(es): {', '.join(rem_info) or str(lock_exc)}. "
-                        f"Stop all running background services, workers, or terminals using this environment."
-                    )
-            else:
-                shutil.rmtree(venv_dir, onexc=_handle_remove_readonly)
-
-        base_python = getattr(sys, "_base_executable", sys.executable)
-
-        proc = subprocess.run(
-            [str(base_python), "-m", "venv", str(venv_dir)],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=120, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
-        )
-        if proc.returncode != 0:
-            return False, proc.stderr or f"Failed to execute venv module via {base_python}."
-
-        cfg_path = venv_dir / "pyvenv.cfg"
-        if not cfg_path.exists():
-            return False, "Failed to create virtual environment: no pyvenv.cfg file created."
-
-        python_path = get_venv_python_path(project_dir)
-        upgrade_proc = run_pip_with_recovery(
-            python_path,
-            ["install", "--upgrade", "pip", "wheel", "setuptools"],
-            timeout=300,
-        )
-        if upgrade_proc.returncode != 0:
-            return False, f"Venv spawned, but core upgrade failed: {upgrade_proc.stderr}"
-
-        return True, "Virtual environment created and upgraded successfully."
+            removal_error = _remove_existing_venv(project_dir, venv_dir)
+            if removal_error:
+                return False, removal_error
+        return _build_venv(project_dir, venv_dir)
     except (OSError, subprocess.SubprocessError) as exc:
         _log.error("Creating the venv for %s failed: %s", project_dir, exc)
         return False, str(exc)

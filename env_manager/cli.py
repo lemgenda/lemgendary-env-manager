@@ -1,8 +1,11 @@
+"""Typer command-line interface for the LemGendary Environment Manager (``lem-env``)."""
+
 import sys
 from pathlib import Path
 from typing import Optional
 
 import typer
+import uvicorn
 from rich.console import Console
 from rich.table import Table
 
@@ -367,7 +370,6 @@ def update(
         return
 
     console.print("[bold green]Applying upgrades bottom-up...[/bold green]")
-    from env_manager.system_probe import probe_hardware
     hw = probe_hardware()
 
     success_count = 0
@@ -413,14 +415,12 @@ def update(
 
     console.print("[bold cyan]Running post-upgrade validation on modified projects...[/bold cyan]")
     all_valid = True
-    from env_manager.validator import validate_project as _validate
-    from env_manager.venv_manager import discover_projects
     projects = discover_projects(base_dir)
     for p in projects:
         if project and p.name != project:
             continue
         p_dir = Path(p.project_dir)
-        report = _validate(p_dir, is_node_project=getattr(p, "is_node_project", False))
+        report = validate_project(p_dir, is_node_project=getattr(p, "is_node_project", False))
         tag = "[bold green][PASS][/bold green]" if report.passed else "[bold red][FAIL][/bold red]"
         console.print(f"{tag} {p.name}: compiled={report.compiled_files_count}, "
                       f"lint={len(report.lint_errors)}, yaml={len(report.yaml_errors)}")
@@ -539,8 +539,8 @@ def validate(
         raise typer.Exit(code=1)
 
 
-@app.command()
-def clean(
+@app.command("clean")
+def clean_command(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project to clean"),
 ):
     """Reclaim disk space by purging bytecode caches and temporary artifacts."""
@@ -569,7 +569,6 @@ def serve(
     port: int = typer.Option(8000, "--port", help="Port to bind"),
 ):
     """Start the FastAPI sidecar server (REST + WebSocket telemetry for AI Studio GUI)."""
-    import uvicorn
     console.print(f"[bold green]Starting LemGendary Environment Manager server on http://{host}:{port}...[/bold green]")
     console.print(f"  REST API:  http://{host}:{port}/docs")
     console.print(f"  WebSocket: ws://{host}:{port}/ws/log")

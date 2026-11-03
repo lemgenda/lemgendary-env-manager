@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.19-STABLE)
+# LemGendary Environment Manager (v16.9.20-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,18 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.20 - Lint Configuration Suppressions Removed
+
+- **`.pylintrc` (ROBOTS.md zero configuration-suppression rule)**: 38 of the 48 disabled checks are enabled again, and the code they hid is fixed. Still disabled, as remaining follow-up work: `missing-docstring`, `line-too-long` and the eight size/complexity checks (`too-many-branches`, `-locals`, `-statements`, `-lines`, `-arguments`, `-positional-arguments`, `-instance-attributes`, `-nested-blocks`). With this configuration pylint reports only the existing `duplicate-code` notes.
+  - Unused imports, variables and arguments removed (`compute_version_drift` lost its unused `base_dir`, `_execute_package_installation` its unused `target_project`); the FastAPI `lifespan` argument is `_app`.
+  - Function-local imports and re-imports in `cli.py`, `server.py` and the tests moved to module level; the CLI `clean` command function is `clean_command` (command name unchanged) so it no longer shadows the `install --clean` option. The duplicate `CleanRequest`/`ValidateRequest` models in `server.py` (pylint `E0102`) are removed. `venv_manager` no longer edits `sys.path` before its imports.
+  - Windows-only modules (`ctypes.wintypes`, `winreg`) are loaded with `importlib.import_module` inside their platform guards; the MT5 exe-version reader reads the two version DWORDs directly instead of declaring a nested `ctypes.Structure`.
+  - `consider-using-with`: the pip and npm streamers use `with subprocess.Popen(...)` and the new `utils.wait_or_kill`, which kills and reaps the child on timeout instead of leaking it. Resources that must outlive their creator are returned by small factories (`_spawn_detached` for sidecar daemons, `_new_worker_pool` for the update-job executor). Tests use `tempfile.mkdtemp` with `addCleanup(shutil.rmtree, ...)`.
+  - The update-job manager tracks "busy" with a flag under its state lock instead of a `Lock` acquired in `start` and released on the worker thread.
+  - `protected-access` in tests: the tested helpers are public (`installed_package_versions`, `execute_safe_upgrades`, `parse_pip_line_to_event`), and log assertions use the logger name (`lem_env.dependency_resolver`) instead of the module's `_log`.
+  - `create_venv` is split into `_remove_existing_venv` and `_build_venv` (`too-many-return-statements`); `select_cuda_torch_index` drops an `elif` after `return`.
+- **Pyright**: `reportGeneralTypeIssues = "none"`, `reportPrivateImportUsage = "none"` and `reportMissingTypeStubs = false` removed. `pyrightconfig.json` duplicated the `[tool.pyright]` table in `pyproject.toml` and is deleted, so `pyproject.toml` is the single pyright configuration.
 
 ### v16.9.19 - Narrow, Logged Exception Handling and One Version
 

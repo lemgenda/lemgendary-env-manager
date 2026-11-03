@@ -416,7 +416,6 @@ def audit_project_health(project_info: ProjectVenvInfo) -> ProjectHealth:
 
 def compute_version_drift(
     projects: List[ProjectHealth],
-    base_dir: Optional[Path] = None,
     cuda_index_url: Optional[str] = None,
     include_safety: bool = True,
 ) -> List[VersionDriftEntry]:
@@ -890,7 +889,6 @@ def run_full_health_audit(
     cuda_index_url = getattr(hardware, "recommended_torch_index", None)
     drift = compute_version_drift(
         projects_health,
-        base_dir=base_dir,
         cuda_index_url=cuda_index_url,
         include_safety=include_safety,
     )

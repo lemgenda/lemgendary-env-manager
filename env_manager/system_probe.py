@@ -13,6 +13,8 @@ version is extracted from terminal64.exe when possible so the reported
 version is authoritative regardless of whether winget tracks the install.
 """
 
+import ctypes
+import importlib
 import json
 import os
 import platform
@@ -218,9 +220,9 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
         return None
 
     if sys.platform == "win32":
-        import ctypes  # Windows-only API surface (windll); imported on demand.
-        from ctypes import wintypes
-
+        # ctypes.wintypes and ctypes.windll exist only on Windows, so the
+        # module is loaded by name inside the platform guard.
+        wintypes = importlib.import_module("ctypes.wintypes")
         try:
             size = ctypes.windll.version.GetFileVersionInfoSizeW(str(exe_path), None)
             if size > 0:
@@ -231,28 +233,13 @@ def _read_exe_version(exe_path: Path) -> Optional[str]:
                     if ctypes.windll.version.VerQueryValueW(
                         res, "\\", ctypes.byref(lp_buffer), ctypes.byref(u_len)
                     ):
-                        class VS_FIXEDFILEINFO(ctypes.Structure):
-                            _fields_ = [
-                                ("dwSignature", wintypes.DWORD),
-                                ("dwStrucVersion", wintypes.DWORD),
-                                ("dwFileVersionMS", wintypes.DWORD),
-                                ("dwFileVersionLS", wintypes.DWORD),
-                                ("dwProductVersionMS", wintypes.DWORD),
-                                ("dwProductVersionLS", wintypes.DWORD),
-                                ("dwFileFlagsMask", wintypes.DWORD),
-                                ("dwFileFlags", wintypes.DWORD),
-                                ("dwFileOS", wintypes.DWORD),
-                                ("dwFileType", wintypes.DWORD),
-                                ("dwFileSubtype", wintypes.DWORD),
-                                ("dwFileDateMS", wintypes.DWORD),
-                                ("dwFileDateLS", wintypes.DWORD),
-                            ]
-
                         if lp_buffer.value is None:
                             return None
-                        fixed = VS_FIXEDFILEINFO.from_address(lp_buffer.value)
-                        v_ms = fixed.dwFileVersionMS
-                        v_ls = fixed.dwFileVersionLS
+                        # VS_FIXEDFILEINFO starts with dwSignature,
+                        # dwStrucVersion, dwFileVersionMS, dwFileVersionLS.
+                        head = (wintypes.DWORD * 4).from_address(lp_buffer.value)
+                        v_ms = head[2]
+                        v_ls = head[3]
                         return f"{v_ms >> 16}.{v_ms & 0xffff}.{v_ls >> 16}.{v_ls & 0xffff}"
         except (OSError, ValueError, ctypes.ArgumentError) as exc:
             _log.debug("In-process ctypes version extraction failed for %s: %s", exe_path, exc)
@@ -291,7 +278,8 @@ def _mt5_registry_probe() -> Optional[MetaTrader5Info]:
     """
     if sys.platform != "win32":
         return None
-    import winreg  # Windows-only module; guarded by the platform check above.
+    # winreg exists only on Windows, so it is loaded by name after the guard.
+    winreg = importlib.import_module("winreg")
 
     candidates = [
         (winreg.HKEY_CURRENT_USER,  r"SOFTWARE\MetaQuotes\Terminal"),
@@ -465,7 +453,7 @@ def select_cuda_torch_index(driver_version: Optional[str]) -> str:
         major = int(driver_version.split(".")[0])
         if major >= 560:
             return "https://download.pytorch.org/whl/cu126"
-        elif major >= 535:
+        if major >= 535:
             return "https://download.pytorch.org/whl/cu121"
         return "https://download.pytorch.org/whl/cu118"
     except ValueError as exc:

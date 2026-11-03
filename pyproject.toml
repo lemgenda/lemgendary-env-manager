@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lemgendary-env-manager"
-version = "16.9.19"
+version = "16.9.20"
 description = "Centralized environment and dependency manager for LemGendary projects"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,9 +35,6 @@ venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
-reportMissingTypeStubs = false
-reportPrivateImportUsage = "none"
-reportGeneralTypeIssues = "none"
 
 [tool.ruff]
 target-version = "py312"
