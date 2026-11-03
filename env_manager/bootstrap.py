@@ -427,7 +427,9 @@ def verify_prerequisites() -> BootstrapStatus:
         if current_os == "windows":
             instructions.append("Install Python 3.12 using: winget install Python.Python.3.12")
         elif current_os == "linux":
-            instructions.append("Install Python 3.12 using: sudo apt-get install python3.12 python3.12-venv")
+            instructions.append(
+                "Install Python 3.12 using: sudo apt-get install python3.12 python3.12-venv"
+            )
         else:
             instructions.append("Install Python 3.12 using: brew install python@3.12")
 

@@ -236,7 +236,10 @@ def stream_pip_with_recovery(
                 attempt, max_attempts, (completed.stderr or completed.stdout or "")[-200:],
             )
             _purge_pip_cache(python_path)
-            yield f"Purged corrupt pip cache; retrying installation with --no-cache-dir (attempt {attempt + 1}/{max_attempts})..."
+            yield (
+                "Purged corrupt pip cache; retrying installation with --no-cache-dir "
+                f"(attempt {attempt + 1}/{max_attempts})..."
+            )
             continue
 
         # Not a corruption signature, or out of attempts.

@@ -166,7 +166,7 @@ def _read_log_tail(path: Path, limit: int = 500) -> str:
 def _await_service_health(
     cfg: dict[str, Any], proc: subprocess.Popen, stderr_path: Path,
 ) -> dict[str, Any]:
-    """Poll the health endpoint up to ``STARTUP_TIMEOUT_S``; report started, exited or still starting.
+    """Poll the health endpoint for ``STARTUP_TIMEOUT_S``; report started, exited or starting.
 
     The window lets PyTorch/CUDA model suites initialise.
     """

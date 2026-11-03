@@ -24,7 +24,7 @@ from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
 from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
 from env_manager.utils import purge_project_cache
-from env_manager.validator import validate_project
+from env_manager.validator import ProjectValidationReport, validate_project
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import workspace_root
 
@@ -32,6 +32,9 @@ _log = get_logger(__name__)
 
 PLAN_PREVIEW_SIZE = 3
 """Safe packages listed per project in the upgrade-plan table."""
+
+VIOLATIONS_SHOWN_PER_KIND = 5
+"""Violations of each kind printed for a project that fails validation."""
 
 
 def _configure_windows_console() -> None:
@@ -76,14 +79,19 @@ def probe():
     hw_table.add_row("Operating System", f"{hw.os_name} ({hw.os_release}, {hw.architecture})")
     hw_table.add_row("Python Version", hw.python_version)
     hw_table.add_row("Python Executable", hw.python_executable)
-    hw_table.add_row("Logical / Physical Cores", f"{hw.cpu_count_logical} / {hw.cpu_count_physical}")
+    hw_table.add_row(
+        "Logical / Physical Cores", f"{hw.cpu_count_logical} / {hw.cpu_count_physical}"
+    )
     hw_table.add_row("Total RAM (MB)", f"{hw.total_ram_mb:,}")
     hw_table.add_row("Primary Backend", hw.primary_backend.upper())
     hw_table.add_row("Recommended Torch Index", hw.recommended_torch_index)
 
     if hw.accelerators:
         for acc in hw.accelerators:
-            details = f"Index: {acc.index}, VRAM: {acc.total_memory_mb} MB, Backend: {acc.backend.upper()}"
+            details = (
+                f"Index: {acc.index}, VRAM: {acc.total_memory_mb} MB, "
+                f"Backend: {acc.backend.upper()}"
+            )
             if acc.driver_version:
                 details += f", Driver: {acc.driver_version}"
             hw_table.add_row(f"Accelerator: {acc.name}", details)
@@ -312,13 +320,18 @@ def install(
         elif event.status == "warning":
             color = "yellow"
 
-        console.print(f"[{color}][Step {event.step_number}/{event.total_steps}] {event.step_name}: {event.message}[/{color}]")
+        console.print(
+            f"[{color}][Step {event.step_number}/{event.total_steps}] "
+            f"{event.step_name}: {event.message}[/{color}]"
+        )
 
 
 @app.command()
 def update(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be upgraded without applying"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be upgraded without applying"
+    ),
 ):
     """Safely upgrade outdated packages (bottom-up) and auto-sync manifests.
 
@@ -403,7 +416,9 @@ def update(
         if event.status == "blocked" and msg:
             console.print(f"[{color}][BLOCKED] {event.project}: {pkg_info} — {msg}[/{color}]")
         else:
-            console.print(f"[{color}][{event.status.upper()}] {event.project}: {pkg_info}[/{color}]")
+            console.print(
+                f"[{color}][{event.status.upper()}] {event.project}: {pkg_info}[/{color}]"
+            )
 
     summary = f"{success_count} upgraded"
     if blocked_count:
@@ -434,14 +449,19 @@ def update(
                 console.print(f"  [red]{err.file_path}:{err.line_number}: {err.message}[/red]")
 
     if all_valid:
-        console.print("[bold green]All projects passed validation. Syncing manifests...[/bold green]")
+        console.print(
+            "[bold green]All projects passed validation. Syncing manifests...[/bold green]"
+        )
         sync_results = sync_all_manifests(base_dir)
         for name, (ok, msg) in sync_results.items():
             tag = "[green][OK][/green]" if ok else "[red][FAIL][/red]"
             console.print(f"{tag} {name}: {msg}")
         console.print("[bold green]Manifests synced successfully.[/bold green]")
     else:
-        console.print("[bold red]Manifest sync SKIPPED — validation failures detected above. Fix errors and re-run.[/bold red]")
+        console.print(
+            "[bold red]Manifest sync SKIPPED — validation failures detected above. "
+            "Fix errors and re-run.[/bold red]"
+        )
         raise typer.Exit(code=1)
 
 
@@ -455,13 +475,37 @@ def sync():
         console.print(f"{tag} {name}: {msg}")
 
 
+def _count_cell(violations: list, noun: str = "issues") -> str:
+    """Summary-table cell: green OK, or the violation count in red."""
+    return "[green]OK[/green]" if not violations else f"[red]{len(violations)} {noun}[/red]"
+
+
+def _print_violations(rep: ProjectValidationReport) -> None:
+    """Print the first few violations of each kind in a failed report."""
+    sections = (
+        ("SyntaxError", rep.compile_errors), ("Emoji", rep.emoji_violations),
+        ("Lint", rep.lint_errors), ("YAML", rep.yaml_errors), ("JSON", rep.json_errors),
+        ("HTML", rep.html_errors), ("WCAG", rep.wcag_violations), ("Domain", rep.domain_errors),
+    )
+    for label, violations in sections:
+        for err in violations[:VIOLATIONS_SHOWN_PER_KIND]:
+            console.print(
+                f"  [red]{label} ({err.file_path}:{err.line_number}): {err.message}[/red]"
+            )
+
+
 @app.command()
 def validate(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
 ):
-    """Run full validation: py_compile, zero-emoji, ESLint, TS, markdownlint, yamllint, W3C, WCAG 2.2 AA."""
+    """Run full validation.
+
+    Checks: py_compile, zero-emoji, ESLint, TS, markdownlint, yamllint, W3C, WCAG 2.2 AA.
+    """
     if project:
-        console.print(f"[bold cyan]Validating project '{project}' (full compliance suite)...[/bold cyan]")
+        console.print(
+            f"[bold cyan]Validating project '{project}' (full compliance suite)...[/bold cyan]"
+        )
     else:
         console.print("[bold cyan]Validating all projects (full compliance suite)...[/bold cyan]")
     base_dir = workspace_root()
@@ -496,17 +540,17 @@ def validate(
 
         rep = validate_project(proj_dir, is_node_project=is_node)
 
-        py_status = "[green]OK[/green]" if not rep.compile_errors else f"[red]{len(rep.compile_errors)} errors[/red]"
+        py_status = _count_cell(rep.compile_errors, "errors")
         emoji_issue = f" +{len(rep.emoji_violations)} emoji" if rep.emoji_violations else ""
-        lint_status = "[green]OK[/green]" if not rep.lint_errors else f"[red]{len(rep.lint_errors)} issues[/red]"
-        yaml_status = "[green]OK[/green]" if not rep.yaml_errors else f"[red]{len(rep.yaml_errors)} issues[/red]"
-        json_status = "[green]OK[/green]" if not rep.json_errors else f"[red]{len(rep.json_errors)} issues[/red]"
+        lint_status = _count_cell(rep.lint_errors)
+        yaml_status = _count_cell(rep.yaml_errors)
+        json_status = _count_cell(rep.json_errors)
         html_status = (
             "[green]OK[/green]"
             if not rep.html_errors and not rep.wcag_violations
             else f"[red]{len(rep.html_errors)}W3C {len(rep.wcag_violations)}WCAG[/red]"
         )
-        domain_status = "[green]OK[/green]" if not rep.domain_errors else f"[red]{len(rep.domain_errors)} issues[/red]"
+        domain_status = _count_cell(rep.domain_errors)
         if is_node:
             py_status = "[dim]N/A[/dim]"
         overall = "[green][PASS][/green]" if rep.passed else "[red][FAIL][/red]"
@@ -518,22 +562,7 @@ def validate(
 
         if not rep.passed:
             all_passed = False
-            for err in rep.compile_errors[:5]:
-                console.print(f"  [red]SyntaxError ({err.file_path}:{err.line_number}): {err.message}[/red]")
-            for err in rep.emoji_violations[:5]:
-                console.print(f"  [red]Emoji ({err.file_path}:{err.line_number}): {err.message}[/red]")
-            for err in rep.lint_errors[:5]:
-                console.print(f"  [red]Lint ({err.file_path}:{err.line_number}): {err.message}[/red]")
-            for err in rep.yaml_errors[:5]:
-                console.print(f"  [red]YAML ({err.file_path}:{err.line_number}): {err.message}[/red]")
-            for err in rep.json_errors[:5]:
-                console.print(f"  [red]JSON ({err.file_path}:{err.line_number}): {err.message}[/red]")
-            for err in rep.html_errors[:5]:
-                console.print(f"  [red]HTML ({err.file_path}:{err.line_number}): {err.message}[/red]")
-            for err in rep.wcag_violations[:5]:
-                console.print(f"  [red]WCAG ({err.file_path}:{err.line_number}): {err.message}[/red]")
-            for err in rep.domain_errors[:5]:
-                console.print(f"  [red]Domain ({err.file_path}:{err.line_number}): {err.message}[/red]")
+            _print_violations(rep)
 
     console.print(summary_table)
 
@@ -545,7 +574,9 @@ def validate(
 
 @app.command("clean")
 def clean_command(
-    project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project to clean"),
+    project: Optional[str] = typer.Option(
+        None, "--project", "-p", help="Target specific project to clean"
+    ),
 ):
     """Reclaim disk space by purging bytecode caches and temporary artifacts."""
     console.print("[bold cyan]Reclaiming cache and temporary build artifacts...[/bold cyan]")
@@ -564,7 +595,10 @@ def clean_command(
         total_reclaimed += reclaimed
 
     reclaimed_mb = total_reclaimed / (1024 * 1024)
-    console.print(f"[bold green]Reclaimed {cleaned_count} cache artifacts ({reclaimed_mb:.2f} MB freed).[/bold green]")
+    console.print(
+        f"[bold green]Reclaimed {cleaned_count} cache artifacts "
+        f"({reclaimed_mb:.2f} MB freed).[/bold green]"
+    )
 
 
 @app.command()
@@ -573,7 +607,10 @@ def serve(
     port: int = typer.Option(8000, "--port", help="Port to bind"),
 ):
     """Start the FastAPI sidecar server (REST + WebSocket telemetry for AI Studio GUI)."""
-    console.print(f"[bold green]Starting LemGendary Environment Manager server on http://{host}:{port}...[/bold green]")
+    console.print(
+        "[bold green]Starting LemGendary Environment Manager server on "
+        f"http://{host}:{port}...[/bold green]"
+    )
     console.print(f"  REST API:  http://{host}:{port}/docs")
     console.print(f"  WebSocket: ws://{host}:{port}/ws/log")
     uvicorn.run("env_manager.server:app", host=host, port=port, reload=False)
@@ -584,7 +621,9 @@ def setup_hooks(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
 ):
     """Install or repair standardized pre-commit hooks across all ecosystem projects."""
-    console.print("[bold cyan]Configuring standardized pre-commit hooks across projects...[/bold cyan]")
+    console.print(
+        "[bold cyan]Configuring standardized pre-commit hooks across projects...[/bold cyan]"
+    )
     base_dir = workspace_root()
     results = install_git_hooks(base_dir=base_dir, target_project=project)
     all_ok = True
@@ -595,7 +634,9 @@ def setup_hooks(
             all_ok = False
 
     if all_ok:
-        console.print("[bold green]All pre-commit hooks installed and verified successfully.[/bold green]")
+        console.print(
+            "[bold green]All pre-commit hooks installed and verified successfully.[/bold green]"
+        )
     else:
         raise typer.Exit(code=1)
 
@@ -604,7 +645,7 @@ def setup_hooks(
 def hooks_command(
     project: Optional[str] = typer.Option(None, "--project", "-p", help="Target specific project"),
 ):
-    """Install or repair standardized pre-commit hooks across all ecosystem projects (alias for setup-hooks)."""
+    """Install or repair pre-commit hooks in every ecosystem project (alias of ``setup-hooks``)."""
     setup_hooks(project=project)
 
 

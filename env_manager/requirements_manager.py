@@ -274,7 +274,7 @@ def sync_manifest_to_project(
         for line in content.splitlines():
             stripped = line.strip()
             if stripped:
-                # Core Fix: Explicitly index into split parts array to avoid list string strip failures
+                # Normalise "spec;marker" to "spec; marker".
                 if ";" in stripped:
                     parts = stripped.split(";", 1)
                     clean_lines.append(f"{parts[0].strip()}; {parts[1].strip()}")
@@ -339,11 +339,17 @@ def sync_all_manifests(base_dir: Optional[Path] = None) -> Dict[str, tuple[bool,
                     continue
             try:
                 # Avoid touching package.json if content is already identical
-                if not target_pkg.exists() or target_pkg.read_text(encoding="utf-8") != manifest.read_text(encoding="utf-8"):
+                manifest_text = manifest.read_text(encoding="utf-8")
+                current = target_pkg.read_text(encoding="utf-8") if target_pkg.exists() else None
+                if current != manifest_text:
                     shutil.copy2(manifest, target_pkg)
-                results[f"{proj_name} (npm)"] = (True, f"Synchronized {manifest.name} to {target_pkg}.")
+                results[f"{proj_name} (npm)"] = (
+                    True, f"Synchronized {manifest.name} to {target_pkg}."
+                )
             except OSError as exc:
                 _log.error("Failed to synchronize %s to %s: %s", manifest, target_pkg, exc)
-                results[f"{proj_name} (npm)"] = (False, f"Failed to synchronize {proj_name} npm manifest: {exc}")
+                results[f"{proj_name} (npm)"] = (
+                    False, f"Failed to synchronize {proj_name} npm manifest: {exc}"
+                )
 
     return results

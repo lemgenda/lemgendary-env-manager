@@ -12,7 +12,8 @@ Runs as a Windows service or background executable, exposing endpoints for:
 - Validation (py_compile, ESLint, Pylint, YAML, HTML, W3C)
 - WebSocket log streaming
 
-Start-Process "http://127.0.0.1:8000/docs" opens Swagger UI, which lets you click through every endpoint manually.
+Start-Process "http://127.0.0.1:8000/docs" opens Swagger UI, which lets you click
+through every endpoint manually.
 """
 
 import asyncio
@@ -517,16 +518,56 @@ def _resolve_manifest_target(name: str) -> Optional[Path]:
 async def get_manifest_registry():
     """List all manageable ecosystem manifests, locations, and formats."""
     manifest_targets = [
-        {"name": "unified_data.yaml", "project": "lemgendary-datasets", "format": "yaml", "description": "Authoritative dataset and source repository registry."},
-        {"name": "unified_models_v2.yaml", "project": "lemgendary-training-suite", "format": "yaml", "description": "Neural architecture registry and training hyperparameters."},
-        {"name": "config.yaml", "project": "lemgendary-training-suite", "format": "yaml", "description": "Global training execution and hardware governor configuration."},
-        {"name": "presets.yaml", "project": "lemgendary-training-suite", "format": "yaml", "description": "Canonical training and evaluation preset profiles."},
-        {"name": "runtime_env.yaml", "project": "lemgendary-env-manager", "format": "yaml", "description": "Runtime platform specifications and dependency matrices."},
-        {"name": "requirements-training.txt", "project": "lemgendary-training-suite", "format": "text", "description": "Training suite Python dependency manifest."},
-        {"name": "requirements-datasets.txt", "project": "lemgendary-datasets", "format": "text", "description": "Dataset compiler Python dependency manifest."},
-        {"name": "requirements-env-manager.txt", "project": "lemgendary-env-manager", "format": "text", "description": "Environment manager Python dependency manifest."},
-        {"name": "requirements-documentation.txt", "project": "lemgendary-docs", "format": "text", "description": "Documentation hub Python dependency manifest."},
-        {"name": "package.json", "project": "lemgendary-ai-studio-gui", "format": "json", "description": "Desktop GUI Tauri v2 and React package manifest."},
+        {
+            "name": "unified_data.yaml", "project": "lemgendary-datasets",
+            "format": "yaml",
+            "description": "Authoritative dataset and source repository registry.",
+        },
+        {
+            "name": "unified_models_v2.yaml", "project": "lemgendary-training-suite",
+            "format": "yaml",
+            "description": "Neural architecture registry and training hyperparameters.",
+        },
+        {
+            "name": "config.yaml", "project": "lemgendary-training-suite",
+            "format": "yaml",
+            "description": "Global training execution and hardware governor configuration.",
+        },
+        {
+            "name": "presets.yaml", "project": "lemgendary-training-suite",
+            "format": "yaml",
+            "description": "Canonical training and evaluation preset profiles.",
+        },
+        {
+            "name": "runtime_env.yaml", "project": "lemgendary-env-manager",
+            "format": "yaml",
+            "description": "Runtime platform specifications and dependency matrices.",
+        },
+        {
+            "name": "requirements-training.txt", "project": "lemgendary-training-suite",
+            "format": "text",
+            "description": "Training suite Python dependency manifest.",
+        },
+        {
+            "name": "requirements-datasets.txt", "project": "lemgendary-datasets",
+            "format": "text",
+            "description": "Dataset compiler Python dependency manifest.",
+        },
+        {
+            "name": "requirements-env-manager.txt", "project": "lemgendary-env-manager",
+            "format": "text",
+            "description": "Environment manager Python dependency manifest.",
+        },
+        {
+            "name": "requirements-documentation.txt", "project": "lemgendary-docs",
+            "format": "text",
+            "description": "Documentation hub Python dependency manifest.",
+        },
+        {
+            "name": "package.json", "project": "lemgendary-ai-studio-gui",
+            "format": "json",
+            "description": "Desktop GUI Tauri v2 and React package manifest.",
+        },
     ]
     items = []
     for target in manifest_targets:
@@ -685,7 +726,11 @@ def _docs_dir() -> Path:
 
 if _docs_dir().exists():
     from starlette.staticfiles import StaticFiles
-    app.mount("/documentation-hub", StaticFiles(directory=str(_docs_dir()), html=True), name="documentation_hub")
+    app.mount(
+        "/documentation-hub",
+        StaticFiles(directory=str(_docs_dir()), html=True),
+        name="documentation_hub",
+    )
 
 
 @app.get("/api/docs/status")

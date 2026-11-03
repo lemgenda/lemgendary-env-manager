@@ -56,6 +56,16 @@ DOC_LENGTH_RATIO_MAX = 3.0
 MANIFOLD_PARQUET_COUNT = 8
 """Parquet shards every compiled dataset manifold must contain."""
 
+_ASSET_STORE_PROJECTS = (
+    "LemGendaryModels", "lemgendary-models", "LemGendaryDatasets", "lemgendary-datasets-store",
+)
+"""Data-only repositories that are exempt from the README changelog check."""
+
+_HOOK_PY_SCRIPT_RE = re.compile(
+    r'(?:python(?:\.exe)?|"\$VENV_PYTHON"|\$VENV_PYTHON)\s+([a-zA-Z0-9_\-\./\\]+\.py)'
+)
+"""Python script path invoked by a git hook line, e.g. ``python tools/check.py``."""
+
 # Failures reading a JSON/YAML manifest and walking it: unreadable file
 # (OSError), invalid JSON or encoding (ValueError), invalid YAML
 # (yaml.YAMLError), and a document whose shape differs from the expected
@@ -268,7 +278,9 @@ def run_yamllint(project_dir: Path) -> List[FileValidationViolation]:
                 (proc.stderr or "").strip()[:200],
             )
     except FileNotFoundError:
-        _log.warning("yamllint not found — install it in the env-manager venv: pip install yamllint")
+        _log.warning(
+            "yamllint not found — install it in the env-manager venv: pip install yamllint"
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("yamllint failed for %s: %s", project_dir, exc)
     return violations
@@ -815,7 +827,9 @@ def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
                 creationflags=WINDOWS_NO_WINDOW,
             )
             if diff_proc.returncode == 0:
-                modified_files = [line.strip() for line in diff_proc.stdout.splitlines() if line.strip()]
+                modified_files = [
+                    line.strip() for line in diff_proc.stdout.splitlines() if line.strip()
+                ]
 
         non_readme_changes = [f for f in modified_files if Path(f).name.lower() != "readme.md"]
         readme_changed = any(Path(f).name.lower() == "readme.md" for f in modified_files)
@@ -828,8 +842,8 @@ def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
                         line_number=1,
                         violation_type="readme_changelog_missing",
                         message=(
-                            f"Project '{project_dir.name}' has {len(non_readme_changes)} modified files "
-                            "but README.md does not exist."
+                            f"Project '{project_dir.name}' has {len(non_readme_changes)} "
+                            "modified files but README.md does not exist."
                         ),
                     )
                 )
@@ -860,7 +874,8 @@ def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
                             violation_type="readme_changelog_unupdated",
                             message=(
                                 f"Project '{project_dir.name}' has uncommitted changes in "
-                                f"{len(non_readme_changes)} files, but README.md changelog was not updated."
+                                f"{len(non_readme_changes)} files, but README.md changelog "
+                                "was not updated."
                             ),
                         )
                     )
@@ -871,7 +886,7 @@ def _audit_readme_changelog(project_dir: Path) -> List[FileValidationViolation]:
 
 
 def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolation]:
-    """Verify bidirectional synchronization across documents.json, canonical_capabilities.json, and canonical_capabilities.yaml."""
+    """Check that documents.json and both canonical_capabilities files agree."""
     violations: List[FileValidationViolation] = []
     doc_m_path = docs_dir / "manifest" / "documents.json"
     cap_j_path = docs_dir / "canonical_capabilities.json"
@@ -926,7 +941,8 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
                         violation_type="manifest_baseline_mismatch",
                         message=(
                             f"Document baseline desynchronization: documents.json='{d_base}', "
-                            f"canonical_capabilities.json='{c_base}', canonical_capabilities.yaml='{y_base}'"
+                            f"canonical_capabilities.json='{c_base}', "
+                            f"canonical_capabilities.yaml='{y_base}'"
                         ),
                     )
                 )
@@ -952,7 +968,10 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
                         file_path=str(cap_y_path),
                         line_number=1,
                         violation_type="manifest_content_drift",
-                        message="canonical_capabilities.yaml is not strictly identical in structure to canonical_capabilities.json",
+                        message=(
+                            "canonical_capabilities.yaml is not strictly identical in structure "
+                            "to canonical_capabilities.json"
+                        ),
                     )
                 )
         except _MANIFEST_READ_ERRORS as exc:
@@ -969,7 +988,7 @@ def _audit_manifest_synchronization(docs_dir: Path) -> List[FileValidationViolat
 
 
 def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]:
-    """Verify comprehensive structural and content parity across all 48 Markdown papers and companion HTML publications."""
+    """Check heading, table and length parity between each Markdown paper and its HTML twin."""
     violations: List[FileValidationViolation] = []
     manifest_path = docs_dir / "manifest" / "documents.json"
     if not manifest_path.exists():
@@ -990,7 +1009,10 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
                         file_path=str(hp),
                         line_number=1,
                         violation_type="doc_html_missing",
-                        message=f"Companion HTML publication missing for [{doc_id}]: {doc.get('html_path')}",
+                        message=(
+                            f"Companion HTML publication missing for [{doc_id}]: "
+                            f"{doc.get('html_path')}"
+                        ),
                     )
                 )
                 continue
@@ -1034,7 +1056,10 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
                         file_path=str(hp),
                         line_number=1,
                         violation_type="doc_heading_mismatch",
-                        message=f"[{doc_id}] H2 count mismatch: HTML({len(h2_h)}) vs MD({len(h2_m)})",
+                        message=(
+                            f"[{doc_id}] H2 count mismatch: "
+                            f"HTML({len(h2_h)}) vs MD({len(h2_m)})"
+                        ),
                     )
                 )
 
@@ -1047,7 +1072,10 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
                         file_path=str(hp),
                         line_number=1,
                         violation_type="doc_table_mismatch",
-                        message=f"[{doc_id}] Table count difference exceeds threshold: HTML={h_tables} vs MD={m_tables}",
+                        message=(
+                            f"[{doc_id}] Table count difference exceeds threshold: "
+                            f"HTML={h_tables} vs MD={m_tables}"
+                        ),
                     )
                 )
 
@@ -1059,7 +1087,10 @@ def _audit_docs_synchronization(docs_dir: Path) -> List[FileValidationViolation]
                         file_path=str(hp),
                         line_number=1,
                         violation_type="doc_ratio_anomaly",
-                        message=f"[{doc_id}] Length ratio anomaly: ratio={ratio:.2f} (HTML={len(h_raw)}, MD={len(m_raw)})",
+                        message=(
+                            f"[{doc_id}] Length ratio anomaly: ratio={ratio:.2f} "
+                            f"(HTML={len(h_raw)}, MD={len(m_raw)})"
+                        ),
                     )
                 )
     except _MANIFEST_READ_ERRORS as exc:
@@ -1299,7 +1330,9 @@ def _audit_models_hub(project_dir: Path) -> List[FileValidationViolation]:
 
     model_dirs = [
         d for d in project_dir.iterdir()
-        if d.is_dir() and not d.name.startswith(".") and d.name not in ["__pycache__", ".githooks", "typings"]
+        if d.is_dir()
+        and not d.name.startswith(".")
+        and d.name not in ["__pycache__", ".githooks", "typings"]
     ]
     for m_dir in model_dirs:
         m_readme = m_dir / "README.md"
@@ -1428,16 +1461,14 @@ def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
                                         line_number=idx,
                                         violation_type="retired_git_hook_script",
                                         message=(
-                                            f"Hook invokes retired verification script '{retired}'. "
+                                            "Hook invokes retired verification script "
+                                            f"'{retired}'. "
                                             f"Pre-commit hooks must delegate to "
                                             f"'lem-env validate --project {project_dir.name}'."
                                         ),
                                     )
                                 )
-                        py_matches = re.findall(
-                            r'(?:python(?:\.exe)?|"\$VENV_PYTHON"|\$VENV_PYTHON)\s+([a-zA-Z0-9_\-\./\\]+\.py)',
-                            line,
-                        )
+                        py_matches = _HOOK_PY_SCRIPT_RE.findall(line)
                         for py_script in py_matches:
                             script_path = (project_dir / py_script).resolve()
                             if not script_path.exists():
@@ -1446,7 +1477,9 @@ def _audit_git_hooks(project_dir: Path) -> List[FileValidationViolation]:
                                         file_path=str(hook_file),
                                         line_number=idx,
                                         violation_type="missing_git_hook_target",
-                                        message=f"Hook references nonexistent script '{py_script}'.",
+                                        message=(
+                                            f"Hook references nonexistent script '{py_script}'."
+                                        ),
                                     )
                                 )
                 except OSError as exc:
@@ -1467,7 +1500,7 @@ def run_domain_verification(project_dir: Path) -> List[FileValidationViolation]:
     p_name = project_dir.name
 
     # 1. Project-wide README changelog verification for code projects (skip asset stores)
-    if p_name not in ("LemGendaryModels", "lemgendary-models", "LemGendaryDatasets", "lemgendary-datasets-store"):
+    if p_name not in _ASSET_STORE_PROJECTS:
         violations.extend(_audit_readme_changelog(project_dir))
 
     # 2. Project-specific domain verifications

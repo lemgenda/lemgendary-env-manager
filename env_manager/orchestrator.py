@@ -1111,7 +1111,9 @@ class PipelineOrchestrator:
         )
 
         if upgraded_ok:
-            upgraded_list = ", ".join(f"{pkg.name} ({pkg.latest_version})" for pkg in safe[:UPGRADE_SUMMARY_SIZE])
+            upgraded_list = ", ".join(
+                f"{pkg.name} ({pkg.latest_version})" for pkg in safe[:UPGRADE_SUMMARY_SIZE]
+            )
             if len(safe) > UPGRADE_SUMMARY_SIZE:
                 upgraded_list += f", +{len(safe) - UPGRADE_SUMMARY_SIZE} more"
             yield emit(

@@ -15,8 +15,7 @@ disable=
     too-many-positional-arguments,
     too-many-instance-attributes,
     too-many-nested-blocks,
-    missing-docstring,
-    line-too-long
+    missing-docstring
 
 [REPORTS]
 output-format=text

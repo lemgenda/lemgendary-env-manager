@@ -82,7 +82,10 @@ class TestPipelineOrchestrator(unittest.TestCase):
 
     def test_pip_progress_parsing(self) -> None:
         """Verify pip output lines are correctly parsed into live progress events."""
-        def emit_dummy(step_num: int, step_name: str, status: str, msg: str, data=None, is_progress=False) -> PipelineEvent:
+        def emit_dummy(
+            step_num: int, step_name: str, status: str, msg: str,
+            data=None, is_progress=False,
+        ) -> PipelineEvent:
             return PipelineEvent(
                 timestamp="2026-10-18T00:00:00Z",
                 step_number=step_num,

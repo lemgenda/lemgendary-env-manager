@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.23-STABLE)
+# LemGendary Environment Manager (v16.9.24-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.24 - Line Length Enforced
+
+- `line-too-long` is removed from the `.pylintrc` disable list; all 66 lines over 100 characters (pylint `C0301`, Ruff `E501`) are wrapped.
+- The validate command's repeated status cells and per-kind violation prints are now `_count_cell` and `_print_violations` in `cli.py` (`VIOLATIONS_SHOWN_PER_KIND = 5`).
+- `validator.py`: the asset-store exemption list is `_ASSET_STORE_PROJECTS` and the git-hook script pattern is the precompiled `_HOOK_PY_SCRIPT_RE`.
+- Over-long docstrings in `validator.py` and `cli.py` are rewritten to say what the function checks.
 
 ### v16.9.23 - Magic Numbers Named (Ruff PLR2004)
 
