@@ -114,7 +114,7 @@ class TestStep5Routing(unittest.TestCase):
         self.npm_outdated.assert_called_once_with(p_dir)
         self.npm_update.assert_called_once_with(p_dir)
         self.pip_outdated.assert_called_once_with(p_dir)
-        self.pip_apply.assert_called_once_with(p_dir, ["rich"], extra_index_url=None)
+        self.pip_apply.assert_called_once_with(p_dir, ["rich==13.1.0"], extra_index_url=None)
         self.sync.assert_called_once_with(self.root)
 
     def test_python_only_project_gets_pip_only(self) -> None:
@@ -124,7 +124,7 @@ class TestStep5Routing(unittest.TestCase):
         self.npm_outdated.assert_not_called()
         self.npm_update.assert_not_called()
         self.pip_apply.assert_called_once_with(
-            Path(proj.project_dir), ["rich"], extra_index_url=None
+            Path(proj.project_dir), ["rich==13.1.0"], extra_index_url=None
         )
 
     def test_npm_only_project_gets_npm_only(self) -> None:
@@ -169,9 +169,7 @@ class TestUpdateCommandScope(unittest.TestCase):
         """``update --project X`` plans and applies only X."""
         plan = self._plan("lemgendary-datasets")
         with patch("env_manager.cli.build_upgrade_plan", return_value=plan) as build, \
-                patch("env_manager.cli.apply_upgrade_plan", return_value=iter([])) as apply_, \
-                patch("env_manager.system_probe.probe_hardware",
-                      return_value=MagicMock(recommended_torch_index=None)):
+                patch("env_manager.cli.apply_upgrade_plan", return_value=iter([])) as apply_:
             result = self.runner.invoke(app, ["update", "--project", "lemgendary-datasets"])
 
         self.assertEqual(result.exit_code, 0, result.output)

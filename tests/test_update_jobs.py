@@ -127,9 +127,7 @@ class TestRunSafeUpdate(unittest.TestCase):
         ]
         emitted: list[dict[str, Any]] = []
         with patch("env_manager.update_jobs.build_upgrade_plan", return_value=plan), \
-                patch("env_manager.update_jobs.apply_upgrade_plan", return_value=iter(events)), \
-                patch("env_manager.update_jobs.probe_hardware",
-                      return_value=MagicMock(recommended_torch_index=None)):
+                patch("env_manager.update_jobs.apply_upgrade_plan", return_value=iter(events)):
             status = run_safe_update(None, emitted.append, Path("ws"))
         self.assertEqual(status, "partial")
         self.assertEqual(len(emitted), 2)

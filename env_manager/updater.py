@@ -9,13 +9,18 @@ Safety model
    reverse-dependency analysis (via ``pip inspect``) with constraint-
    preserving pip dry-runs.
 2. Every batch is snapshotted via ``pip freeze`` before being applied.
-3. After applying, ``pip check`` is run. If it fails, the batch is rolled
-   back from the snapshot and reported as a failure with a reason.
+3. Each candidate is installed pinned to the vetted version
+   (``name==latest_version``), so the apply phase cannot pick up a newer
+   release than the one the dry-run checked.
+4. After applying, ``pip check`` is run. If the install or the check fails,
+   the batch is rolled back from the snapshot and reported as a failure.
 
 CUDA handling
 -------------
-The PyTorch CUDA index URL is the single source of truth for CUDA
-availability. When present, torch-family packages are always resolved
+The PyTorch CUDA index URL returned by :func:`torch_upgrade_index` is the
+single source of truth for CUDA availability; the audit, the plan and the
+pipeline all use it, and :func:`apply_upgrade_plan` reuses the index stored
+in the plan. When present, torch-family packages are always resolved
 against it using ``--index-url`` (not ``--extra-index-url``). After
 upgrade, ``torch.cuda.is_available()`` is verified.
 
@@ -43,7 +48,7 @@ from env_manager.dependency_resolver import (
     constraint_preserving_dry_run,
     find_outdated_packages,
 )
-from env_manager.system_probe import probe_hardware
+from env_manager.system_probe import HardwareProfile, probe_hardware
 from env_manager.utils import WINDOWS_NO_WINDOW, run_pip_with_recovery
 from env_manager.venv_manager import (
     discover_projects,
@@ -152,18 +157,33 @@ def _venv_package_map(project_dir: Path) -> dict[str, str]:
 
 # ─── CUDA detection & verification ──────────────────────────────────────────
 
-def _detect_cuda() -> tuple[str | None, str]:
-    """Return (torch_index_url_or_None, human_description).
+def torch_upgrade_index(hw: HardwareProfile) -> str | None:
+    """Return the GPU torch index to vet and apply upgrades against, or None.
 
-    The index URL is the single source of truth for CUDA availability.
+    None means the host has no CUDA or ROCm backend, so torch-family
+    packages are vetted like any other PyPI package. ``recommended_torch_index``
+    is always set (it falls back to the CPU index), so it must not be used to
+    decide whether a GPU upgrade path exists.
     """
-    hw = probe_hardware()
     backend = (hw.primary_backend or "").lower()
-    index_url = hw.recommended_torch_index
+    if backend in ("cuda", "rocm") and hw.recommended_torch_index:
+        return str(hw.recommended_torch_index)
+    return None
+
+
+def _detect_cuda() -> tuple[str | None, str]:
+    """Return (torch_index_url_or_None, human_description)."""
+    hw = probe_hardware()
+    index_url = torch_upgrade_index(hw)
     accel = ", ".join(a.name for a in hw.accelerators) or "none"
-    if backend in ("cuda", "rocm") and index_url:
-        return str(index_url), f"{backend.upper()} via {accel}"
+    if index_url:
+        return index_url, f"{(hw.primary_backend or '').upper()} via {accel}"
     return None, f"no CUDA backend ({accel})"
+
+
+def pinned_specs(packages: list[OutdatedPackage]) -> list[str]:
+    """Return ``name==latest_version`` requirement specs for vetted candidates."""
+    return [f"{pkg.name}=={pkg.latest_version}" for pkg in packages]
 
 
 def _torch_installed(project_dir: Path) -> bool:
@@ -360,13 +380,14 @@ def _apply_npm_update(project_dir: Path) -> tuple[bool, str]:
 
 def _apply_pip_upgrade(
     project_dir: Path,
-    packages: list[str],
+    specs: list[str],
     extra_index_url: str | None = None,
 ) -> tuple[bool, str]:
-    if not is_venv_valid(project_dir) or not packages:
+    """Install the given requirement specs (``name==version``) into the venv."""
+    if not is_venv_valid(project_dir) or not specs:
         return True, "No packages to upgrade."
     python_path = get_venv_python_path(project_dir)
-    args = ["install", "--upgrade", *packages]
+    args = ["install", *specs]
     if extra_index_url:
         args.extend(["--extra-index-url", extra_index_url])
     proc = run_pip_with_recovery(python_path, args, timeout=1800)
@@ -378,28 +399,16 @@ def _apply_pip_upgrade(
 def _apply_torch_cuda_upgrade(
     project_dir: Path,
     cuda_index_url: str,
-    installed_names: list[str] | None = None,
+    specs: list[str],
 ) -> tuple[bool, str]:
-    """Reinstall the installed subset of torch-family from the CUDA index.
-
-    ``installed_names`` limits the upgrade to packages already present in
-    the venv. If None, all of TORCH_FAMILY is passed to pip (only safe
-    when the caller has already verified which ones are installed).
-    """
+    """Install the vetted torch-family specs (``name==version``) from the CUDA index."""
     if not is_venv_valid(project_dir):
         return False, "invalid venv"
-
-    targets = installed_names or list(TORCH_FAMILY)
-    if not targets:
+    if not specs:
         return True, "no torch-family packages to upgrade"
 
     python_path = get_venv_python_path(project_dir)
-    args = [
-        "install",
-        "--upgrade",
-        "--index-url", cuda_index_url,
-        *targets,
-    ]
+    args = ["install", "--index-url", cuda_index_url, *specs]
     proc = run_pip_with_recovery(python_path, args, timeout=2400)
     if proc.returncode == 0:
         return True, proc.stdout or "ok"
@@ -509,28 +518,65 @@ def build_upgrade_plan(
 
 # ─── Applier ────────────────────────────────────────────────────────────────
 
+def _rollback(project_dir: Path, freeze: str | None, failure: str) -> tuple[bool, str, bool]:
+    """Restore ``freeze`` after ``failure``; return the failed batch result."""
+    if freeze is None:
+        return False, f"{failure}; no snapshot available for rollback", False
+    restore_ok, restore_msg = _restore_freeze(project_dir, freeze)
+    if restore_ok:
+        return False, f"{failure}; rolled back successfully", True
+    return False, f"{failure}; rollback also failed: {restore_msg}", False
+
+
 def _apply_batch_with_rollback(
     project_dir: Path,
-    packages: list[str],
+    specs: list[str],
     extra_index_url: str | None = None,
 ) -> tuple[bool, str, bool]:
+    """Apply ``specs`` and roll back if the install or ``pip check`` fails.
+
+    Returns ``(ok, message, rolled_back)``.
+    """
     freeze = _snapshot_freeze(project_dir)
 
-    ok, apply_msg = _apply_pip_upgrade(project_dir, packages, extra_index_url)
+    ok, apply_msg = _apply_pip_upgrade(project_dir, specs, extra_index_url)
     if not ok:
-        return False, apply_msg, False
+        return _rollback(project_dir, freeze, f"pip install failed ({apply_msg})")
 
     check_ok, check_msg = _pip_check(project_dir)
     if check_ok:
         return True, apply_msg, False
+    return _rollback(project_dir, freeze, f"pip check failed ({check_msg})")
 
-    if freeze is None:
-        return False, f"pip check failed ({check_msg}); no snapshot available for rollback", False
 
-    restore_ok, restore_msg = _restore_freeze(project_dir, freeze)
-    if restore_ok:
-        return False, f"pip check failed ({check_msg}); rolled back successfully", True
-    return False, f"pip check failed ({check_msg}); rollback also failed: {restore_msg}", False
+def _apply_torch_candidates(
+    project: str,
+    p_dir: Path,
+    cuda_index_url: str,
+    torch_safe: list[OutdatedPackage],
+) -> Generator[UpgradeEvent, None, None]:
+    """Install the vetted torch-family versions from the CUDA index, with rollback."""
+    freeze = _snapshot_freeze(p_dir)
+    ok, msg = _apply_torch_cuda_upgrade(p_dir, cuda_index_url, pinned_specs(torch_safe))
+    if ok:
+        check_ok, check_msg = _pip_check(p_dir)
+        if check_ok:
+            for pkg in torch_safe:
+                yield UpgradeEvent(
+                    project=project, package=pkg.name,
+                    old_version=pkg.current_version, new_version=pkg.latest_version,
+                    status="upgraded",
+                    message=f"CUDA upgrade {pkg.current_version} -> {pkg.latest_version}.",
+                )
+            return
+        failure = f"torch CUDA upgrade broke pip check ({check_msg})"
+    else:
+        failure = f"CUDA upgrade failed ({msg[:300]})"
+    _, message, _ = _rollback(p_dir, freeze, failure)
+    yield UpgradeEvent(
+        project=project, package="torch-family",
+        old_version="", new_version="", status="failed", message=message[:400],
+    )
 
 
 def apply_upgrade_plan(
@@ -538,11 +584,18 @@ def apply_upgrade_plan(
     base_dir: Path | None = None,
     extra_index_url: str | None = None,
 ) -> Generator[UpgradeEvent, None, None]:
-    """Apply the plan bottom-up and yield telemetry events."""
+    """Apply the plan bottom-up and yield telemetry events.
+
+    Only the vetted candidates are installed, each pinned to the version the
+    plan checked. The GPU torch index is the one stored in the plan;
+    ``extra_index_url`` defaults to it.
+    """
     if base_dir is None:
         base_dir = workspace_root()
 
-    cuda_index_url, _ = _detect_cuda()
+    cuda_index_url = plan.cuda_index_url
+    if extra_index_url is None:
+        extra_index_url = cuda_index_url
 
     for proj_plan in plan.projects:
         p_dir = Path(proj_plan.project_dir)
@@ -571,13 +624,19 @@ def apply_upgrade_plan(
             )
             continue
 
-        non_torch = [p for p in proj_plan.safe_packages if not _is_torch_family(p.name)]
-        torch_safe = [p for p in proj_plan.safe_packages if _is_torch_family(p.name)]
+        # On a GPU host torch-family candidates come from the CUDA index and
+        # are applied separately; otherwise they were vetted against PyPI
+        # like any other package and go in the regular batch.
+        if cuda_index_url is None:
+            non_torch = list(proj_plan.safe_packages)
+            torch_safe: list[OutdatedPackage] = []
+        else:
+            non_torch = [p for p in proj_plan.safe_packages if not _is_torch_family(p.name)]
+            torch_safe = [p for p in proj_plan.safe_packages if _is_torch_family(p.name)]
 
         if non_torch:
-            names = [p.name for p in non_torch]
             ok, msg, rolled_back = _apply_batch_with_rollback(
-                p_dir, names, extra_index_url=extra_index_url,
+                p_dir, pinned_specs(non_torch), extra_index_url=extra_index_url,
             )
             if ok:
                 for pkg in non_torch:
@@ -602,64 +661,13 @@ def apply_upgrade_plan(
                 message="All packages are up to date.",
             )
 
-        # ── Torch-family CUDA refresh ──
-        # Only upgrade the subset actually installed in this project. Never
-        # install a torch-family package the project never declared, and
-        # never emit a spurious "upgraded" event when nothing changed.
-        project_map = _venv_package_map(p_dir)
-        installed_torch = [
-            name for name in TORCH_FAMILY if _normalize(name) in project_map
-        ]
-
-        if cuda_index_url is not None and installed_torch:
-            freeze = _snapshot_freeze(p_dir)
-            ok, msg = _apply_torch_cuda_upgrade(
-                p_dir, cuda_index_url, installed_names=installed_torch,
+        # ── Torch-family CUDA upgrade ──
+        # Runs only when the plan vetted torch-family candidates against the
+        # CUDA index, and installs exactly those versions.
+        if cuda_index_url is not None and torch_safe:
+            yield from _apply_torch_candidates(
+                proj_plan.name, p_dir, cuda_index_url, torch_safe,
             )
-            if ok:
-                check_ok, check_msg = _pip_check(p_dir)
-                if not check_ok and freeze is not None:
-                    restore_ok, _restore_msg = _restore_freeze(p_dir, freeze)
-                    yield UpgradeEvent(
-                        project=proj_plan.name, package="torch-family",
-                        old_version="", new_version="", status="failed",
-                        message=f"torch CUDA upgrade broke pip check: {check_msg}; "
-                                f"rollback {'ok' if restore_ok else 'FAILED'}",
-                    )
-                else:
-                    emitted_any = False
-                    for pkg in torch_safe:
-                        emitted_any = True
-                        yield UpgradeEvent(
-                            project=proj_plan.name, package=pkg.name,
-                            old_version=pkg.current_version,
-                            new_version=pkg.latest_version,
-                            status="upgraded",
-                            message=(
-                                f"CUDA upgrade {pkg.current_version} -> "
-                                f"{pkg.latest_version}."
-                            ),
-                        )
-                    if not emitted_any:
-                        versions = ", ".join(
-                            f"{name}={project_map.get(_normalize(name), '?')}"
-                            for name in installed_torch
-                        )
-                        yield UpgradeEvent(
-                            project=proj_plan.name, package="torch-family",
-                            old_version="", new_version="",
-                            status="verified",
-                            message=(
-                                f"torch-family already at newest CUDA builds "
-                                f"({versions})."
-                            ),
-                        )
-            else:
-                yield UpgradeEvent(
-                    project=proj_plan.name, package="torch-family",
-                    old_version="", new_version="", status="failed",
-                    message=f"CUDA upgrade failed: {msg[:300]}",
-                )
 
         check_ok, check_msg = _pip_check(p_dir)
         yield UpgradeEvent(

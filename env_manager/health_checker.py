@@ -29,7 +29,7 @@ from env_manager.dependency_resolver import (
 from env_manager.npm_manager import NpmPackageStatus, audit_npm_workspaces
 from env_manager.requirements_manager import parse_requirements_file
 from env_manager.system_probe import HardwareProfile, probe_hardware
-from env_manager.updater import _check_torch_cuda_upgrades
+from env_manager.updater import _check_torch_cuda_upgrades, torch_upgrade_index
 from env_manager.venv_manager import (
     ProjectVenvInfo,
     discover_projects,
@@ -900,7 +900,7 @@ def run_full_health_audit(
         health = audit_project_health(d)
         projects_health.append(health)
 
-    cuda_index_url = getattr(hardware, "recommended_torch_index", None)
+    cuda_index_url = torch_upgrade_index(hardware)
     drift = compute_version_drift(
         projects_health,
         cuda_index_url=cuda_index_url,

@@ -28,7 +28,9 @@ from env_manager.updater import (
     _apply_batch_with_rollback,
     _apply_npm_update,
     _find_npm_outdated,
+    pinned_specs,
     sync_manifests_from_venvs,
+    torch_upgrade_index,
 )
 from env_manager.validator import validate_project
 from env_manager.venv_manager import (
@@ -1080,7 +1082,7 @@ class PipelineOrchestrator:
         safe, blocked = classify_safe_upgrades(
             p_dir,
             raw,
-            cuda_index_url=hw.recommended_torch_index,
+            cuda_index_url=torch_upgrade_index(hw),
         )
 
         for pkg, reason in blocked:
@@ -1103,11 +1105,10 @@ class PipelineOrchestrator:
             f"UPGRADING: {p.name} - applying {len(safe)} safe upgrade(s)...",
         )
 
-        safe_names = [pkg.name for pkg in safe]
         upgraded_ok, upgrade_msg, rolled_back = _apply_batch_with_rollback(
             p_dir,
-            safe_names,
-            extra_index_url=hw.recommended_torch_index,
+            pinned_specs(safe),
+            extra_index_url=torch_upgrade_index(hw),
         )
 
         if upgraded_ok:

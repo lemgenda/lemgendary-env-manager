@@ -386,13 +386,11 @@ def update(
         return
 
     console.print("[bold green]Applying upgrades bottom-up...[/bold green]")
-    hw = probe_hardware()
-
     success_count = 0
     fail_count = 0
     blocked_count = 0
 
-    for event in apply_upgrade_plan(plan, base_dir, extra_index_url=hw.recommended_torch_index):
+    for event in apply_upgrade_plan(plan, base_dir):
         if event.status == "upgraded":
             color = "green"
             success_count += 1

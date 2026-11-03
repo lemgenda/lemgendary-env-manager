@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Callable
 
-from env_manager.system_probe import probe_hardware
 from env_manager.updater import apply_upgrade_plan, build_upgrade_plan
 
 _log = logging.getLogger("env_manager.update_jobs")
@@ -81,9 +80,8 @@ def run_safe_update(project: str | None, emit: EventSink, base_dir: Path) -> str
     if not plan.has_any_updates:
         return "up_to_date"
 
-    hw = probe_hardware()
     all_ok = True
-    for ev in apply_upgrade_plan(plan, base_dir, extra_index_url=hw.recommended_torch_index):
+    for ev in apply_upgrade_plan(plan, base_dir):
         ev_dict = ev.to_dict()
         if ev_dict.get("status") not in ("upgraded", "skipped"):
             all_ok = False

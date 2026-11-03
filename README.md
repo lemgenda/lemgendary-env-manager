@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.27-STABLE)
+# LemGendary Environment Manager (v16.9.28-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.28 - Apply Exactly the Vetted Plan (D-10)
+
+- Upgrades install `name==latest_version` for each vetted candidate instead of an unpinned `pip install --upgrade`, so the apply phase can no longer pick up a newer release, or unvetted transitive upgrades, that the dry-run never checked. This holds for `lem-env update`, `POST /api/update` and pipeline Step 5.
+- The torch CUDA install runs only when the plan holds torch-family candidates from the CUDA index, and installs exactly those versions. It no longer reinstalls torch from the CUDA index on every run. On a host without a GPU index, vetted torch candidates go in the normal pinned batch.
+- A pip install that fails part-way now restores the `pip freeze` snapshot (before, only a failed `pip check` did). The torch CUDA path rolls back the same way.
+- New `updater.torch_upgrade_index(hw)` is the one definition of the GPU torch index (None on CPU-only hosts). The health audit, the plan builder and Step 5 all use it; `apply_upgrade_plan` reuses the index stored in the plan instead of probing the hardware again.
+- New tests: `tests/test_apply_plan.py`.
 
 ### v16.9.27 - Ruff Clean
 
