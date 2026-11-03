@@ -85,7 +85,7 @@ from env_manager.system_probe import probe_hardware
 from env_manager.update_jobs import UpdateAlreadyRunningError, UpdateJobManager, run_safe_update
 from env_manager.updater import UPGRADE_ORDER, build_upgrade_plan
 from env_manager.utils import purge_workspace_caches
-from env_manager.validator import validate_project
+from env_manager.validator import validate_workspace
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import ENV_MANAGER_DIR, workspace_root
 
@@ -826,19 +826,10 @@ async def clean_artifacts(request: CleanRequest | None = None):
 @app.post("/api/validate")
 async def validate_codebase(request: ValidateRequest | None = None):
     """Run the full validation suite on one or every project."""
-    base_dir = workspace_root()
-    projects = discover_projects(base_dir)
     target_name = request.project if request else None
-
-    target_projects = [p for p in projects if target_name is None or p.name == target_name]
-    results = {}
-    all_passed = True
-
-    for p in target_projects:
-        rep = validate_project(Path(p.project_dir))
-        results[p.name] = rep.to_dict()
-        if not rep.passed:
-            all_passed = False
+    reports = await run_in_threadpool(validate_workspace, workspace_root(), target_name)
+    results = {name: rep.to_dict() for name, rep in reports.items()}
+    all_passed = all(rep.passed for rep in reports.values())
 
     return {
         "status": "success" if all_passed else "failed",

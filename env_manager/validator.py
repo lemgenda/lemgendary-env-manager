@@ -201,12 +201,42 @@ def _get_env_manager_python() -> str | None:
     return sys.executable  # fallback to current interpreter
 
 
+TOOL_ERROR = "tool_error"
+"""Violation type for a lint tool that is missing or crashed: the report fails closed."""
+
+
+def tool_failure(tool: str, target: Path | str, detail: str) -> FileValidationViolation:
+    """Return a violation recording that ``tool`` could not check ``target``.
+
+    A missing or broken tool must fail validation, never report a pass.
+    """
+    _log.warning("%s could not check %s: %s", tool, target, detail)
+    return FileValidationViolation(
+        file_path=str(target),
+        line_number=0,
+        violation_type=TOOL_ERROR,
+        message=f"{tool} did not run: {detail[:300]}",
+    )
+
+
+def unexplained_exit(
+    tool: str, target: Path | str, proc: subprocess.CompletedProcess, parsed: int,
+) -> list[FileValidationViolation]:
+    """Return a tool failure when ``proc`` exited non-zero but reported no parsable finding.
+
+    Linters exit non-zero when they find problems; a non-zero exit with
+    nothing parsed means the tool itself failed (missing module or package,
+    bad config, crash).
+    """
+    if proc.returncode == 0 or parsed:
+        return []
+    detail = (proc.stderr or proc.stdout or "").strip() or "no output"
+    return [tool_failure(tool, target, f"exit code {proc.returncode}: {detail}")]
+
+
 def run_yamllint(project_dir: Path) -> list[FileValidationViolation]:
     """Run yamllint on all YAML files in the project using env-manager venv."""
     violations: list[FileValidationViolation] = []
-    python_path = _get_env_manager_python()
-    if not python_path:
-        return violations
 
     skip_dirs = {
         ".git", ".venv", "node_modules", "__pycache__", "dist", "build", "target",
@@ -224,6 +254,10 @@ def run_yamllint(project_dir: Path) -> list[FileValidationViolation]:
 
     if not yaml_files:
         return violations
+
+    python_path = _get_env_manager_python()
+    if not python_path:
+        return [tool_failure("yamllint", project_dir, "no Python interpreter found")]
 
     mgr_dir = ENV_MANAGER_DIR
     cfg = None
@@ -269,22 +303,17 @@ def run_yamllint(project_dir: Path) -> list[FileValidationViolation]:
                             message=m.group(4),
                         )
                     )
-        # yamllint exit codes:
-        #   0 = no problems
-        #   1 = problems found (expected; parsed above)
-        #   2 = config / tooling error (unexpected; log but do not emit)
+        # yamllint exits 1 when it finds problems and 2 on a config or tool
+        # error; "No module named yamllint" also exits 1 with nothing parsed.
         if proc.returncode not in (0, 1):
-            _log.debug(
-                "yamllint returned exit code %d for %s (stderr: %s)",
-                proc.returncode, project_dir,
-                (proc.stderr or "").strip()[:200],
-            )
-    except FileNotFoundError:
-        _log.warning(
-            "yamllint not found — install it in the env-manager venv: pip install yamllint"
-        )
+            violations.append(tool_failure(
+                "yamllint", project_dir,
+                f"exit code {proc.returncode}: {(proc.stderr or '').strip()}",
+            ))
+        else:
+            violations.extend(unexplained_exit("yamllint", project_dir, proc, len(violations)))
     except (OSError, subprocess.SubprocessError) as exc:
-        _log.warning("yamllint failed for %s: %s", project_dir, exc)
+        violations.append(tool_failure("yamllint", project_dir, str(exc)))
     return violations
 
 
@@ -333,7 +362,12 @@ def run_jsonlint(project_dir: Path) -> list[FileValidationViolation]:
 def _resolve_tool_cmd(
     tool_name: str, npx_pkg: str, project_dir: Path | None = None,
 ) -> list[str]:
-    """Resolve local binary from project or env-manager node_modules/.bin, else npx."""
+    """Resolve local binary from project or env-manager node_modules/.bin, else npx.
+
+    The npx fallback runs with ``--no``: it uses an already installed package
+    and never downloads one at validation time. A missing tool then makes npx
+    exit non-zero, which the gate reports as a tool failure.
+    """
     mgr_dir = ENV_MANAGER_DIR
     candidate_dirs: list[Path] = []
     if project_dir and (project_dir / "node_modules" / ".bin").exists():
@@ -359,7 +393,7 @@ def _resolve_tool_cmd(
         return [global_bin]
 
     npx = shutil.which("npx") or ("npx.cmd" if sys.platform == "win32" else "npx")
-    return [npx, "--yes", npx_pkg]
+    return [npx, "--no", npx_pkg]
 
 
 # ─── Markdown / ESLint / TypeScript ─────────────────────────────────────────
@@ -420,8 +454,9 @@ def run_markdownlint(project_dir: Path) -> list[FileValidationViolation]:
                         message=m.group(4),
                     )
                 )
+        violations.extend(unexplained_exit("markdownlint", project_dir, proc, len(violations)))
     except (OSError, subprocess.SubprocessError) as exc:
-        _log.warning("markdownlint-cli failed for %s: %s", project_dir, exc)
+        violations.append(tool_failure("markdownlint", project_dir, str(exc)))
     return violations
 
 
@@ -472,17 +507,14 @@ def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
         stdout = proc.stdout or ""
         idx = stdout.find("[")
         if idx < 0:
-            # Nothing parseable; ESLint likely failed to start.
-            if proc.stderr:
-                _log.debug("ESLint for %s produced no JSON output: %s",
-                           project_dir, proc.stderr.strip()[:200])
-            return violations
+            # Nothing parseable: ESLint failed to start or crashed.
+            detail = (proc.stderr or stdout).strip() or f"exit code {proc.returncode}"
+            return [tool_failure("eslint", project_dir, f"no JSON report: {detail}")]
 
         try:
             data = json.loads(stdout[idx:])
         except json.JSONDecodeError as exc:
-            _log.warning("ESLint JSON parse failed for %s: %s", project_dir, exc)
-            return violations
+            return [tool_failure("eslint", project_dir, f"unreadable JSON report: {exc}")]
 
         for entry in data:
             file_path = entry.get("filePath", str(project_dir))
@@ -496,8 +528,14 @@ def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
                             message=msg.get("message", "").strip(),
                         )
                     )
+        # Exit 2 is an ESLint crash or config error, even if a report was printed.
+        if proc.returncode not in (0, 1):
+            violations.append(tool_failure(
+                "eslint", project_dir,
+                f"exit code {proc.returncode}: {(proc.stderr or '').strip()}",
+            ))
     except (OSError, subprocess.SubprocessError) as exc:
-        _log.warning("ESLint failed for %s: %s", project_dir, exc)
+        violations.append(tool_failure("eslint", project_dir, str(exc)))
     return violations
 
 
@@ -534,8 +572,9 @@ def run_typescript_check(project_dir: Path) -> list[FileValidationViolation]:
                             message=m.group(3).strip(),
                         )
                     )
+        violations.extend(unexplained_exit("tsc", project_dir, proc, len(violations)))
     except (OSError, subprocess.SubprocessError) as exc:
-        _log.warning("tsc --noEmit failed for %s: %s", project_dir, exc)
+        violations.append(tool_failure("tsc", project_dir, str(exc)))
     return violations
 
 
@@ -581,8 +620,9 @@ def run_html_validate(project_dir: Path) -> list[FileValidationViolation]:
                         message=f"{m.group(4)} — {m.group(5)}",
                     )
                 )
+        violations.extend(unexplained_exit("html-validate", project_dir, proc, len(violations)))
     except (OSError, subprocess.SubprocessError) as exc:
-        _log.warning("html-validate failed for %s: %s", project_dir, exc)
+        violations.append(tool_failure("html-validate", project_dir, str(exc)))
     return violations
 
 
@@ -618,6 +658,7 @@ def run_pa11y_wcag(project_dir: Path) -> list[FileValidationViolation]:
                 creationflags=WINDOWS_NO_WINDOW,
             )
             combined = proc.stdout + proc.stderr
+            found_before = len(violations)
             current_issue: str | None = None
             for raw_line in combined.splitlines():
                 line = raw_line.strip()
@@ -633,8 +674,11 @@ def run_pa11y_wcag(project_dir: Path) -> list[FileValidationViolation]:
                         )
                     )
                     current_issue = None
+            violations.extend(unexplained_exit(
+                "pa11y", html_file, proc, len(violations) - found_before,
+            ))
         except (OSError, subprocess.SubprocessError) as exc:
-            _log.warning("pa11y WCAG audit failed for %s: %s", html_file, exc)
+            violations.append(tool_failure("pa11y", html_file, str(exc)))
 
     return violations
 
@@ -730,18 +774,20 @@ def run_psscriptanalyzer(project_dir: Path) -> list[FileValidationViolation]:
             "CommandNotFoundException" in combined
             or ("Invoke-ScriptAnalyzer" in combined and "is not recognized" in combined.lower())
         ):
-            _log.debug(
-                "PSScriptAnalyzer not installed. Install via: "
-                "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force"
-            )
-            return violations
+            return [tool_failure(
+                "PSScriptAnalyzer", project_dir,
+                "module not installed (Install-Module PSScriptAnalyzer -Scope CurrentUser)",
+            )]
 
         for line in combined.splitlines():
             violation = parse_pssa_line(line)
             if violation is not None:
                 violations.append(violation)
+        violations.extend(
+            unexplained_exit("PSScriptAnalyzer", project_dir, proc, len(violations))
+        )
     except (OSError, subprocess.SubprocessError) as exc:
-        _log.warning("PSScriptAnalyzer execution failed: %s", exc)
+        violations.append(tool_failure("PSScriptAnalyzer", project_dir, str(exc)))
     finally:
         try:
             os.unlink(list_file)
@@ -1517,6 +1563,36 @@ def run_domain_verification(project_dir: Path) -> list[FileValidationViolation]:
 
     violations.extend(_audit_git_hooks(project_dir))
     return violations
+
+
+VALIDATION_TARGETS: tuple[tuple[str, bool], ...] = (
+    ("lemgendary-training-suite", False),
+    ("lemgendary-datasets", False),
+    ("lemgendary-env-manager", False),
+    ("lemgendary-ai-studio-gui", True),
+    ("lemgendary-docs", False),
+    ("LemGendaryDatasets", False),
+    ("LemGendaryModels", False),
+)
+"""Projects that ``lem-env validate`` and ``POST /api/validate`` check: ``(name, is_node)``."""
+
+
+def validate_workspace(
+    base_dir: Path, project: str | None = None,
+) -> dict[str, ProjectValidationReport]:
+    """Validate every target project present under ``base_dir``, or only ``project``.
+
+    The one implementation behind the CLI and the API, so both check the
+    same projects with the same ``is_node_project`` flags.
+    """
+    reports: dict[str, ProjectValidationReport] = {}
+    for name, is_node in VALIDATION_TARGETS:
+        if project is not None and name != project:
+            continue
+        project_dir = base_dir / name
+        if project_dir.exists():
+            reports[name] = validate_project(project_dir, is_node_project=is_node)
+    return reports
 
 
 def validate_project(project_dir: Path, is_node_project: bool = False) -> ProjectValidationReport:

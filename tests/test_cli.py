@@ -13,6 +13,12 @@ from typer.testing import CliRunner
 from env_manager.cli import app
 from env_manager.workspace import workspace_root
 
+EXTERNAL_LINTERS = (
+    "run_yamllint", "run_markdownlint", "run_eslint", "run_typescript_check",
+    "run_html_validate", "run_pa11y_wcag", "run_psscriptanalyzer",
+)
+"""Validator gates that shell out; stubbed so tests do not depend on installed tools."""
+
 
 class TestCliCommands(unittest.TestCase):
     """Test suite for env-manager Typer CLI commands."""
@@ -45,6 +51,8 @@ class TestCliCommands(unittest.TestCase):
 
     def test_cli_validate_command_single_project(self) -> None:
         """``validate --project lemgendary-docs`` passes on the fixture workspace."""
+        for name in EXTERNAL_LINTERS:
+            self.enterContext(patch(f"env_manager.validator.{name}", return_value=[]))
         result = self.runner.invoke(app, ["validate", "--project", "lemgendary-docs"])
         self.assertEqual(result.exit_code, 0, f"validate command failed: {result.output}")
         self.assertIn("lemgendary-docs", result.output)

@@ -23,7 +23,12 @@ from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
 from env_manager.updater import build_upgrade_plan, apply_upgrade_plan
 from env_manager.utils import purge_workspace_caches
-from env_manager.validator import ProjectValidationReport, validate_project
+from env_manager.validator import (
+    VALIDATION_TARGETS,
+    ProjectValidationReport,
+    validate_project,
+    validate_workspace,
+)
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import workspace_root
 
@@ -507,15 +512,7 @@ def validate(
         console.print("[bold cyan]Validating all projects (full compliance suite)...[/bold cyan]")
     base_dir = workspace_root()
 
-    all_project_dirs = [
-        ("lemgendary-training-suite", False),
-        ("lemgendary-datasets", False),
-        ("lemgendary-env-manager", False),
-        ("lemgendary-ai-studio-gui", True),
-        ("lemgendary-docs", False),
-        ("LemGendaryDatasets", False),
-        ("LemGendaryModels", False),
-    ]
+    node_projects = {name for name, is_node in VALIDATION_TARGETS if is_node}
 
     all_passed = True
     summary_table = Table(title="Validation Summary", header_style="bold magenta")
@@ -528,14 +525,8 @@ def validate(
     summary_table.add_column("Domain", style="white")
     summary_table.add_column("Status", style="bold")
 
-    for proj_name, is_node in all_project_dirs:
-        if project and proj_name != project:
-            continue
-        proj_dir = base_dir / proj_name
-        if not proj_dir.exists():
-            continue
-
-        rep = validate_project(proj_dir, is_node_project=is_node)
+    for proj_name, rep in validate_workspace(base_dir, project).items():
+        is_node = proj_name in node_projects
 
         py_status = _count_cell(rep.compile_errors, "errors")
         emoji_issue = f" +{len(rep.emoji_violations)} emoji" if rep.emoji_violations else ""

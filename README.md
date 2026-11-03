@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.30-STABLE)
+# LemGendary Environment Manager (v16.9.31-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -64,8 +64,9 @@
 ### 4. Codebase Compliance & Lint Validation
 
 - Zero emoji policy enforcement across Python source, docstrings, JSON, YAML, and documentation.
-- Zero suppression policy: detects and flags `# noqa`, `# type: ignore`, bare `except: pass`, and silent error swallows.
-- Validation suites covering `py_compile`, ESLint, Pylint, W3C HTML, and structural metadata integrity.
+- Validation suites covering `py_compile`, yamllint, JSON syntax, markdownlint, ESLint, `tsc --noEmit`, html-validate (W3C), pa11y (WCAG 2.2 AA), PSScriptAnalyzer, and structural metadata integrity.
+- Fail-closed gates: a lint tool that is missing, crashes, or exits non-zero without a parsable finding is reported as a `tool_error` violation, so a broken toolchain can never report `[PASS]`. Node tools are never downloaded at validation time (`npx --no`).
+- Not implemented yet: suppression detection (`# noqa`, `# type: ignore`, silent `except`), Pylint, and an absolute-path gate.
 
 ### 5. GUI Integration & Ecosystem Observability
 
@@ -173,6 +174,14 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.31 - One Validation Set, Fail-Closed Gates (D-15, D-16)
+
+- `lem-env validate` and `POST /api/validate` share `validator.validate_workspace` and `validator.VALIDATION_TARGETS`, so both check the same 7 projects with the same `is_node_project` flags. The API runs validation off the event loop.
+- Validation fails closed. When yamllint, markdownlint, ESLint, `tsc`, html-validate, pa11y or PSScriptAnalyzer is missing, crashes, or exits non-zero without a parsable finding, the gate adds a `tool_error` violation, so the project reports `[FAIL]` instead of `[PASS]`. Missing YAML interpreter, yamllint exit code 2, ESLint exit code 2, ESLint output without a JSON report, and a missing PSScriptAnalyzer module are all reported.
+- The npx fallback runs `npx --no <package>`, so validation never downloads packages; install the tools locally or globally.
+- README: the validation list now names the gates that exist. Suppression detection, Pylint and an absolute-path gate are listed as not implemented.
+- Tests that run `validate` stub the external linters, so they do not depend on installed tools. New tests: `tests/test_validator_fail_closed.py`.
 
 ### v16.9.30 - Enforced Subprocess Timeouts and a Safe Clean (D-13, D-14)
 
