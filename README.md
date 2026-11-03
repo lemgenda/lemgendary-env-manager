@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.55-STABLE)
+# LemGendary Environment Manager (v16.9.56-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -347,6 +347,13 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.56 - Central GUI Manifest Gets @types/node
+
+- `requirements/lemgendary-ai-studio-gui.package.json` adds
+  `@types/node` `^24.19.2`, which the GUI added in v2.10.36 when it dropped
+  `skipLibCheck`, so the downgrade guard does not report it as missing from
+  central.
 
 ### v16.9.55 - Launcher Script Passes PSScriptAnalyzer
 
