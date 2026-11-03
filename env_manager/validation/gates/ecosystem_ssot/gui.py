@@ -1,4 +1,5 @@
-"""Checks that the Tauri GUI agrees with ``ecosystem.json`` and the env OpenAPI schema.
+"""Checks that the Tauri GUI agrees with ``ecosystem.json``, the env OpenAPI schema
+and its central npm manifest.
 
 Each check takes a :class:`GuiContext` and returns violations. A check
 that cannot run yet (the GUI still keeps its own table, or a file cannot be
@@ -24,8 +25,14 @@ SNAPSHOT_MISMATCH = "ssot_gui_snapshot"
 CSP_PORTS = "ssot_csp_ports"
 PIPELINE_STEPS = "ssot_pipeline_steps"
 PROJECT_HEALTH = "ssot_project_health"
+NPM_MANIFEST = "ssot_npm_manifest"
 SKIPPED = "ssot_skipped"
 UNREADABLE = "ssot_unreadable"
+
+MANIFESTS_DIR = "requirements"
+"""The env-manager folder holding the central manifests."""
+
+PACKAGE_JSON = "package.json"
 
 SNAPSHOT_PATH = Path("src") / "generated" / "ecosystem.json"
 """The GUI's committed copy of the ecosystem file."""
@@ -236,8 +243,46 @@ def check_project_health(ctx: GuiContext) -> list[FileValidationViolation]:
     )]
 
 
+def check_npm_manifest(ctx: GuiContext) -> list[FileValidationViolation]:
+    """The GUI ``package.json`` equals its central manifest in the env-manager.
+
+    The central ``requirements/<npm_manifest>`` is the file to edit; a GUI
+    copy that has moved on means the central one is stale. Skipped with a
+    note when the registry names no manifest or either file is absent.
+    """
+    try:
+        manifest = ctx.eco.project(ctx.gui_dir.name).npm_manifest
+    except KeyError:
+        manifest = None
+    if manifest is None:
+        return _skip(ctx.gui_dir, "no central npm manifest is registered for this project")
+    central = ctx.env_dir / MANIFESTS_DIR / manifest
+    sibling = ctx.gui_dir / PACKAGE_JSON
+    for path in (central, sibling):
+        if not path.is_file():
+            return _skip(path, f"{path.name} is not present")
+    try:
+        central_data, sibling_data = _read_json(central), _read_json(sibling)
+    except MANIFEST_READ_ERRORS as exc:
+        return [_finding(sibling, UNREADABLE, f"Cannot compare {sibling.name}: {exc}")]
+    if not (isinstance(central_data, dict) and isinstance(sibling_data, dict)):
+        return [_finding(sibling, UNREADABLE, "package.json is not a JSON object")]
+    keys = sorted(
+        key for key in central_data.keys() | sibling_data.keys()
+        if central_data.get(key) != sibling_data.get(key)
+    )
+    if not keys:
+        return []
+    return [_finding(
+        sibling, NPM_MANIFEST,
+        f"{sibling.name} differs from the central {manifest} in {keys}; "
+        "update the central manifest, then sync",
+    )]
+
+
 GUI_CHECKS: tuple[GuiCheck, ...] = (
     check_snapshot, check_csp_ports, check_pipeline_steps, check_project_health,
+    check_npm_manifest,
 )
 """Every GUI parity check, in report order."""
 

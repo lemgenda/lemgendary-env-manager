@@ -6,8 +6,9 @@ owner, the docs URL or a list of project folders (:mod:`.literals`);
 documentation and records may, but only with the right values
 (:mod:`.consistency`). Asset projects (``kind: asset``) hold only
 documentation and generated records. For the Tauri GUI it also checks that
-the snapshot, the CSP ports, the pipeline steps and the ``ProjectHealth``
-type agree with the env-manager's files in the same workspace (:mod:`.gui`).
+the snapshot, the CSP ports, the pipeline steps, the ``ProjectHealth``
+type and ``package.json`` (against its central manifest) agree with the
+env-manager's files in the same workspace (:mod:`.gui`).
 
 ``ECOSYSTEM_SSOT_SEVERITY`` (``Severity.ERROR``) is the one setting that
 decides whether the findings fail validation or are only reported

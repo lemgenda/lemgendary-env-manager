@@ -32,6 +32,9 @@ from env_manager.validation.gates.ecosystem_ssot.consistency import (
 )
 from env_manager.validation.gates.ecosystem_ssot.gui import (
     CSP_PORTS,
+    MANIFESTS_DIR,
+    NPM_MANIFEST,
+    PACKAGE_JSON,
     openapi_schema_keys,
     PIPELINE_STEPS,
     PROJECT_HEALTH,
@@ -58,6 +61,12 @@ GUI_FOLDER = next(p.folder for p in ECO.projects if p.is_node)
 DEV_PORT = 1420
 SERVICE = ECO.services[0]
 OTHER_PORT = next(svc.port for svc in ECO.services if svc.port != SERVICE.port)
+PACKAGE = {
+    "name": "gui",
+    "version": "1.0.0",
+    "scripts": {"lint": "eslint src"},
+    "devDependencies": {"eslint": "9.0.0"},
+}
 OWNER = ECO.identity.kaggle_owner
 ASSET = next(p for p in ECO.projects if p.kind == "asset" and p.legacy_folders)
 
@@ -98,7 +107,16 @@ def fixture_gui(fake_workspace: Path) -> Path:
     schema = {"properties": {"name": {}, "is_healthy": {}}}
     openapi = {"components": {"schemas": {"ProjectHealth": schema}}}
     _write(fake_workspace / ECO.self_folder() / "openapi.json", json.dumps(openapi))
+    package = json.dumps(PACKAGE, indent=2)
+    _write(_central_manifest(fake_workspace), package)
+    _write(gui / PACKAGE_JSON, package)
     return gui
+
+
+def _central_manifest(workspace: Path) -> Path:
+    manifest = ECO.project(GUI_FOLDER).npm_manifest
+    assert manifest is not None
+    return workspace / ECO.self_folder() / MANIFESTS_DIR / manifest
 
 
 # --- literal facts ---------------------------------------------------------
@@ -235,6 +253,38 @@ def test_missing_openapi_schema_is_skipped_and_reported(gui: Path, fake_workspac
     found = collect_ssot_findings(gui)
     assert _types(found) == [SKIPPED]
     assert "no ProjectHealth schema" in found[0].message
+
+
+def test_gui_package_json_drift_is_flagged(gui: Path) -> None:
+    """A GUI ``package.json`` that moved past the central manifest is a finding."""
+    _write(gui / PACKAGE_JSON, json.dumps({**PACKAGE, "devDependencies": {"eslint": "9.1.0"}}))
+    found = run_ecosystem_ssot(gui)
+    assert _types(found) == [NPM_MANIFEST]
+    assert "['devDependencies']" in found[0].message
+
+
+def test_key_order_does_not_count_as_package_json_drift(gui: Path) -> None:
+    """Only values are compared; reordered keys are not drift."""
+    _write(gui / PACKAGE_JSON, json.dumps(dict(reversed(PACKAGE.items()))))
+    assert not run_ecosystem_ssot(gui)
+
+
+@pytest.mark.parametrize("side", ["central", "gui"])
+def test_missing_package_json_is_skipped_and_reported(
+    gui: Path, fake_workspace: Path, side: str,
+) -> None:
+    """Without the central manifest or the GUI ``package.json`` the check is skipped."""
+    target = _central_manifest(fake_workspace) if side == "central" else gui / PACKAGE_JSON
+    target.unlink()
+    found = collect_ssot_findings(gui)
+    assert _types(found) == [SKIPPED]
+    assert f"{target.name} is not present" in found[0].message
+
+
+def test_unparseable_package_json_is_a_finding(gui: Path) -> None:
+    """A GUI ``package.json`` that is not JSON fails rather than skips."""
+    _write(gui / PACKAGE_JSON, "{")
+    assert _types(run_ecosystem_ssot(gui)) == [UNREADABLE]
 
 
 # --- registry and severity -----------------------------------------------------

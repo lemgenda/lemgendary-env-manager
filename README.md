@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.57-STABLE)
+# LemGendary Environment Manager (v16.9.58-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -99,8 +99,9 @@ and the **LemGendary AI Studio Desktop GUI** (`lemgendary-ai-studio-gui`).
   owner, the docs URL or project folder lists (test fixtures excepted).
   Documentation (Markdown, HTML), the model and dataset registries and
   asset projects may, but only with the values in `ecosystem.json`. For the
-  GUI it also checks the snapshot, CSP ports, pipeline steps and the
-  `ProjectHealth` keys against `openapi.json`.
+  GUI it also checks the snapshot, CSP ports, pipeline steps, the
+  `ProjectHealth` keys against `openapi.json` and `package.json` against
+  its central manifest.
 - Not implemented: detection of silent `except` blocks.
 - Gates are pluggable: each one is a `Gate` in
   `env_manager/validation/registry.py` with the report list it fills and a
@@ -322,6 +323,9 @@ Single-source files:
 - Training `unified_models_v2.yaml` (model registry records).
 - GUI snapshot `src/generated/ecosystem.json`: a copy of the env-manager
   file that must equal it.
+- GUI `package.json`: must equal the central
+  `requirements/lemgendary-ai-studio-gui.package.json` (finding
+  `ssot_npm_manifest`, skipped with a note when either file is absent).
 
 Allowlist (`allowlist.py`): the files above, the ecosystem schema,
 `src-tauri/tauri.conf.json` (its CSP ports are checked against the
@@ -347,6 +351,21 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.58 - Central GUI Manifest Synced; package.json Parity Check
+
+- `requirements/lemgendary-ai-studio-gui.package.json` now equals the GUI
+  `package.json` (GUI v2.10.36): ESLint 9 flat config (`eslint`,
+  `@eslint/js`, `typescript-eslint`, `globals`, `eslint-plugin-react-hooks`
+  5) replaces ESLint 8 and the `@typescript-eslint/*` pair, plus
+  `modern-screenshot`, the `sync:ecosystem` / `check:ecosystem` scripts
+  and the new `lint` and `typecheck` commands. The central file stays the
+  one to edit; the GUI had moved on, so sync would have refused it as drift.
+- The `ecosystem_ssot` gate gains `check_npm_manifest`: the GUI
+  `package.json` must equal its central manifest (`ssot_npm_manifest`
+  finding naming the differing keys). A missing central or GUI file is a
+  logged `ssot_skipped` note; an unparseable one is `ssot_unreadable`.
+  Tests use a fixture workspace.
 
 ### v16.9.57 - Validator-Clean Tests; yamllint Skips Ignored Trees
 
