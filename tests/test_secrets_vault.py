@@ -16,6 +16,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from env_manager import server
+from env_manager.api import routes_workspace
 from env_manager.secrets_vault import (
     SecretsVault,
     seed_from_legacy_files,
@@ -55,7 +56,7 @@ class SecretsVaultApiTests(unittest.TestCase):
         for repo in ("lemgendary-datasets", "lemgendary-training-suite"):
             (self.root / repo).mkdir(parents=True)
         vault = SecretsVault(self.root, self.home_kaggle)
-        patcher = mock.patch.object(server, "_secrets_vault", return_value=vault)
+        patcher = mock.patch.object(routes_workspace, "_secrets_vault", return_value=vault)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = TestClient(server.app)

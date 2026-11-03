@@ -17,6 +17,7 @@ from urllib.parse import unquote
 from fastapi.testclient import TestClient
 
 from env_manager import server
+from env_manager.api import routes_workspace
 from env_manager.bug_report import (
     DEFAULT_SETTINGS,
     BugReportFields,
@@ -92,7 +93,7 @@ class BugReportApiTests(unittest.TestCase):
         service = BugReportService(
             self.root, DEFAULT_SETTINGS, platform, clock=lambda: FIXED_TIME
         )
-        patcher = mock.patch.object(server, "_bug_report_service", return_value=service)
+        patcher = mock.patch.object(routes_workspace, "_bug_report_service", return_value=service)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -275,7 +276,7 @@ class BugReportApiTests(unittest.TestCase):
             "telemetry": ("t.csv", TELEMETRY + big, "text/csv"),
             "recording": ("r.webm", WEBM + big, "video/webm"),
         }
-        with mock.patch.object(server, "BUG_REPORT_SETTINGS", small):
+        with mock.patch.object(routes_workspace, "BUG_REPORT_SETTINGS", small):
             for field, upload in cases.items():
                 with self.subTest(field=field):
                     self._assert_field_error(self._post(files=[(field, upload)]), field, 413)
@@ -284,7 +285,7 @@ class BugReportApiTests(unittest.TestCase):
         """A report whose uploads exceed the total limit is rejected."""
         small = BugReportSettings(max_total_bytes=100)
         files = [("screenshot", (f"{i}.png", PNG, "image/png")) for i in range(3)]
-        with mock.patch.object(server, "BUG_REPORT_SETTINGS", small):
+        with mock.patch.object(routes_workspace, "BUG_REPORT_SETTINGS", small):
             self._assert_field_error(self._post(files=files), "screenshot", 413)
 
 
@@ -373,8 +374,7 @@ class OpenApiTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        current = server.app.openapi()["paths"]["/api/bug-report"]
-        self.assertEqual(committed["paths"].get("/api/bug-report"), current)
+        self.assertEqual(committed, server.app.openapi())
 
 
 if __name__ == "__main__":

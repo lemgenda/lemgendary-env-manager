@@ -5,9 +5,10 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from env_manager import server
+from env_manager.api import routes_pipeline, state
 from env_manager.orchestrator import PipelineOrchestrator
-from env_manager.server import RunPipelineRequest, record_event, recent_events_snapshot
+from env_manager.api.routes_pipeline import RunPipelineRequest
+from env_manager.api.state import record_event, recent_events_snapshot
 
 
 class TestOrchestratorState(unittest.TestCase):
@@ -37,13 +38,13 @@ class TestPipelineStartRace(unittest.TestCase):
     """Two fast POSTs start one pipeline."""
 
     def tearDown(self) -> None:
-        server.orchestrator.release()
+        state.orchestrator.release()
 
     def test_second_request_is_refused_before_the_worker_runs(self) -> None:
         """The run is claimed before the thread starts, not when it first iterates."""
-        with patch("env_manager.server.threading.Thread") as thread:
-            first = asyncio.run(server.run_pipeline(RunPipelineRequest()))
-            second = asyncio.run(server.run_pipeline(RunPipelineRequest()))
+        with patch("threading.Thread") as thread:
+            first = asyncio.run(routes_pipeline.run_pipeline(RunPipelineRequest()))
+            second = asyncio.run(routes_pipeline.run_pipeline(RunPipelineRequest()))
         self.assertEqual(first["status"], "accepted")
         self.assertEqual(second["status"], "error")
         thread.return_value.start.assert_called_once_with()
@@ -73,18 +74,18 @@ class TestRecentEvents(unittest.TestCase):
         for t in writers:
             t.start()
         while any(t.is_alive() for t in writers):
-            recent_events_snapshot(server.MAX_RECENT_EVENTS)
+            recent_events_snapshot(state.MAX_RECENT_EVENTS)
         for t in writers:
             t.join()
-        events = recent_events_snapshot(server.MAX_RECENT_EVENTS)
-        self.assertEqual(len(events), server.MAX_RECENT_EVENTS)
+        events = recent_events_snapshot(state.MAX_RECENT_EVENTS)
+        self.assertEqual(len(events), state.MAX_RECENT_EVENTS)
         self.assertTrue(all(ev.get("timestamp") for ev in events))
 
     def test_status_endpoint_events_have_timestamps(self) -> None:
         """``GET /api/pipeline/status`` returns only stamped events."""
         record_event({"message": "a"})
         record_event({"timestamp": "2026-11-03T00:00:00+00:00", "message": "b"})
-        status = asyncio.run(server.get_pipeline_status())
+        status = asyncio.run(routes_pipeline.get_pipeline_status())
         self.assertTrue(all(ev["timestamp"] for ev in status["recent_events"]))
 
 

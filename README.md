@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.37-STABLE)
+# LemGendary Environment Manager (v16.9.38-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.38 - Server Split into Routers
+
+- `env_manager/server.py` (1012 lines) now only builds the app: lifespan, CORS and origin-guard middleware, the documentation-hub mount, and `include_router` for each area (109 lines). The routes moved to `env_manager/api/`: `routes_status.py` (ping, health, drift, hardware, projects, npm), `routes_pipeline.py` (pipeline and safe-update jobs), `routes_manifests.py`, `routes_workspace.py` (secrets, bug report, docs status, clean, validate, hooks) and `routes_ecosystem.py` (GUI state, sidecar services, shutdown, `/ws/log`). The WebSocket clients, the recent-event buffer, the orchestrator and the update job manager live in `env_manager/api/state.py`. Paths, methods and route order are unchanged.
+- `openapi.json` is regenerated: since v16.9.25 the route docstrings appear as operation descriptions and the committed file lacked them. The OpenAPI test now compares the whole document with `app.openapi()`, not only `/api/bug-report`.
+- Tests patch the module that owns a name (`api.state.update_jobs`, `api.routes_workspace._secrets_vault`, and so on) instead of `server`.
 
 ### v16.9.37 - Orchestrator Split, One Implementation per Pipeline Step
 

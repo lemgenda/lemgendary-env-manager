@@ -11,19 +11,17 @@ import unittest
 from unittest.mock import patch
 
 import env_manager
-from env_manager.server import (
-    app,
-    get_gui_ecosystem,
-    get_gui_state,
-    get_hardware,
-    get_manifests,
-    get_pipeline_status,
-    get_projects,
-    run_pipeline,
-    run_pipeline_step,
+from env_manager.api.routes_ecosystem import get_gui_ecosystem, get_gui_state
+from env_manager.api.routes_manifests import get_manifests
+from env_manager.api.routes_pipeline import (
     RunPipelineRequest,
     RunStepRequest,
+    get_pipeline_status,
+    run_pipeline,
+    run_pipeline_step,
 )
+from env_manager.api.routes_status import get_hardware, get_projects
+from env_manager.server import app
 
 
 class TestServerApi(unittest.TestCase):
@@ -99,8 +97,8 @@ class TestRunPipelineDestructiveOptIn(unittest.TestCase):
 
     def _started_thread_args(self, req: RunPipelineRequest) -> tuple:
         with (
-            patch("env_manager.server.threading.Thread") as mock_thread,
-            patch("env_manager.server.orchestrator.is_running", False),
+            patch("threading.Thread") as mock_thread,
+            patch("env_manager.api.state.orchestrator.is_running", False),
         ):
             result = asyncio.run(run_pipeline(req))
         self.assertEqual(result.get("status"), "accepted")

@@ -1,5 +1,5 @@
 # ==============================================================================
-# LemGendary Environment Manager Hub (v16.9.37)
+# LemGendary Environment Manager Hub (v16.9.38)
 # Authoritative PowerShell orchestrator for cross-platform environments.
 # ==============================================================================
 

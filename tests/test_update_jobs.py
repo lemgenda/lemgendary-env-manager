@@ -1,7 +1,7 @@
 """Tests for background safe-update jobs and the liveness endpoint (D-04, D-05).
 
 The real updater is never called: every test injects a fake runner or
-patches `env_manager.server.update_jobs`.
+patches `env_manager.state.update_jobs`.
 """
 
 import asyncio
@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 
 from env_manager import server
+from env_manager.api import routes_pipeline, routes_status, state
 from env_manager.update_jobs import (
     UpdateAlreadyRunningError,
     UpdateJobManager,
@@ -139,10 +140,10 @@ class TestUpdateEndpoint(unittest.TestCase):
         """A real update returns ``accepted`` with a job id."""
         fake_jobs = MagicMock()
         fake_jobs.start.return_value = {"job_id": "abc", "status": "running"}
-        with patch.object(server, "update_jobs", fake_jobs), \
-                patch.object(server.orchestrator, "is_running", False):
-            request = server.UpdateRequest(project="lemgendary-datasets")
-            data = asyncio.run(server.run_update(request))
+        with patch.object(state, "update_jobs", fake_jobs), \
+                patch.object(state.orchestrator, "is_running", False):
+            request = routes_pipeline.UpdateRequest(project="lemgendary-datasets")
+            data = asyncio.run(routes_pipeline.run_update(request))
         self.assertEqual(data["status"], "accepted")
         self.assertEqual(data["job_id"], "abc")
         self.assertEqual(data["project"], "lemgendary-datasets")
@@ -154,27 +155,27 @@ class TestUpdateEndpoint(unittest.TestCase):
         fake_jobs.start.side_effect = UpdateAlreadyRunningError(
             "An update is already running (job abc)."
         )
-        with patch.object(server, "update_jobs", fake_jobs), \
-                patch.object(server.orchestrator, "is_running", False):
+        with patch.object(state, "update_jobs", fake_jobs), \
+                patch.object(state.orchestrator, "is_running", False):
             with self.assertRaises(HTTPException) as ctx:
-                asyncio.run(server.run_update(server.UpdateRequest()))
+                asyncio.run(routes_pipeline.run_update(routes_pipeline.UpdateRequest()))
         self.assertEqual(ctx.exception.status_code, 409)
         self.assertIn("already running", ctx.exception.detail)
 
     def test_update_while_pipeline_runs_returns_409(self) -> None:
         """An update while the pipeline runs returns 409."""
         fake_jobs = MagicMock()
-        with patch.object(server, "update_jobs", fake_jobs), \
-                patch.object(server.orchestrator, "is_running", True):
+        with patch.object(state, "update_jobs", fake_jobs), \
+                patch.object(state.orchestrator, "is_running", True):
             with self.assertRaises(HTTPException) as ctx:
-                asyncio.run(server.run_update(server.UpdateRequest()))
+                asyncio.run(routes_pipeline.run_update(routes_pipeline.UpdateRequest()))
         self.assertEqual(ctx.exception.status_code, 409)
         fake_jobs.start.assert_not_called()
 
     def test_unknown_project_returns_404(self) -> None:
         """An unknown project returns 404."""
         with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(server.run_update(server.UpdateRequest(project="not-a-project")))
+            asyncio.run(routes_pipeline.run_update(routes_pipeline.UpdateRequest(project="not-a-project")))
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_dry_run_passes_project_and_does_not_start_a_job(self) -> None:
@@ -182,10 +183,10 @@ class TestUpdateEndpoint(unittest.TestCase):
         plan = MagicMock(has_any_updates=True)
         plan.to_dict.return_value = {"projects": []}
         fake_jobs = MagicMock()
-        with patch.object(server, "build_upgrade_plan", return_value=plan) as build, \
-                patch.object(server, "update_jobs", fake_jobs):
-            data = asyncio.run(server.run_update(
-                server.UpdateRequest(project="lemgendary-docs", dry_run=True)
+        with patch.object(routes_pipeline, "build_upgrade_plan", return_value=plan) as build, \
+                patch.object(state, "update_jobs", fake_jobs):
+            data = asyncio.run(routes_pipeline.run_update(
+                routes_pipeline.UpdateRequest(project="lemgendary-docs", dry_run=True)
             ))
         self.assertEqual(data["status"], "dry_run")
         self.assertEqual(build.call_args.kwargs["project"], "lemgendary-docs")
@@ -195,18 +196,18 @@ class TestUpdateEndpoint(unittest.TestCase):
         """The status endpoint reports the current job."""
         fake_jobs = MagicMock(is_running=True)
         fake_jobs.snapshot.return_value = {"job_id": "abc", "status": "running"}
-        with patch.object(server, "update_jobs", fake_jobs):
-            data = asyncio.run(server.get_update_status())
+        with patch.object(state, "update_jobs", fake_jobs):
+            data = asyncio.run(routes_pipeline.get_update_status())
         self.assertTrue(data["is_running"])
         self.assertEqual(data["job"]["job_id"], "abc")
 
     def test_pipeline_refuses_to_start_during_update(self) -> None:
         """The pipeline refuses to start while an update runs."""
         fake_jobs = MagicMock(is_running=True)
-        with patch.object(server, "update_jobs", fake_jobs), \
-                patch.object(server.orchestrator, "is_running", False), \
-                patch.object(server.threading, "Thread") as thread:
-            data = asyncio.run(server.run_pipeline(server.RunPipelineRequest()))
+        with patch.object(state, "update_jobs", fake_jobs), \
+                patch.object(state.orchestrator, "is_running", False), \
+                patch("threading.Thread") as thread:
+            data = asyncio.run(routes_pipeline.run_pipeline(routes_pipeline.RunPipelineRequest()))
         self.assertEqual(data["status"], "error")
         thread.assert_not_called()
 
@@ -215,8 +216,8 @@ class TestPingEndpoint(unittest.TestCase):
     """``/api/ping`` liveness probe."""
     def test_ping_is_constant_and_does_no_audit(self) -> None:
         """Ping returns a constant body and runs no health audit."""
-        with patch.object(server, "run_full_health_audit") as audit:
-            data = asyncio.run(server.ping())
+        with patch.object(routes_status, "run_full_health_audit") as audit:
+            data = asyncio.run(routes_status.ping())
         audit.assert_not_called()
         self.assertEqual(data["status"], "ok")
         self.assertEqual(data["service"], "lemgendary-env-manager")
@@ -224,11 +225,8 @@ class TestPingEndpoint(unittest.TestCase):
 
     def test_ping_route_supports_get_and_head(self) -> None:
         """Ping answers both GET and HEAD."""
-        methods = set()
-        for route in server.app.routes:
-            if getattr(route, "path", None) == "/api/ping":
-                methods |= set(getattr(route, "methods", set()))
-        self.assertTrue({"GET", "HEAD"} <= methods)
+        methods = set(server.app.openapi()["paths"]["/api/ping"])
+        self.assertTrue({"get", "head"} <= methods)
 
 
 if __name__ == "__main__":
