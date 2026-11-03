@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.42-STABLE)
+# LemGendary Environment Manager (v16.9.43-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,12 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.43 - System Probe Split
+
+- `env_manager/system_probe.py` (540 lines) is split into the `env_manager/probe/` package: `models.py` (`HardwareProfile`, `AcceleratorDevice`, `MetaTrader5Info`, the CUDA driver-to-index table and the ROCm, CPU and default CUDA index constants), `shell.py` (`preferred_shell`, `ps_quote`, `run_powershell`), `accelerators.py` (nvidia-smi, rocm-smi and DirectML probes and `detect_accelerators`) and `metatrader.py` (registry, known-path and `Get-Package` MT5 probes). `system_probe.py` keeps `probe_hardware` (78 lines) and re-exports every public name. Behaviour is unchanged.
+- The three PowerShell calls share `shell.run_powershell`, and every probe subprocess goes through `utils.run_command_simple` instead of repeating the `subprocess.run` keyword arguments.
+- The deep nesting is gone: the PE version read is `_pe_file_version` with early returns, one MT5 registry subkey is read by `_read_mt5_subkey`, nvidia-smi lines are parsed by `_nvidia_device`, and the backend priority (CUDA, ROCm, DirectML, CPU) is `detect_accelerators` instead of nested `if`/`else` in `probe_hardware`.
 
 ### v16.9.42 - Dependency Resolver Split
 

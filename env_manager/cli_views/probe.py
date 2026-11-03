@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.table import Table
 
 from env_manager.bootstrap import BootstrapStatus, SoftwareUpdateInfo
-from env_manager.system_probe import HardwareProfile, MetaTrader5Info
+from env_manager.probe.models import HardwareProfile, MetaTrader5Info
 
 
 def _mt5_cell(mt5: MetaTrader5Info) -> str:
