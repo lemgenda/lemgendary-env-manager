@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from env_manager._logging import get_logger
 from env_manager.ecosystem import Ecosystem
+from env_manager.requirements_manager import NPM_RELEASE_KEYS
 from env_manager.validation.files import iter_project_files
 from env_manager.validation.models import MANIFEST_READ_ERRORS, FileValidationViolation
 
@@ -247,8 +248,9 @@ def check_npm_manifest(ctx: GuiContext) -> list[FileValidationViolation]:
     """The GUI ``package.json`` equals its central manifest in the env-manager.
 
     The central ``requirements/<npm_manifest>`` is the file to edit; a GUI
-    copy that has moved on means the central one is stale. Skipped with a
-    note when the registry names no manifest or either file is absent.
+    copy that has moved on means the central one is stale. The GUI's own
+    release ``version`` (:data:`NPM_RELEASE_KEYS`) is not compared. Skipped
+    with a note when the registry names no manifest or either file is absent.
     """
     try:
         manifest = ctx.eco.project(ctx.gui_dir.name).npm_manifest
@@ -268,7 +270,7 @@ def check_npm_manifest(ctx: GuiContext) -> list[FileValidationViolation]:
     if not (isinstance(central_data, dict) and isinstance(sibling_data, dict)):
         return [_finding(sibling, UNREADABLE, "package.json is not a JSON object")]
     keys = sorted(
-        key for key in central_data.keys() | sibling_data.keys()
+        key for key in (central_data.keys() | sibling_data.keys()) - NPM_RELEASE_KEYS
         if central_data.get(key) != sibling_data.get(key)
     )
     if not keys:

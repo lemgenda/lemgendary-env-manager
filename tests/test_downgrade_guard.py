@@ -14,6 +14,7 @@ from env_manager.requirements_manager import (
     DRIFT_PREFIX,
     find_package_json_drift,
     find_requirement_drift,
+    merge_npm_manifest,
     sync_all_manifests,
     sync_manifest_to_project,
 )
@@ -134,21 +135,39 @@ class TestPackageJsonDowngradeGuard(_TempWorkspace):
         self.assertFalse(ok)
         self.assertTrue(msg.startswith(DRIFT_PREFIX), msg)
         self.assertIn("jsdom", msg)
-        self.assertIn("version", msg)
+        self.assertNotIn("version", msg)
         self.assertEqual(json.loads(target.read_text(encoding="utf-8")), sibling)
 
-    def test_newer_central_package_json_is_copied(self) -> None:
-        """A newer central package.json is copied."""
-        central = {"version": "2.10.14", "devDependencies": {"vite": "^6.5.0"}}
+    def test_newer_central_package_json_is_copied_keeping_sibling_version(self) -> None:
+        """A newer central package.json is copied; the sibling keeps its own version."""
+        central = {"name": "gui", "devDependencies": {"vite": "^6.5.0"}}
         self.write(self.central_dir / "lemgendary-ai-studio-gui.package.json", json.dumps(central))
-        sibling = {"version": "2.10.13", "devDependencies": {"vite": "^6.4.4"}}
+        sibling = {"name": "gui", "version": "2.10.13", "devDependencies": {"vite": "^6.4.4"}}
         target = self.write(self.gui / "package.json", json.dumps(sibling))
 
         results = sync_all_manifests(self.base)
 
         ok, msg = results["lemgendary-ai-studio-gui (npm)"]
         self.assertTrue(ok, msg)
-        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), central)
+        written = json.loads(target.read_text(encoding="utf-8"))
+        self.assertEqual(written, {**central, "version": "2.10.13"})
+        self.assertEqual(list(written), ["name", "version", "devDependencies"])
+
+    def test_differing_version_is_not_npm_drift(self) -> None:
+        """The project's own release version is not dependency drift."""
+        drift = find_package_json_drift(
+            {"version": "1.0.0", "dependencies": {"react": "^18.3.1"}},
+            {"version": "2.10.37", "dependencies": {"react": "^18.3.1"}},
+        )
+        self.assertEqual(drift, [])
+
+    def test_merge_keeps_sibling_version_and_drops_central_version(self) -> None:
+        """The merged manifest carries the sibling's version, never the central one."""
+        self.assertEqual(
+            merge_npm_manifest({"version": "9.9.9", "a": 1}, {"a": 0, "version": "2.0.0"}),
+            {"a": 1, "version": "2.0.0"},
+        )
+        self.assertEqual(merge_npm_manifest({"version": "9.9.9", "a": 1}, {}), {"a": 1})
 
     def test_npm_drift_detects_lower_dependency(self) -> None:
         """npm drift detects a dependency the central manifest lowers."""

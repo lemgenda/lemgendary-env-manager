@@ -11,11 +11,14 @@ away from a sibling: when the central copy would lower a sibling's version
 floor or drop a package the sibling still lists, the sibling is left
 untouched and the drift is reported (``ok=False`` with a ``DRIFT:`` message)
 so the owner can bring the central manifest up to date first.
+
+The project's own release identity (``package.json`` ``version``, see
+:data:`NPM_RELEASE_KEYS`) is not dependency information: the central npm
+manifest does not hold it, drift ignores it and sync keeps the sibling's value.
 """
 
 import json
 import re
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -29,6 +32,9 @@ from env_manager.ecosystem import ecosystem
 from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
+
+NPM_RELEASE_KEYS = frozenset({"version"})
+"""``package.json`` fields the project owns per release; never compared or synced."""
 
 
 @dataclass
@@ -214,15 +220,11 @@ def _npm_floor(spec: str) -> Version | None:
 
 
 def find_package_json_drift(central: dict[str, Any], sibling: dict[str, Any]) -> list[str]:
-    """npm equivalent of :func:`find_requirement_drift` (also checks the ``version`` field)."""
+    """npm equivalent of :func:`find_requirement_drift`.
+
+    The project's own ``version`` (:data:`NPM_RELEASE_KEYS`) is not compared.
+    """
     drift: list[str] = []
-    sib_ver = _npm_floor(str(sibling.get("version", "")))
-    cen_ver = _npm_floor(str(central.get("version", "")))
-    if sib_ver is not None and (cen_ver is None or cen_ver < sib_ver):
-        drift.append(
-            f"version: central '{central.get('version')}' "
-            f"is older than sibling '{sibling.get('version')}'"
-        )
     for section in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
         sib_deps = sibling.get(section) or {}
         cen_deps = central.get(section) or {}
@@ -289,27 +291,48 @@ def sync_manifest_to_project(
         return False, f"Failed to synchronize manifest: {exc}"
 
 
+def merge_npm_manifest(central: dict[str, Any], sibling: dict[str, Any]) -> dict[str, Any]:
+    """The central manifest with the sibling's own release fields (:data:`NPM_RELEASE_KEYS`).
+
+    Keys keep the sibling's order; keys only the central manifest has follow.
+    """
+    def value(key: str) -> Any:
+        return sibling[key] if key in NPM_RELEASE_KEYS else central[key]
+
+    def wanted(key: str) -> bool:
+        return key in (sibling if key in NPM_RELEASE_KEYS else central)
+
+    keys = [k for k in sibling if wanted(k)]
+    keys += [k for k in central if k not in sibling and wanted(k)]
+    return {key: value(key) for key in keys}
+
+
 def _sync_npm_manifest(proj_name: str, manifest: Path, proj_dir: Path) -> tuple[bool, str]:
-    """Copy a centralized package.json manifest into a project unless the project drifted."""
+    """Write a centralized package.json manifest into a project unless the project drifted.
+
+    The project's own ``version`` is kept (see :func:`merge_npm_manifest`).
+    """
     target_pkg = proj_dir / "package.json"
-    if target_pkg.exists():
-        try:
-            drift = find_package_json_drift(
-                json.loads(manifest.read_text(encoding="utf-8")),
-                json.loads(target_pkg.read_text(encoding="utf-8")),
-            )
-        except (OSError, json.JSONDecodeError) as exc:
-            return False, f"Cannot compare {manifest.name} with {target_pkg}: {exc}"
-        if drift:
-            message = _drift_message(target_pkg, drift)
-            _log.warning(message)
-            return False, message
+    try:
+        central = json.loads(manifest.read_text(encoding="utf-8"))
+        current = target_pkg.read_bytes().decode("utf-8") if target_pkg.exists() else None
+        sibling = json.loads(current) if current is not None else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return False, f"Cannot compare {manifest.name} with {target_pkg}: {exc}"
+    if not (isinstance(central, dict) and isinstance(sibling, dict)):
+        return False, f"Cannot compare {manifest.name} with {target_pkg}: not a JSON object"
+    drift = find_package_json_drift(central, sibling)
+    if drift:
+        message = _drift_message(target_pkg, drift)
+        _log.warning(message)
+        return False, message
+    merged = merge_npm_manifest(central, sibling)
+    newline = "\r\n" if current is not None and "\r\n" in current else "\n"
+    text = (json.dumps(merged, indent=2, ensure_ascii=False) + "\n").replace("\n", newline)
     try:
         # Avoid touching package.json if content is already identical
-        manifest_text = manifest.read_text(encoding="utf-8")
-        current = target_pkg.read_text(encoding="utf-8") if target_pkg.exists() else None
-        if current != manifest_text:
-            shutil.copy2(manifest, target_pkg)
+        if current != text:
+            target_pkg.write_bytes(text.encode("utf-8"))
     except OSError as exc:
         _log.error("Failed to synchronize %s to %s: %s", manifest, target_pkg, exc)
         return False, f"Failed to synchronize {proj_name} npm manifest: {exc}"

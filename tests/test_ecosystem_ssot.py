@@ -298,6 +298,21 @@ def test_gui_package_json_drift_is_flagged(gui: Path) -> None:
     assert "['devDependencies']" in found[0].message
 
 
+def test_gui_release_version_is_not_package_json_drift(gui: Path) -> None:
+    """The GUI bumps its own ``version`` every release; that alone is not drift."""
+    _write(gui / PACKAGE_JSON, json.dumps({**PACKAGE, "version": "2.10.37"}))
+    assert not run_ecosystem_ssot(gui)
+
+
+def test_dependency_drift_is_flagged_even_with_a_new_version(gui: Path) -> None:
+    """A dependency change still fails when the version changed too; only it is named."""
+    changed = {**PACKAGE, "version": "2.10.37", "devDependencies": {"eslint": "9.1.0"}}
+    _write(gui / PACKAGE_JSON, json.dumps(changed))
+    found = run_ecosystem_ssot(gui)
+    assert _types(found) == [NPM_MANIFEST]
+    assert "['devDependencies']" in found[0].message
+
+
 def test_key_order_does_not_count_as_package_json_drift(gui: Path) -> None:
     """Only values are compared; reordered keys are not drift."""
     _write(gui / PACKAGE_JSON, json.dumps(dict(reversed(PACKAGE.items()))))

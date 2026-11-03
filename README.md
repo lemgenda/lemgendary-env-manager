@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.59-STABLE)
+# LemGendary Environment Manager (v16.9.60-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -275,13 +275,15 @@ python -m env_manager.cli serve
 - Sync is one-way (central to sibling) and never takes anything away from a
   sibling. It refuses to write, leaves both files unchanged and reports drift
   when the central copy would:
-  - lower a version floor (`torch==2.14.1` over `torch==2.15.0`, or a `version`
-    field in `package.json`),
+  - lower a version floor (`torch==2.14.1` over `torch==2.15.0`),
   - drop a pin (`pillow` over `pillow==13.0.0`), or
   - remove a package the sibling still lists.
 - Equal pins and central upgrades are written as before. To resolve drift, raise
   the central pin (or remove the package from both files on purpose), then sync
   again.
+- A project's own `package.json` `version` is its release number, not
+  dependency information. The central `*.package.json` for the GUI does not
+  hold it, drift ignores it and sync keeps the sibling's value.
 
 ### Ecosystem Single Source of Truth
 
@@ -324,8 +326,9 @@ Single-source files:
 - GUI snapshot `src/generated/ecosystem.json`: a copy of the env-manager
   file that must equal it.
 - GUI `package.json`: must equal the central
-  `requirements/lemgendary-ai-studio-gui.package.json` (finding
-  `ssot_npm_manifest`, skipped with a note when either file is absent).
+  `requirements/lemgendary-ai-studio-gui.package.json` in every field except
+  the GUI's own release `version` (finding `ssot_npm_manifest`, skipped with
+  a note when either file is absent).
 
 Allowlist (`allowlist.py`): the files above, the ecosystem schema,
 `src-tauri/tauri.conf.json` (its CSP ports are checked against the
@@ -351,6 +354,22 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.60 - GUI Release Version Leaves the Central Manifest
+
+- `check_npm_manifest` (`ssot_npm_manifest`) no longer compares the GUI
+  `package.json` `version`. The GUI bumps it on every commit, so the check
+  always failed on a number that is not dependency information. Every other
+  field is still compared.
+- `requirements/lemgendary-ai-studio-gui.package.json` drops `version`; the
+  central manifest no longer claims to own the GUI release number.
+- npm sync: `find_package_json_drift` no longer reports `version`, and
+  `_sync_npm_manifest` writes the central manifest with the sibling's own
+  `version` kept (`merge_npm_manifest`, sibling key order and line endings
+  kept) instead of copying the file byte for byte. `NPM_RELEASE_KEYS` in
+  `requirements_manager` names the ignored fields for both.
+- Tests: a version-only difference passes the gate and is not sync drift; a
+  dependency change still fails; sync keeps the sibling version.
 
 ### v16.9.59 - ecosystem_ssot Catches Every Standalone Port Token
 
