@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.25-STABLE)
+# LemGendary Environment Manager (v16.9.26-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,10 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.26 - Pyright Covers the Tests
+
+- Pyright 1.1.414 (basic mode, no overrides) reports 0 errors on `env_manager/`. `[tool.pyright] include` now also lists `tests`, and the 6 errors found there are fixed: the README version test fails explicitly when a regex does not match instead of calling `.group` on a possible `None`, the `_kaggle` test helper is annotated (`username: str | None`), and the CORS wiring test narrows `allow_origins` to a list before using it.
 
 ### v16.9.25 - Docstrings Required
 

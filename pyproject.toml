@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lemgendary-env-manager"
-version = "16.9.25"
+version = "16.9.26"
 description = "Centralized environment and dependency manager for LemGendary projects"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,7 +29,7 @@ where = ["."]
 include = ["env_manager*"]
 
 [tool.pyright]
-include = ["env_manager"]
+include = ["env_manager", "tests"]
 exclude = ["**/__pycache__", ".venv"]
 venvPath = "."
 venv = ".venv"

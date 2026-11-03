@@ -171,8 +171,10 @@ class TestServerWiring(unittest.TestCase):
         self.assertIs(classes[0], origin_guard_middleware)
 
         cors = next(m for m in server_app.user_middleware if m.cls is CORSMiddleware)
-        self.assertEqual(list(cors.kwargs["allow_origins"]), list(ALLOWED_ORIGINS))
-        self.assertNotIn("*", cors.kwargs["allow_origins"])
+        allow_origins = cors.kwargs["allow_origins"]
+        assert isinstance(allow_origins, list)
+        self.assertEqual(allow_origins, list(ALLOWED_ORIGINS))
+        self.assertNotIn("*", allow_origins)
         self.assertFalse(cors.kwargs["allow_credentials"])
 
     def test_real_app_refuses_foreign_origin(self) -> None:

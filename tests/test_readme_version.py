@@ -28,8 +28,8 @@ class TestReadmeVersion(unittest.TestCase):
         text = README.read_text(encoding="utf-8")
         header = re.search(r"^# .*\(v(\d+\.\d+\.\d+)", text, re.MULTILINE)
         latest = re.search(r"^### v(\d+\.\d+\.\d+)", text, re.MULTILINE)
-        self.assertIsNotNone(header, "README title has no version")
-        self.assertIsNotNone(latest, "README changelog has no version entry")
+        if header is None or latest is None:
+            self.fail("README needs a versioned title and a changelog entry")
         self.assertEqual(header.group(1), latest.group(1))
 
 

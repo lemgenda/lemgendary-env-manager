@@ -26,7 +26,12 @@ KAGGLE_TOKEN = "KGAT_abcdefgh12345678"
 GITHUB_TOKEN = "ghp_secretsecret9876"
 
 
-def _kaggle(value=None, username="alice", item_id="kaggle-alice", is_default=True):
+def _kaggle(
+    value: str | None = None,
+    username: str | None = "alice",
+    item_id: str = "kaggle-alice",
+    is_default: bool = True,
+) -> dict:
     item = {
         "id": item_id,
         "service": "kaggle",
