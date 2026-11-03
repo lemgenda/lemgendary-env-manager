@@ -1,6 +1,6 @@
 """Pipeline step 4: npm and pip installs with live progress, then OpenCV normalization."""
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +52,102 @@ def parse_pip_line_to_event(
     return None
 
 
+def _relay[R](
+    gen: Generator[str, None, R],
+    to_event: Callable[[str], PipelineEvent | None],
+) -> Generator[PipelineEvent, None, R]:
+    """Yield an event for each streamed line ``to_event`` maps; return the stream's result."""
+    try:
+        while True:
+            event = to_event(next(gen))
+            if event is not None:
+                yield event
+    except StopIteration as stop:
+        return stop.value
+
+
+def _install_node(p: Any, emit: Emit) -> Generator[PipelineEvent, None, bool]:
+    """Run ``npm install`` for a Node project; return whether it succeeded."""
+    yield emit("info", f"INSTALLING: {p.name} (npm) - [Running npm install...]", is_progress=True)
+
+    def to_event(npm_line: str) -> PipelineEvent | None:
+        if "added" in npm_line or "reified" in npm_line or "packages" in npm_line:
+            return emit("info", f"INSTALLING: {p.name} (npm) - [{npm_line[:100]}]",
+                        is_progress=True)
+        return None
+
+    npm_ok, npm_msg = yield from _relay(stream_npm_install(Path(p.project_dir)), to_event)
+    if npm_ok:
+        yield emit("success", f"npm install completed successfully for {p.name}.",
+                   is_progress=False)
+    else:
+        yield emit("error", f"npm install failed for {p.name}: {npm_msg[:300]}",
+                   is_progress=False)
+    return npm_ok
+
+
+def _declared_requirement_count(req_file: Path) -> int:
+    """Return the number of named requirements, used as the progress denominator."""
+    try:
+        parsed_reqs = parse_requirements_file(req_file)
+    except (OSError, ValueError) as exc:
+        _log.warning("Cannot read %s for progress estimation: %s", req_file, exc)
+        return 10
+    return max(1, len([r for r in parsed_reqs if r.name and not r.is_index_url]))
+
+
+def _install_python(
+    p: Any, req_file: Path, hw: Any, emit: Emit,
+) -> Generator[PipelineEvent, None, bool]:
+    """Install ``req_file`` with live progress; return whether it succeeded."""
+    declared = _declared_requirement_count(req_file)
+    yield emit(
+        "info",
+        f"INSTALLING: {p.name} - [0/{declared} requirements, resolving dependencies...]",
+        is_progress=True,
+    )
+    progress = PipProgress(p.name, 0, declared, "")
+
+    def to_event(line: str) -> PipelineEvent | None:
+        nonlocal progress
+        prog_info = parse_pip_line_to_event(progress, line, emit)
+        if prog_info is None:
+            return None
+        completed_count, current_pkg, event = prog_info
+        progress = PipProgress(p.name, completed_count, declared, current_pkg)
+        return event
+
+    pip_gen = stream_install_requirements(
+        Path(p.project_dir), req_file, extra_index_url=hw.recommended_torch_index,
+    )
+    ok, inst_msg = yield from _relay(pip_gen, to_event)
+    if ok:
+        yield emit("success", f"Dependencies installed successfully for {p.name}.",
+                   is_progress=False)
+    else:
+        yield emit("error", f"Failed installing dependencies for {p.name}: {inst_msg[:300]}",
+                   is_progress=False)
+    return ok
+
+
+def _normalize_opencv(p: Any, emit: Emit) -> Generator[PipelineEvent, None, None]:
+    """Switch the project's cv2 provider to its preferred OpenCV variant, if it has one."""
+    desired = PREFERRED_OPENCV_VARIANT.get(p.name)
+    if not desired:
+        return
+    yield emit(
+        "info",
+        f"INSTALLING: {p.name} - [Normalizing OpenCV provider to {desired}...]",
+        is_progress=True,
+    )
+    norm_ok, norm_msg = normalize_opencv_variant(Path(p.project_dir), desired)
+    if norm_ok:
+        yield emit("success", norm_msg, is_progress=False)
+    else:
+        yield emit("warning", f"OpenCV normalization failed for {p.name}: {norm_msg}",
+                   is_progress=False)
+
+
 def install_packages(
     projects: list[Any],
     hw: Any,
@@ -59,121 +155,15 @@ def install_packages(
 ) -> Generator[PipelineEvent, None, list[str]]:
     """Install node and python dependencies with live streaming progress telemetry."""
     install_failures: list[str] = []
-
     for p in projects:
-        p_dir = Path(p.project_dir)
+        if p.is_node_project and not (yield from _install_node(p, emit)):
+            install_failures.append(p.name)
 
-        if p.is_node_project:
-            yield emit(
-                "info",
-                f"INSTALLING: {p.name} (npm) - [Running npm install...]",
-                is_progress=True,
-            )
-            npm_gen = stream_npm_install(p_dir)
-            npm_ok = False
-            npm_msg = ""
-            try:
-                while True:
-                    npm_line = next(npm_gen)
-                    if "added" in npm_line or "reified" in npm_line or "packages" in npm_line:
-                        yield emit(
-                            "info",
-                            f"INSTALLING: {p.name} (npm) - [{npm_line[:100]}]",
-                            is_progress=True,
-                        )
-            except StopIteration as stop:
-                npm_ok, npm_msg = stop.value
-
-            if npm_ok:
-                yield emit(
-                    "success",
-                    f"npm install completed successfully for {p.name}.",
-                    is_progress=False,
-                )
-            else:
-                install_failures.append(p.name)
-                yield emit(
-                    "error",
-                    f"npm install failed for {p.name}: {npm_msg[:300]}",
-                    is_progress=False,
-                )
-
-        req_file = p_dir / "requirements.txt"
+        req_file = Path(p.project_dir) / "requirements.txt"
         if not req_file.exists():
             continue
-
-        declared_req_count = 1
-        try:
-            parsed_reqs = parse_requirements_file(req_file)
-            declared_req_count = max(
-                1, len([r for r in parsed_reqs if r.name and not r.is_index_url])
-            )
-        except (OSError, ValueError) as exc:
-            _log.warning("Cannot read %s for progress estimation: %s", req_file, exc)
-            declared_req_count = 10
-
-        yield emit(
-            "info",
-            f"INSTALLING: {p.name}"
-            f" - [0/{declared_req_count} requirements, resolving dependencies...]",
-            is_progress=True,
-        )
-
-        pip_gen = stream_install_requirements(
-            p_dir,
-            req_file,
-            extra_index_url=hw.recommended_torch_index,
-        )
-
-        completed_count = 0
-        current_pkg = ""
-        ok = False
-        inst_msg = ""
-
-        try:
-            while True:
-                line = next(pip_gen)
-                prog_info = parse_pip_line_to_event(
-                    PipProgress(p.name, completed_count, declared_req_count, current_pkg),
-                    line,
-                    emit,
-                )
-                if prog_info is not None:
-                    completed_count, current_pkg, ev = prog_info
-                    yield ev
-        except StopIteration as stop:
-            ok, inst_msg = stop.value
-
-        if ok:
-            yield emit(
-                "success",
-                f"Dependencies installed successfully for {p.name}.",
-                is_progress=False,
-            )
-        else:
+        if not (yield from _install_python(p, req_file, hw, emit)):
             install_failures.append(p.name)
-            yield emit(
-                "error",
-                f"Failed installing dependencies for {p.name}: {inst_msg[:300]}",
-                is_progress=False,
-            )
             continue
-
-        desired = PREFERRED_OPENCV_VARIANT.get(p.name)
-        if desired:
-            yield emit(
-                "info",
-                f"INSTALLING: {p.name} - [Normalizing OpenCV provider to {desired}...]",
-                is_progress=True,
-            )
-            norm_ok, norm_msg = normalize_opencv_variant(p_dir, desired)
-            if norm_ok:
-                yield emit("success", norm_msg, is_progress=False)
-            else:
-                yield emit(
-                    "warning",
-                    f"OpenCV normalization failed for {p.name}: {norm_msg}",
-                    is_progress=False,
-                )
-
+        yield from _normalize_opencv(p, emit)
     return install_failures

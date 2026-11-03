@@ -205,6 +205,68 @@ def stream_process_lines(
     return wait_or_kill(proc, max(deadline - time.monotonic(), MIN_EXIT_GRACE_S))
 
 
+def _stream_pip_attempt(
+    cmd: list[str], timeout: int, no_cache: bool,
+) -> Generator[str, None, tuple[subprocess.CompletedProcess, bool]]:
+    """Run one pip attempt, yielding its non-blank output lines live.
+
+    Returns ``(completed, launched)``. ``launched`` is False when pip timed
+    out or could not be started; that result is final and is not retried.
+    """
+    output_lines: list[str] = []
+    error_lines: list[str] = []
+    try:
+        cmd_env = pip_env(no_cache=no_cache)
+        cmd_env["PYTHONUNBUFFERED"] = "1"
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=cmd_env,
+            creationflags=WINDOWS_NO_WINDOW,
+        ) as proc:
+            for tag, line in stream_process_lines(proc, timeout):
+                # Keep stdout byte-for-byte (minus the newline) so JSON
+                # documents stay intact.
+                (output_lines if tag == _STDOUT else error_lines).append(line.rstrip("\r\n"))
+                stripped = line.strip()
+                if stripped:
+                    yield stripped
+            returncode = proc.returncode
+    except subprocess.TimeoutExpired as exc:
+        _log.warning("pip command timed out after %ss: %s", timeout, cmd)
+        error_lines.append(f"pip command timed out after {timeout}s: {exc}")
+        returncode, launched = 124, False
+    except (OSError, ValueError) as exc:
+        _log.warning("pip command could not be run (%s): %s", cmd, exc)
+        error_lines.append(str(exc))
+        returncode, launched = 1, False
+    else:
+        launched = True
+    completed = subprocess.CompletedProcess(
+        args=cmd, returncode=returncode,
+        stdout="\n".join(output_lines), stderr="\n".join(error_lines),
+    )
+    return completed, launched
+
+
+def drain_lines[R](
+    gen: Generator[str, None, R],
+    on_line: Callable[[str], None] | None = None,
+) -> R:
+    """Pass each streamed line to ``on_line`` (if given) and return the stream's result."""
+    try:
+        while True:
+            line = next(gen)
+            if on_line:
+                on_line(line)
+    except StopIteration as stop:
+        return stop.value
+
+
 def stream_pip_with_recovery(
     python_path: Path,
     args: list[str],
@@ -224,52 +286,8 @@ def stream_pip_with_recovery(
 
     last_proc: subprocess.CompletedProcess | None = None
     for attempt in range(1, max_attempts + 1):
-        use_no_cache = attempt > 1
-        output_lines: list[str] = []
-        error_lines: list[str] = []
-        try:
-            cmd_env = pip_env(no_cache=use_no_cache)
-            cmd_env["PYTHONUNBUFFERED"] = "1"
-            with subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=cmd_env,
-                creationflags=WINDOWS_NO_WINDOW,
-            ) as proc:
-                for tag, line in stream_process_lines(proc, timeout):
-                    if tag == _STDOUT:
-                        # Keep stdout byte-for-byte (minus the newline) so JSON
-                        # documents stay intact.
-                        output_lines.append(line.rstrip("\r\n"))
-                    else:
-                        error_lines.append(line.rstrip("\r\n"))
-                    stripped = line.strip()
-                    if stripped:
-                        yield stripped
-                completed = subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=proc.returncode,
-                    stdout="\n".join(output_lines),
-                    stderr="\n".join(error_lines),
-                )
-        except subprocess.TimeoutExpired as exc:
-            _log.warning("pip command timed out after %ss: %s", timeout, cmd)
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=124, stdout="\n".join(output_lines),
-                stderr="\n".join([*error_lines, f"pip command timed out after {timeout}s: {exc}"]),
-            )
-        except (OSError, ValueError) as exc:
-            _log.warning("pip command could not be run (%s): %s", cmd, exc)
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout="\n".join(output_lines),
-                stderr="\n".join([*error_lines, str(exc)]),
-            )
-
-        if completed.returncode == 0:
+        completed, launched = yield from _stream_pip_attempt(cmd, timeout, no_cache=attempt > 1)
+        if not launched or completed.returncode == 0:
             return completed
 
         last_proc = completed
@@ -321,13 +339,7 @@ def run_pip_with_recovery(
     check ``returncode`` and inspect ``stdout`` / ``stderr`` themselves.
     """
     gen = stream_pip_with_recovery(python_path, args, timeout=timeout, max_attempts=max_attempts)
-    try:
-        while True:
-            line = next(gen)
-            if on_line:
-                on_line(line)
-    except StopIteration as stop:
-        return stop.value
+    return drain_lines(gen, on_line)
 
 
 # ─── Cache / bytecode cleaning ──────────────────────────────────────────────

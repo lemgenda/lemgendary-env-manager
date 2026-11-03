@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.43-STABLE)
+# LemGendary Environment Manager (v16.9.44-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -178,6 +178,13 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.44 - Install Step, pip Streaming and Bootstrap Cleanup
+
+- `pipeline/install.install_packages` (17 branches, 57 statements) becomes a loop over three sub-generators: `_install_node`, `_install_python` and `_normalize_opencv`. A shared `_relay` turns a streamed npm or pip output into pipeline events and returns the stream's result. Events and failure handling are unchanged.
+- `utils.stream_pip_with_recovery` moves one attempt into `_stream_pip_attempt`. A timeout or a launch failure is still returned at once without a retry.
+- The new `utils.drain_lines(gen, on_line)` replaces the two copies of the generator-drain loop in `utils.run_pip_with_recovery` and `npm_manager.run_npm_install` (pylint duplicate-code finding).
+- `bootstrap.py` runs every subprocess through `utils.run_command_simple` instead of repeating the `subprocess.run` keyword arguments (pylint duplicate-code finding). `verify_prerequisites` builds its missing list and install instructions from the `REMEDIATION` table via `remediation_for`, which replaces five per-OS `if`/`elif` chains. The instructions are unchanged.
 
 ### v16.9.43 - System Probe Split
 

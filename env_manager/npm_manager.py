@@ -13,7 +13,7 @@ from typing import Any
 from collections.abc import Callable, Generator
 
 from env_manager._logging import get_logger
-from env_manager.utils import WINDOWS_NO_WINDOW, pip_env, stream_process_lines
+from env_manager.utils import WINDOWS_NO_WINDOW, drain_lines, pip_env, stream_process_lines
 from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
@@ -158,14 +158,7 @@ def run_npm_install(
     on_line: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Execute npm install in the given directory."""
-    gen = stream_npm_install(package_dir)
-    try:
-        while True:
-            line = next(gen)
-            if on_line:
-                on_line(line)
-    except StopIteration as stop:
-        return stop.value
+    return drain_lines(stream_npm_install(package_dir), on_line)
 
 
 def audit_npm_workspaces(base_dir: Path | None = None) -> list[NpmPackageStatus]:
