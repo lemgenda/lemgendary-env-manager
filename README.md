@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.21-STABLE)
+# LemGendary Environment Manager (v16.9.22-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI Suite.**
 >
@@ -173,6 +173,11 @@ python -m env_manager.cli serve --host 127.0.0.1 --port 8000
 ---
 
 ## Changelog
+
+### v16.9.22 - Launcher Error Handling (D-19)
+
+- **`lemgendary_env_manager.ps1`** no longer uses `-ErrorAction SilentlyContinue`. Removing a broken `.venv` and finding the global Python stop with a clear error and exit code 1 when they fail. Server-job checks use `Get-LiveServerJob`, which filters `Get-Job` output instead of hiding a lookup error, and `Stop-ServerJob` reports a job that cannot be stopped with `Write-Warning`.
+- `python -m venv` and the `pip install` calls run through `Invoke-Checked`, which stops on a non-zero exit code; the non-interactive passthrough exits with the CLI's exit code instead of always `0`.
 
 ### v16.9.21 - Hermetic Tests and One Workspace Root
 

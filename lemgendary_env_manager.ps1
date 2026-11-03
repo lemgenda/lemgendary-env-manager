@@ -1,5 +1,5 @@
 # ==============================================================================
-# LemGendary Environment Manager Hub (v16.9.21)
+# LemGendary Environment Manager Hub (v16.9.22)
 # Authoritative PowerShell orchestrator for cross-platform environments.
 # ==============================================================================
 
@@ -19,6 +19,40 @@ $VenvDir = Join-Path $ScriptDir ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VenvCfg = Join-Path $VenvDir "pyvenv.cfg"
 
+function Invoke-Checked {
+    # Run a native command and stop with its exit code if it fails.
+    param([string]$Exe, [string[]]$Arguments)
+    & $Exe @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] '$Exe $($Arguments -join ' ')' failed with exit code $LASTEXITCODE." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
+
+function Get-LiveServerJob {
+    # Return the server job while it still exists, else $null.
+    param($Job)
+    if ($null -eq $Job) {
+        return $null
+    }
+    return Get-Job | Where-Object { $_.Id -eq $Job.Id }
+}
+
+function Stop-ServerJob {
+    # Stop and remove the server job; report a failure instead of hiding it.
+    param($Job)
+    $live = Get-LiveServerJob $Job
+    if ($null -eq $live) {
+        return
+    }
+    try {
+        Stop-Job -Job $live -ErrorAction Stop
+        Remove-Job -Job $live -Force -ErrorAction Stop
+    } catch {
+        Write-Warning "Could not stop server job $($live.Id): $($_.Exception.Message)"
+    }
+}
+
 function Initialize-Environment {
     # Check if the baseline filesystem structural locks exist
     $HasPython = Test-Path $VenvPython
@@ -35,20 +69,27 @@ function Initialize-Environment {
     if (Test-Path $VenvDir) {
         Write-Host "[INIT] Purging broken or incomplete environment folder..." -ForegroundColor Yellow
         Start-Sleep -Seconds 1
-        Remove-Item -Recurse -Force $VenvDir -ErrorAction SilentlyContinue
+        try {
+            Remove-Item -Recurse -Force $VenvDir -ErrorAction Stop
+        } catch {
+            Write-Host "[ERROR] Cannot remove '$VenvDir': $($_.Exception.Message). Close programs using it and retry." -ForegroundColor Red
+            exit 1
+        }
     }
 
-    $GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if (-not $GlobalPy) {
-        Write-Error "Global Python was not found in PATH. Please install Python 3.10+."
+    try {
+        $GlobalPy = (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    } catch [System.Management.Automation.CommandNotFoundException] {
+        Write-Host "[ERROR] Global Python was not found in PATH. Please install Python 3.10+." -ForegroundColor Red
+        exit 1
     }
 
-    & $GlobalPy -m venv $VenvDir
-    & $VenvPython -m pip install --upgrade pip wheel setuptools
+    Invoke-Checked $GlobalPy @("-m", "venv", $VenvDir)
+    Invoke-Checked $VenvPython @("-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools")
 
     $ReqPath = Join-Path $ScriptDir "requirements.txt"
     if (Test-Path $ReqPath) {
-        & $VenvPython -m pip install -r $ReqPath
+        Invoke-Checked $VenvPython @("-m", "pip", "install", "-r", $ReqPath)
     }
 }
 
@@ -66,7 +107,7 @@ if ($Command -ne "menu") {
         "validate" { & $VenvPython -m env_manager.cli validate @RemainingArgs }
         "serve"    { & $VenvPython -m env_manager.cli serve @RemainingArgs }
     }
-    exit 0
+    exit $LASTEXITCODE
 }
 
 # ── Interactive menu loop ─────────────────────────────────────────────────────
@@ -83,9 +124,9 @@ do {
     Write-Host " [4] Safe Package Update (bottom-up + auto-sync)" -ForegroundColor White
     Write-Host " [5] Validate Projects (py_compile, ESLint, YAML, W3C, WCAG 2.2 AA)" -ForegroundColor White
 
-    if ($null -ne $ServerJob -and (Get-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue)) {
-        $jobState = (Get-Job -Id $ServerJob.Id).State
-        if ($jobState -eq "Running") {
+    $liveJob = Get-LiveServerJob $ServerJob
+    if ($null -ne $liveJob) {
+        if ($liveJob.State -eq "Running") {
             Write-Host " [6] Stop API Sidecar Server (currently RUNNING on http://127.0.0.1:8000)" -ForegroundColor Green
         } else {
             Write-Host " [6] Launch API Sidecar Server (FastAPI/WebSocket)" -ForegroundColor White
@@ -128,10 +169,10 @@ do {
         }
         "6" {
             Write-Host ""
-            if ($null -ne $ServerJob -and (Get-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue) -and (Get-Job -Id $ServerJob.Id).State -eq "Running") {
+            $liveJob = Get-LiveServerJob $ServerJob
+            if ($null -ne $liveJob -and $liveJob.State -eq "Running") {
                 Write-Host "[Option 6] Stopping API Sidecar Server..." -ForegroundColor Yellow
-                Stop-Job -Id $ServerJob.Id -ErrorAction SilentlyContinue
-                Remove-Job -Id $ServerJob.Id -Force -ErrorAction SilentlyContinue
+                Stop-ServerJob $ServerJob
                 $ServerJob = $null
                 Write-Host "[OK] Server stopped." -ForegroundColor Green
             } else {
@@ -148,13 +189,9 @@ do {
             }
         }
         { $_ -in "Q", "QUIT", "EXIT" } {
-            if ($null -ne $ServerJob) {
-                $jobId = $ServerJob.Id
-                if (Get-Job -Id $jobId -ErrorAction SilentlyContinue) {
-                    Write-Host "Stopping background API server..." -ForegroundColor Yellow
-                    Stop-Job -Id $jobId -ErrorAction SilentlyContinue
-                    Remove-Job -Id $jobId -Force -ErrorAction SilentlyContinue
-                }
+            if ($null -ne (Get-LiveServerJob $ServerJob)) {
+                Write-Host "Stopping background API server..." -ForegroundColor Yellow
+                Stop-ServerJob $ServerJob
             }
             Write-Host "Goodbye!" -ForegroundColor Yellow
             break
