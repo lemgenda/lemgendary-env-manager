@@ -1,8 +1,0 @@
-{
-    "venvPath": ".",
-    "venv": ".venv",
-    "pythonVersion": "3.12",
-    "reportMissingTypeStubs": false,
-    "reportPrivateImportUsage": "none",
-    "reportGeneralTypeIssues": "none"
-}

@@ -9,10 +9,13 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable, Generator
 
 from env_manager._logging import get_logger
-from env_manager.utils import WINDOWS_NO_WINDOW, pip_env
+from env_manager.ecosystem import ecosystem
+from env_manager.utils import drain_lines, pip_env, stream_command
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -22,11 +25,12 @@ class NpmDependencyDetail:
     """Detailed information for a single NPM package dependency."""
     name: str
     declared_version: str
-    installed_version: Optional[str]
+    installed_version: str | None
     is_dev: bool
     is_installed: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
@@ -35,17 +39,18 @@ class NpmPackageStatus:
     """Status of an NPM package file."""
     location: str
     package_json_path: str
-    dependencies: Dict[str, str]
-    dev_dependencies: Dict[str, str]
+    dependencies: dict[str, str]
+    dev_dependencies: dict[str, str]
     node_modules_present: bool
-    detailed_packages: List[NpmDependencyDetail]
-    audit_summary: Optional[str] = None
+    detailed_packages: list[NpmDependencyDetail]
+    audit_summary: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
-def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
+def check_npm_package(package_dir: Path) -> NpmPackageStatus | None:
     """Inspect package.json at a given directory."""
     pkg_json_file = package_dir / "package.json"
     if not pkg_json_file.exists():
@@ -53,20 +58,23 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
 
     try:
         data = json.loads(pkg_json_file.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            _log.warning("package.json at %s is not a JSON object", package_dir)
+            return None
         deps = data.get("dependencies", {})
         dev_deps = data.get("devDependencies", {})
         nm_dir = package_dir / "node_modules"
         node_modules = nm_dir.exists()
 
-        detailed_pkgs: List[NpmDependencyDetail] = []
+        detailed_pkgs: list[NpmDependencyDetail] = []
 
         def _inspect_pkg(name: str, decl_ver: str, is_dev: bool):
             inst_ver = None
             # Scoped packages live under node_modules/@scope/name.
             if name.startswith("@"):
-                parts = name.split("/", 1)
-                if len(parts) == 2:
-                    pkg_nm_json = nm_dir / parts[0] / parts[1] / "package.json"
+                scope, sep, short_name = name.partition("/")
+                if sep:
+                    pkg_nm_json = nm_dir / scope / short_name / "package.json"
                 else:
                     pkg_nm_json = nm_dir / name / "package.json"
             else:
@@ -75,9 +83,11 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
             if pkg_nm_json.exists():
                 try:
                     p_data = json.loads(pkg_nm_json.read_text(encoding="utf-8"))
-                    inst_ver = p_data.get("version")
-                except Exception:
-                    inst_ver = None
+                except (OSError, ValueError) as exc:
+                    _log.warning("Unreadable installed package manifest %s: %s", pkg_nm_json, exc)
+                else:
+                    if isinstance(p_data, dict):
+                        inst_ver = p_data.get("version")
             detailed_pkgs.append(
                 NpmDependencyDetail(
                     name=name,
@@ -101,7 +111,7 @@ def check_npm_package(package_dir: Path) -> Optional[NpmPackageStatus]:
             node_modules_present=node_modules,
             detailed_packages=detailed_pkgs,
         )
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         _log.warning("Failed to parse package.json at %s: %s", package_dir, exc)
         return None
 
@@ -116,66 +126,42 @@ def stream_npm_install(
         return False, "NPM executable not found on system PATH."
 
     try:
-        proc = subprocess.Popen(
-            [npm_path, "install"],
-            cwd=str(package_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=pip_env(),
-            creationflags=WINDOWS_NO_WINDOW,
+        completed = yield from stream_command(
+            [npm_path, "install"], timeout, cwd=package_dir, env=pip_env(),
         )
-        lines: List[str] = []
-        if proc.stdout:
-            try:
-                for raw_line in iter(proc.stdout.readline, ""):
-                    stripped = raw_line.strip()
-                    if stripped:
-                        lines.append(stripped)
-                        yield stripped
-            finally:
-                proc.stdout.close()
-        proc.wait(timeout=timeout)
-        if proc.returncode == 0:
-            return True, "\n".join(lines) or "ok"
-        return False, "\n".join(lines) or "NPM install failed."
     except subprocess.TimeoutExpired as exc:
+        _log.warning("npm install in %s timed out after %ss", package_dir, timeout)
         return False, f"npm install timed out after {timeout}s: {exc}"
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
+        _log.warning("npm install in %s could not be run: %s", package_dir, exc)
         return False, str(exc)
+    output = "\n".join(t for t in (completed.stdout.strip(), completed.stderr.strip()) if t)
+    if completed.returncode == 0:
+        return True, output or "ok"
+    _log.warning("npm install in %s exited with %d", package_dir, completed.returncode)
+    return False, output or "NPM install failed."
 
 
 def run_npm_install(
     package_dir: Path,
-    on_line: Optional[Callable[[str], None]] = None,
+    on_line: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Execute npm install in the given directory."""
-    gen = stream_npm_install(package_dir)
-    try:
-        while True:
-            line = next(gen)
-            if on_line:
-                try:
-                    on_line(line)
-                except Exception as cb_exc:
-                    _log.debug("npm install callback error: %s", cb_exc)
-    except StopIteration as stop:
-        return stop.value
+    return drain_lines(stream_npm_install(package_dir), on_line)
 
 
-def audit_npm_workspaces(base_dir: Optional[Path] = None) -> List[NpmPackageStatus]:
+def audit_npm_workspaces(base_dir: Path | None = None) -> list[NpmPackageStatus]:
     """Audit all known NPM package directories in the LemGendary ecosystem."""
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
+    # Projects with a central npm manifest (``projects[].npm_manifest``).
     target_dirs = [
-        base_dir / "lemgendary-env-manager",
-        base_dir / "lemgendary-ai-studio-gui",
+        base_dir / project.folder
+        for project in ecosystem().projects if project.npm_manifest is not None
     ]
 
-    results: List[NpmPackageStatus] = []
+    results: list[NpmPackageStatus] = []
     for d in target_dirs:
         if d.exists() and d.is_dir():
             status = check_npm_package(d)

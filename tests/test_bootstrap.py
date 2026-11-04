@@ -9,7 +9,7 @@ class TestBootstrap(unittest.TestCase):
     """Test suite for bootstrap prerequisites."""
 
     @patch("env_manager.bootstrap.check_winget_updates", return_value=[])
-    def test_verify_prerequisites_returns_valid_status(self, mock_winget):
+    def test_verify_prerequisites_returns_valid_status(self, _mock_winget):
         """Verify bootstrap prerequisites structure with mocked network-bound update check."""
         status = verify_prerequisites()
         self.assertIsInstance(status, BootstrapStatus)

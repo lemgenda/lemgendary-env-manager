@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LemGendary Ecosystem",
+  "description": "Single source of truth for LemGendary services, projects, pipeline steps and identity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "identity", "services", "projects", "pipeline_steps"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": 1},
+    "identity": {"$ref": "#/$defs/identity"},
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/service"}
+    },
+    "projects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/project"}
+    },
+    "pipeline_steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/pipeline_step"}
+    }
+  },
+  "$defs": {
+    "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+    "folder": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"},
+    "url_path": {"type": "string", "pattern": "^/[A-Za-z0-9_./-]*$"},
+    "nullable_file": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"}
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["docs_url", "kaggle_owner", "bind_host"],
+      "properties": {
+        "docs_url": {"type": "string", "pattern": "^https://[A-Za-z0-9._~/-]*[A-Za-z0-9._~-]$"},
+        "kaggle_owner": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "bind_host": {"type": "string", "minLength": 1}
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "aliases", "project", "port", "health_path", "liveness_path",
+        "websocket_path", "app_import", "log_dir"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/slug"},
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/slug"}
+        },
+        "project": {"$ref": "#/$defs/folder"},
+        "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
+        "health_path": {"$ref": "#/$defs/url_path"},
+        "liveness_path": {"$ref": "#/$defs/url_path"},
+        "websocket_path": {"$ref": "#/$defs/url_path"},
+        "app_import": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "log_dir": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"}
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "folder", "display_name", "kind", "managed", "validated", "upgrade_order",
+        "git_hooked", "requirements_manifest", "npm_manifest", "legacy_folders"
+      ],
+      "properties": {
+        "folder": {"$ref": "#/$defs/folder"},
+        "display_name": {"type": "string", "pattern": "^LemGendary "},
+        "kind": {"enum": ["python", "node", "asset"]},
+        "managed": {"type": "boolean"},
+        "validated": {"type": "boolean"},
+        "upgrade_order": {
+          "oneOf": [{"type": "null"}, {"type": "integer", "minimum": 1}]
+        },
+        "git_hooked": {"type": "boolean"},
+        "requirements_manifest": {"$ref": "#/$defs/nullable_file"},
+        "npm_manifest": {"$ref": "#/$defs/nullable_file"},
+        "legacy_folders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/folder"}
+        }
+      },
+      "if": {"properties": {"managed": {"const": true}}},
+      "then": {"properties": {"upgrade_order": {"type": "integer"}}},
+      "else": {"properties": {"upgrade_order": {"type": "null"}}}
+    },
+    "pipeline_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "id", "name", "short_description", "long_description"],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1},
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "name": {"type": "string", "minLength": 1},
+        "short_description": {"type": "string", "minLength": 1},
+        "long_description": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

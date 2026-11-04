@@ -5,11 +5,17 @@ Common helpers for cache reclamation, process execution, and version inspection.
 """
 
 import os
+import queue
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
-from typing import Callable, Dict, Generator, List, Optional, Tuple
+from typing import IO, Any
+from collections.abc import Callable, Generator, Iterable
+
+import psutil
 
 from env_manager._logging import get_logger
 
@@ -30,7 +36,7 @@ def get_subprocess_creation_flags() -> int:
 
 # ─── Environment for pip subprocesses ───────────────────────────────────────
 
-def pip_env(no_cache: bool = False) -> Dict[str, str]:
+def pip_env(no_cache: bool = False) -> dict[str, str]:
     """Return an environment for pip subprocesses that is safe on Windows.
 
     Two Windows-specific pitfalls are handled here:
@@ -61,7 +67,7 @@ def pip_env(no_cache: bool = False) -> Dict[str, str]:
 
 # ─── Cache-corruption detection ─────────────────────────────────────────────
 
-_CACHE_CORRUPTION_MARKERS: Tuple[str, ...] = (
+_CACHE_CORRUPTION_MARKERS: tuple[str, ...] = (
     "access violation",
     "Retry(total=",
     "after connection broken",
@@ -84,75 +90,227 @@ def _looks_like_cache_corruption(stderr: str, stdout: str) -> bool:
 
 
 def _purge_pip_cache(python_path: Path) -> None:
-    """Best-effort purge of pip's HTTP cache. Never raises."""
+    """Best-effort purge of pip's HTTP cache.
+
+    Launch failures and timeouts are logged and swallowed deliberately: the
+    purge is an optimisation before a retry, and the retry reports its own
+    errors.
+    """
     try:
-        subprocess.run(
-            [str(python_path), "-m", "pip", "cache", "purge"],
-            capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=120, check=False, env=pip_env(),
-            creationflags=WINDOWS_NO_WINDOW,
+        proc = run_command_simple(
+            [str(python_path), "-m", "pip", "cache", "purge"], timeout=120, use_pip_env=True,
         )
-    except Exception as exc:
-        _log.debug("pip cache purge failed: %s", exc)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("pip cache purge failed for %s: %s", python_path, exc)
+        return
+    if proc.returncode != 0:
+        _log.warning(
+            "pip cache purge for %s exited with %d: %s",
+            python_path, proc.returncode, (proc.stderr or proc.stdout).strip(),
+        )
 
 
 # ─── Pip runner with recovery ───────────────────────────────────────────────
 
+_STDOUT = "stdout"
+_STDERR = "stderr"
+
+
+def _pump_stream(
+    stream: IO[str],
+    tag: str,
+    sink: queue.Queue[tuple[str, str | None]],
+) -> None:
+    """Push every line of ``stream`` into ``sink`` tagged with its origin.
+
+    A final ``(tag, None)`` marks end of stream. Runs in a reader thread so
+    stdout and stderr drain concurrently and neither pipe can fill up and
+    block the child process.
+    """
+    try:
+        for line in iter(stream.readline, ""):
+            sink.put((tag, line))
+    finally:
+        stream.close()
+        sink.put((tag, None))
+
+
+def wait_or_kill(proc: subprocess.Popen, timeout: float) -> int:
+    """Wait for ``proc``; on timeout kill it, reap it, and re-raise ``TimeoutExpired``.
+
+    Killing first matters inside ``with Popen(...)``: the context manager
+    waits for the child on exit, which would otherwise block forever.
+    """
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _log.warning("Killing PID %d after %ss timeout", proc.pid, timeout)
+        proc.kill()
+        proc.wait()
+        raise
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill ``proc`` and its descendants, which may hold its output pipes open."""
+    try:
+        children = psutil.Process(proc.pid).children(recursive=True)
+    except psutil.Error as exc:
+        _log.debug("Cannot list children of PID %d: %s", proc.pid, exc)
+        children = []
+    for child in children:
+        try:
+            child.kill()
+        except psutil.Error as exc:
+            _log.debug("Cannot kill child PID %d: %s", child.pid, exc)
+    proc.kill()
+    proc.wait()
+
+
+MIN_EXIT_GRACE_S = 1.0
+"""Least time a child gets to exit after closing its output, even at the deadline."""
+
+
+def stream_process_lines(
+    proc: subprocess.Popen,
+    timeout: float,
+) -> Generator[tuple[str, str], None, int]:
+    """Yield ``(stream, line)`` from ``proc``'s stdout and stderr, then reap it.
+
+    ``stream`` is ``"stdout"`` or ``"stderr"``. Both pipes drain on reader
+    threads, so a child that hangs without writing or closing its output is
+    still caught: the whole run must finish within ``timeout`` seconds, or the
+    child is killed and ``subprocess.TimeoutExpired`` is raised. Returns the
+    exit code.
+    """
+    deadline = time.monotonic() + timeout
+    sink: queue.Queue[tuple[str, str | None]] = queue.Queue()
+    readers = [
+        threading.Thread(target=_pump_stream, args=(stream, tag, sink), daemon=True)
+        for stream, tag in ((proc.stdout, _STDOUT), (proc.stderr, _STDERR))
+        if stream is not None
+    ]
+    for reader in readers:
+        reader.start()
+    open_streams = len(readers)
+    while open_streams:
+        try:
+            tag, line = sink.get(timeout=max(deadline - time.monotonic(), 0))
+        except queue.Empty:
+            _log.warning("Killing PID %d and its children after %ss timeout", proc.pid, timeout)
+            _kill_tree(proc)
+            raise subprocess.TimeoutExpired(proc.args, timeout) from None
+        if line is None:
+            open_streams -= 1
+            continue
+        yield tag, line
+    for reader in readers:
+        reader.join()
+    return wait_or_kill(proc, max(deadline - time.monotonic(), MIN_EXIT_GRACE_S))
+
+
+def stream_command(
+    cmd: list[str],
+    timeout: float,
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> Generator[str, None, subprocess.CompletedProcess]:
+    """Run ``cmd`` without a console window, yielding its non-blank output lines live.
+
+    This is the streaming counterpart of :func:`run_command_simple`: every
+    long-running external tool (pip, npm) goes through it. The returned
+    ``CompletedProcess`` keeps stdout and stderr apart, each line kept as
+    written (minus the newline) so JSON documents stay intact.
+
+    Raises ``OSError`` or ``ValueError`` when the command cannot start and
+    ``subprocess.TimeoutExpired`` (after killing the process tree) when it
+    runs past ``timeout``; callers turn those into their own result.
+    """
+    output_lines: list[str] = []
+    error_lines: list[str] = []
+    with subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        creationflags=WINDOWS_NO_WINDOW,
+    ) as proc:
+        for tag, line in stream_process_lines(proc, timeout):
+            (output_lines if tag == _STDOUT else error_lines).append(line.rstrip("\r\n"))
+            stripped = line.strip()
+            if stripped:
+                yield stripped
+        returncode = proc.returncode
+    return subprocess.CompletedProcess(
+        args=cmd, returncode=returncode,
+        stdout="\n".join(output_lines), stderr="\n".join(error_lines),
+    )
+
+
+def _stream_pip_attempt(
+    cmd: list[str], timeout: int, no_cache: bool,
+) -> Generator[str, None, tuple[subprocess.CompletedProcess, bool]]:
+    """Run one pip attempt, yielding its non-blank output lines live.
+
+    Returns ``(completed, launched)``. ``launched`` is False when pip timed
+    out or could not be started; that result is final and is not retried.
+    """
+    cmd_env = pip_env(no_cache=no_cache)
+    cmd_env["PYTHONUNBUFFERED"] = "1"
+    try:
+        completed = yield from stream_command(cmd, timeout, env=cmd_env)
+    except subprocess.TimeoutExpired as exc:
+        _log.warning("pip command timed out after %ss: %s", timeout, cmd)
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=124, stdout="",
+            stderr=f"pip command timed out after {timeout}s: {exc}",
+        ), False
+    except (OSError, ValueError) as exc:
+        _log.warning("pip command could not be run (%s): %s", cmd, exc)
+        failed = subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr=str(exc))
+        return failed, False
+    return completed, True
+
+
+def drain_lines[R](
+    gen: Generator[str, None, R],
+    on_line: Callable[[str], None] | None = None,
+) -> R:
+    """Pass each streamed line to ``on_line`` (if given) and return the stream's result."""
+    try:
+        while True:
+            line = next(gen)
+            if on_line:
+                on_line(line)
+    except StopIteration as stop:
+        return stop.value
+
+
 def stream_pip_with_recovery(
     python_path: Path,
-    args: List[str],
+    args: list[str],
     timeout: int = 1800,
     max_attempts: int = 2,
 ) -> Generator[str, None, subprocess.CompletedProcess]:
-    """Run ``python -m pip <args>`` with recovery logic, yielding stdout lines in real time."""
-    cmd = [str(python_path), "-m", "pip"] + args
+    """Run ``python -m pip <args>`` with recovery logic, yielding output lines in real time.
 
-    last_proc: Optional[subprocess.CompletedProcess] = None
+    stdout and stderr are captured separately (review finding D-07). Both are
+    yielded live for progress display, but the returned ``CompletedProcess``
+    keeps them apart: ``stdout`` holds only what pip wrote to stdout, so
+    callers can parse ``--format=json`` / ``--report -`` output without pip
+    warnings (for example ``WARNING: Ignoring invalid distribution``)
+    corrupting it, and ``stderr`` holds pip's warnings and errors.
+    """
+    cmd = [str(python_path), "-m", "pip", *args]
+
+    last_proc: subprocess.CompletedProcess | None = None
     for attempt in range(1, max_attempts + 1):
-        use_no_cache = attempt > 1
-        output_lines: List[str] = []
-        try:
-            cmd_env = pip_env(no_cache=use_no_cache)
-            cmd_env["PYTHONUNBUFFERED"] = "1"
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=cmd_env,
-                creationflags=WINDOWS_NO_WINDOW,
-            )
-            if proc.stdout:
-                try:
-                    for line in iter(proc.stdout.readline, ""):
-                        stripped = line.strip()
-                        if stripped:
-                            output_lines.append(stripped)
-                            yield stripped
-                finally:
-                    proc.stdout.close()
-            proc.wait(timeout=timeout)
-            completed = subprocess.CompletedProcess(
-                args=cmd,
-                returncode=proc.returncode,
-                stdout="\n".join(output_lines),
-                stderr="",
-            )
-        except subprocess.TimeoutExpired as exc:
-            _log.warning("pip command timed out after %ss: %s", timeout, cmd)
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=124, stdout="\n".join(output_lines),
-                stderr=f"pip command timed out after {timeout}s: {exc}",
-            )
-        except Exception as exc:
-            _log.warning("pip command crashed before completion: %s", exc)
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout="\n".join(output_lines), stderr=str(exc),
-            )
-
-        if completed.returncode == 0:
+        completed, launched = yield from _stream_pip_attempt(cmd, timeout, no_cache=attempt > 1)
+        if not launched or completed.returncode == 0:
             return completed
 
         last_proc = completed
@@ -165,7 +323,10 @@ def stream_pip_with_recovery(
                 attempt, max_attempts, (completed.stderr or completed.stdout or "")[-200:],
             )
             _purge_pip_cache(python_path)
-            yield f"Purged corrupt pip cache; retrying installation with --no-cache-dir (attempt {attempt + 1}/{max_attempts})..."
+            yield (
+                "Purged corrupt pip cache; retrying installation with --no-cache-dir "
+                f"(attempt {attempt + 1}/{max_attempts})..."
+            )
             continue
 
         # Not a corruption signature, or out of attempts.
@@ -178,10 +339,10 @@ def stream_pip_with_recovery(
 
 def run_pip_with_recovery(
     python_path: Path,
-    args: List[str],
+    args: list[str],
     timeout: int = 1800,
     max_attempts: int = 2,
-    on_line: Optional[Callable[[str], None]] = None,
+    on_line: Callable[[str], None] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run ``python -m pip <args>`` with cache-first, no-cache-on-retry logic.
 
@@ -201,22 +362,20 @@ def run_pip_with_recovery(
     check ``returncode`` and inspect ``stdout`` / ``stderr`` themselves.
     """
     gen = stream_pip_with_recovery(python_path, args, timeout=timeout, max_attempts=max_attempts)
-    try:
-        while True:
-            line = next(gen)
-            if on_line:
-                try:
-                    on_line(line)
-                except Exception as cb_exc:
-                    _log.debug("pip on_line callback failed: %s", cb_exc)
-    except StopIteration as stop:
-        return stop.value
+    return drain_lines(gen, on_line)
 
 
 # ─── Cache / bytecode cleaning ──────────────────────────────────────────────
 
-def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
-    """Purge __pycache__ and bytecode artifacts from a project directory, ignoring .venv."""
+BYTECODE_SUFFIXES = (".pyc", ".pyo")
+"""Files ``clean`` deletes. Not ``.pyd``: those are compiled extension modules."""
+
+
+def purge_project_cache(project_dir: Path) -> tuple[int, int]:
+    """Purge __pycache__ and bytecode (.pyc, .pyo) from a project directory, ignoring .venv.
+
+    Returns ``(items_removed, bytes_reclaimed)``.
+    """
     cleaned_count = 0
     total_reclaimed = 0
 
@@ -231,30 +390,48 @@ def purge_project_cache(project_dir: Path) -> Tuple[int, int]:
                     shutil.rmtree(cache_path)
                     total_reclaimed += size
                     cleaned_count += 1
-                except Exception as exc:
-                    _log.debug("Failed to remove __pycache__ dir %s: %s", cache_path, exc)
+                except OSError as exc:
+                    _log.warning("Failed to remove __pycache__ dir %s: %s", cache_path, exc)
                 dirs.remove(d)
 
         for f in files:
-            if f.endswith((".pyc", ".pyo", ".pyd")):
+            if f.endswith(BYTECODE_SUFFIXES):
                 item = Path(root) / f
                 try:
                     size = item.stat().st_size
                     item.unlink()
                     total_reclaimed += size
                     cleaned_count += 1
-                except Exception as exc:
-                    _log.debug("Failed to remove bytecode file %s: %s", item, exc)
+                except OSError as exc:
+                    _log.warning("Failed to remove bytecode file %s: %s", item, exc)
 
+    return cleaned_count, total_reclaimed
+
+
+def purge_workspace_caches(projects: Iterable[Any], target: str | None = None) -> tuple[int, int]:
+    """Purge bytecode caches of the Python projects, or only of ``target``.
+
+    Node projects are skipped. This is the one implementation behind both
+    ``lem-env clean`` and ``POST /api/clean``. Returns
+    ``(items_removed, bytes_reclaimed)``.
+    """
+    cleaned_count = 0
+    total_reclaimed = 0
+    for p in projects:
+        if p.is_node_project or (target is not None and p.name != target):
+            continue
+        cnt, reclaimed = purge_project_cache(Path(p.project_dir))
+        cleaned_count += cnt
+        total_reclaimed += reclaimed
     return cleaned_count, total_reclaimed
 
 
 # ─── Simple subprocess runner ───────────────────────────────────────────────
 
 def run_command_simple(
-    cmd: List[str],
+    cmd: list[str],
     timeout: int = 5,
-    cwd: Optional[Path] = None,
+    cwd: Path | None = None,
     use_pip_env: bool = False,
 ) -> subprocess.CompletedProcess:
     """Execute a simple subprocess with consistent timeout and capture defaults.

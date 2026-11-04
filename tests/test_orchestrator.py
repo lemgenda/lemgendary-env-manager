@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator
+from env_manager.orchestrator import PipelineEvent, PipelineOrchestrator, PipProgress
+from env_manager.pipeline.events import EventPublisher
+
+LAST_STEP_UNDER_TEST = 3
+"""Step 3 (virtual environments) is the last step these tests drive."""
 
 
 class TestPipelineOrchestrator(unittest.TestCase):
@@ -36,15 +44,15 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertFalse(orchestrator.is_running)
         self.assertEqual(orchestrator.last_status, "idle")
 
-    @patch("env_manager.orchestrator.probe_hardware")
-    @patch("env_manager.orchestrator.verify_prerequisites")
-    @patch("env_manager.orchestrator.sync_all_manifests")
-    @patch("env_manager.orchestrator.discover_projects")
+    @patch("env_manager.pipeline.steps.probe_hardware")
+    @patch("env_manager.pipeline.steps.verify_prerequisites")
+    @patch("env_manager.pipeline.steps.sync_all_manifests")
+    @patch("env_manager.pipeline.steps.discover_projects")
     def test_pipeline_step_event_emission(
         self,
-        mock_discover: MagicMock,
-        mock_sync: MagicMock,
-        mock_prereqs: MagicMock,
+        _mock_discover: MagicMock,
+        _mock_sync: MagicMock,
+        _mock_prereqs: MagicMock,
         mock_probe: MagicMock,
     ) -> None:
         """Verify event emissions across initial pipeline steps with event callbacks."""
@@ -74,21 +82,11 @@ class TestPipelineOrchestrator(unittest.TestCase):
 
     def test_pip_progress_parsing(self) -> None:
         """Verify pip output lines are correctly parsed into live progress events."""
-        def emit_dummy(step_num: int, step_name: str, status: str, msg: str, data=None, is_progress=False) -> PipelineEvent:
-            return PipelineEvent(
-                timestamp="2026-10-18T00:00:00Z",
-                step_number=step_num,
-                total_steps=7,
-                step_name=step_name,
-                status=status,
-                message=msg,
-                data=data,
-                is_progress=is_progress,
-            )
+        emit_dummy = EventPublisher(total_steps=7).step(4, "Package Installation")
 
         # 1. Collecting line
-        res = PipelineOrchestrator._parse_pip_line_to_event(
-            "lemgendary-datasets", "Collecting torch>=2.2.0", 0, 40, "", emit_dummy
+        res = PipelineOrchestrator.parse_pip_line_to_event(
+            PipProgress("lemgendary-datasets", 0, 40, ""), "Collecting torch>=2.2.0", emit_dummy
         )
         self.assertIsNotNone(res)
         assert res is not None
@@ -99,8 +97,10 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertIn("INSTALLING: lemgendary-datasets - 2.5%", ev.message)
 
         # 2. Downloading line
-        res_dl = PipelineOrchestrator._parse_pip_line_to_event(
-            "lemgendary-datasets", "   ━━━ 1.2/2.4 GB 25.1 MB/s eta 0:00:48", 1, 40, "torch", emit_dummy
+        res_dl = PipelineOrchestrator.parse_pip_line_to_event(
+            PipProgress("lemgendary-datasets", 1, 40, "torch"),
+            "   ━━━ 1.2/2.4 GB 25.1 MB/s eta 0:00:48",
+            emit_dummy,
         )
         self.assertIsNotNone(res_dl)
         assert res_dl is not None
@@ -109,14 +109,104 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertIn("DOWNLOADING: torch - 1.2/2.4 GB 25.1 MB/s eta 0:00:48", ev_dl.message)
 
         # 3. Installing collected packages
-        res_inst = PipelineOrchestrator._parse_pip_line_to_event(
-            "lemgendary-datasets", "Installing collected packages: torch, torchvision", 40, 40, "torch", emit_dummy
+        res_inst = PipelineOrchestrator.parse_pip_line_to_event(
+            PipProgress("lemgendary-datasets", 40, 40, "torch"),
+            "Installing collected packages: torch, torchvision",
+            emit_dummy,
         )
         self.assertIsNotNone(res_inst)
         assert res_inst is not None
         _, _, ev_inst = res_inst
         self.assertTrue(ev_inst.is_progress)
         self.assertIn("95.0%", ev_inst.message)
+
+
+class TestPipelineDestructiveOptIn(unittest.TestCase):
+    """The full pipeline deletes environments only when ``clean=True`` is explicit.
+
+    Every destructive function is mocked; nothing on disk is deleted.
+    """
+
+    def setUp(self) -> None:
+        self._tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp_dir)
+        root = Path(self._tmp_dir)
+        self.node_dir = root / "node-project"
+        self.py_dir = root / "py-project"
+        (self.node_dir / "node_modules").mkdir(parents=True)
+        self.py_dir.mkdir()
+        self.projects = [
+            SimpleNamespace(name="node-project", project_dir=str(self.node_dir),
+                            is_node_project=True, node_modules_present=True),
+            SimpleNamespace(name="py-project", project_dir=str(self.py_dir),
+                            is_node_project=False, node_modules_present=False),
+        ]
+        hw = MagicMock()
+        hw.accelerators = []
+        hw.to_dict.return_value = {}
+        boot = MagicMock(python_valid=True, git_installed=True)
+        patch("env_manager.pipeline.steps.probe_hardware", return_value=hw).start()
+        patch("env_manager.pipeline.steps.verify_prerequisites", return_value=boot).start()
+        patch("env_manager.pipeline.steps.discover_projects", return_value=self.projects).start()
+        patch("env_manager.pipeline.steps.is_venv_valid", return_value=True).start()
+        patch("env_manager.orchestrator.get_active_venv", return_value=None).start()
+        self.mock_create_venv = patch(
+            "env_manager.pipeline.steps.create_venv", return_value=(True, "ok")
+        ).start()
+        self.mock_rmtree = patch("env_manager.pipeline.venvs.shutil.rmtree").start()
+        self.mock_sync = patch("env_manager.pipeline.steps.sync_all_manifests").start()
+
+    def tearDown(self) -> None:
+        patch.stopall()
+
+    def _run_through_step_3(self, clean: bool | None = None) -> list[PipelineEvent]:
+        """Drive the pipeline generator until Step 4 starts, then stop it.
+
+        ``clean=None`` omits the argument to exercise the default.
+        """
+        orchestrator = PipelineOrchestrator(base_dir=Path(self._tmp_dir))
+        if clean is None:
+            gen = orchestrator.run_clean_install_pipeline()
+        else:
+            gen = orchestrator.run_clean_install_pipeline(clean=clean)
+        events: list[PipelineEvent] = []
+        for event in gen:
+            if event.step_number > LAST_STEP_UNDER_TEST:
+                break
+            events.append(event)
+        gen.close()
+        self.mock_sync.assert_not_called()
+        return events
+
+    def test_default_run_is_non_destructive(self) -> None:
+        """The default run keeps venvs and node_modules."""
+        events = self._run_through_step_3()
+        self.mock_create_venv.assert_not_called()
+        self.mock_rmtree.assert_not_called()
+        messages = [e.message for e in events]
+        self.assertIn("Existing .venv verified for py-project.", messages)
+        self.assertIn("Existing node_modules verified for node-project.", messages)
+
+    def test_explicit_false_is_non_destructive(self) -> None:
+        """``clean=False`` keeps venvs and node_modules."""
+        self._run_through_step_3(clean=False)
+        self.mock_create_venv.assert_not_called()
+        self.mock_rmtree.assert_not_called()
+
+    def test_explicit_true_runs_destructive_path(self) -> None:
+        """``clean=True`` recreates the venv and deletes node_modules."""
+        self._run_through_step_3(clean=True)
+        self.mock_create_venv.assert_called_once_with(self.py_dir)
+        self.mock_rmtree.assert_called_once_with(self.node_dir / "node_modules")
+
+    def test_purge_failure_is_reported(self) -> None:
+        """A node_modules purge failure becomes one error event."""
+        self.mock_rmtree.side_effect = PermissionError("locked")
+        events = self._run_through_step_3(clean=True)
+        errors = [e.message for e in events if e.status == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Failed to purge node_modules for node-project", errors[0])
+        self.assertIn("locked", errors[0])
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from env_manager.health_checker import (
+    OPENCV_VARIANTS_NORMALIZED,
     ManifestCoverageEntry,
     PinInfo,
     ProjectHealth,
@@ -62,7 +63,7 @@ class TestHealthChecker(unittest.TestCase):
 
         self.assertTrue(drift_entry.has_drift)
         self.assertTrue(drift_entry.has_pin_mismatch)
-        d = drift_entry.to_dict()
+        self.assertIn("upgrades", drift_entry.to_dict())
         self.assertTrue(drift_entry.upgrades["project-a"].is_outdated)
         self.assertFalse(drift_entry.upgrades["project-b"].is_outdated)
 
@@ -83,11 +84,10 @@ class TestHealthChecker(unittest.TestCase):
 
     def test_opencv_variant_coverage(self) -> None:
         """Verify that opencv-contrib-python satisfies an opencv-python declaration."""
-        from env_manager.health_checker import _OPENCV_VARIANTS_NORMALIZED
-        self.assertIn("opencv-python", _OPENCV_VARIANTS_NORMALIZED)
-        self.assertIn("opencv-contrib-python", _OPENCV_VARIANTS_NORMALIZED)
-        self.assertIn("opencv-python-headless", _OPENCV_VARIANTS_NORMALIZED)
-        self.assertIn("opencv-contrib-python-headless", _OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-python", OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-contrib-python", OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-python-headless", OPENCV_VARIANTS_NORMALIZED)
+        self.assertIn("opencv-contrib-python-headless", OPENCV_VARIANTS_NORMALIZED)
 
 
 if __name__ == "__main__":

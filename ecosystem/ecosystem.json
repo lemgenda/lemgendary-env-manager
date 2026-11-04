@@ -1,0 +1,181 @@
+{
+  "$schema": "./ecosystem.schema.json",
+  "schema_version": 1,
+  "identity": {
+    "docs_url": "https://lemgenda.github.io/ai-training-whitepapers",
+    "kaggle_owner": "lemtreursi",
+    "bind_host": "127.0.0.1"
+  },
+  "services": [
+    {
+      "id": "env-manager",
+      "aliases": ["env-manager", "lemgendary-env-manager", "env"],
+      "project": "lemgendary-env-manager",
+      "port": 8000,
+      "health_path": "/api/health",
+      "liveness_path": "/api/ping",
+      "websocket_path": "/ws/log",
+      "app_import": "env_manager.server:app",
+      "log_dir": ".env_server"
+    },
+    {
+      "id": "dataset-compiler",
+      "aliases": ["dataset-compiler", "lemgendary-datasets", "datasets"],
+      "project": "lemgendary-datasets",
+      "port": 8100,
+      "health_path": "/api/health",
+      "liveness_path": "/api/health",
+      "websocket_path": "/api/ws/events",
+      "app_import": "api.server:app",
+      "log_dir": ".lgd_server"
+    },
+    {
+      "id": "training-suite",
+      "aliases": ["training-suite", "lemgendary-training-suite", "training"],
+      "project": "lemgendary-training-suite",
+      "port": 8200,
+      "health_path": "/api/health",
+      "liveness_path": "/api/health",
+      "websocket_path": "/api/ws/logs",
+      "app_import": "training.server.app:app",
+      "log_dir": ".lemtrain_server"
+    }
+  ],
+  "projects": [
+    {
+      "folder": "lemgendary-env-manager",
+      "display_name": "LemGendary Environment Manager",
+      "kind": "python",
+      "managed": true,
+      "validated": true,
+      "upgrade_order": 1,
+      "git_hooked": true,
+      "requirements_manifest": "requirements-env-manager.txt",
+      "npm_manifest": "lemgendary-env-manager.package.json",
+      "legacy_folders": []
+    },
+    {
+      "folder": "lemgendary-datasets",
+      "display_name": "LemGendary Dataset Compiler Suite",
+      "kind": "python",
+      "managed": true,
+      "validated": true,
+      "upgrade_order": 2,
+      "git_hooked": true,
+      "requirements_manifest": "requirements-datasets.txt",
+      "npm_manifest": null,
+      "legacy_folders": []
+    },
+    {
+      "folder": "lemgendary-training-suite",
+      "display_name": "LemGendary Model Training Suite",
+      "kind": "python",
+      "managed": true,
+      "validated": true,
+      "upgrade_order": 3,
+      "git_hooked": true,
+      "requirements_manifest": "requirements-training.txt",
+      "npm_manifest": null,
+      "legacy_folders": []
+    },
+    {
+      "folder": "lemgendary-ai-studio-gui",
+      "display_name": "LemGendary AI Studio GUI",
+      "kind": "node",
+      "managed": true,
+      "validated": true,
+      "upgrade_order": 5,
+      "git_hooked": true,
+      "requirements_manifest": null,
+      "npm_manifest": "lemgendary-ai-studio-gui.package.json",
+      "legacy_folders": []
+    },
+    {
+      "folder": "lemgendary-docs",
+      "display_name": "LemGendary AI Documentation Hub",
+      "kind": "python",
+      "managed": true,
+      "validated": true,
+      "upgrade_order": 4,
+      "git_hooked": true,
+      "requirements_manifest": "requirements-documentation.txt",
+      "npm_manifest": null,
+      "legacy_folders": []
+    },
+    {
+      "folder": "LemGendaryDatasets",
+      "display_name": "LemGendary Compiled Manifolds Repo",
+      "kind": "asset",
+      "managed": false,
+      "validated": true,
+      "upgrade_order": null,
+      "git_hooked": true,
+      "requirements_manifest": null,
+      "npm_manifest": null,
+      "legacy_folders": ["lemgendary-datasets-store"]
+    },
+    {
+      "folder": "LemGendaryModels",
+      "display_name": "LemGendary Trained Models Repo",
+      "kind": "asset",
+      "managed": false,
+      "validated": true,
+      "upgrade_order": null,
+      "git_hooked": true,
+      "requirements_manifest": null,
+      "npm_manifest": null,
+      "legacy_folders": ["lemgendary-models"]
+    }
+  ],
+  "pipeline_steps": [
+    {
+      "number": 1,
+      "id": "hardware_discovery",
+      "name": "Hardware Discovery",
+      "short_description": "Detects CUDA devices, driver levels, CPU architecture, and recommended PyTorch wheel index.",
+      "long_description": "Performs low-level hardware probing to identify NVIDIA GPUs, CUDA capabilities, cuDNN and TensorRT libraries, and system topology to pick the optimal PyTorch distribution."
+    },
+    {
+      "number": 2,
+      "id": "toolchain_audit",
+      "name": "Toolchain Audit",
+      "short_description": "Verifies Python 3.12, Git, Node.js LTS, and toolchain prerequisites.",
+      "long_description": "Checks foundational toolchains including active Python interpreter version, Git availability, and required build tools before running workspace transformations."
+    },
+    {
+      "number": 3,
+      "id": "virtual_environments",
+      "name": "Virtual Environments",
+      "short_description": "Discovers and reconciles isolated .venv environments and node_modules across all projects.",
+      "long_description": "Inspects each managed project in the workspace, validates virtual environment structures, checks interpreter binaries, and ensures node_modules directories exist."
+    },
+    {
+      "number": 4,
+      "id": "requirements_install",
+      "name": "Requirements Sync & Install",
+      "short_description": "Propagates centralized SSOT manifests, installs package wheels, and normalizes OpenCV.",
+      "long_description": "Synchronizes shared dependency declarations from centralized manifests, runs deterministic pip wheel installations with accelerator indices, and pins unified OpenCV providers."
+    },
+    {
+      "number": 5,
+      "id": "dependency_upgrades",
+      "name": "Dependency Audit & Upgrades",
+      "short_description": "Audits outdated packages, detects version drift, and applies safe non-breaking upgrades.",
+      "long_description": "Scans installed packages against PyPI and npm registries, verifies reverse-dependency constraints, and applies verified safe semver upgrades."
+    },
+    {
+      "number": 6,
+      "id": "codebase_verification",
+      "name": "Codebase Verification",
+      "short_description": "Compiles Python bytecode, verifies syntax, and enforces zero-emoji compliance.",
+      "long_description": "Runs py_compile across all Python sources, validates YAML and JSON schemas, audits markdown compliance, and checks for zero emoji violations across every repository."
+    },
+    {
+      "number": 7,
+      "id": "health_matrix",
+      "name": "Health Matrix",
+      "short_description": "Generates complete ecosystem health report and evaluates overall system integrity.",
+      "long_description": "Compiles complete cross-project audit matrix covering environment statuses, package counts, missing libraries, and operational health verdicts."
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 """Bootstrap verification and global environment check module.
 
-Ensures Python 3.10+ (preferably 3.12+), pip, git, and venv module
+Ensures Python 3.12+, pip, git, and venv module
 are properly installed and accessible across platforms.
 
 Also checks for MetaTrader 5 installation and surfaces software update
@@ -13,13 +13,22 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from env_manager._logging import get_logger
 from env_manager.system_probe import probe_metatrader5
-from env_manager.utils import WINDOWS_NO_WINDOW, run_command_simple
+from env_manager.utils import run_command_simple
 
 _log = get_logger(__name__)
+
+MIN_PYTHON = (3, 12)
+"""Oldest Python the ecosystem supports (``Path.walk``, ``rmtree(onexc=...)``, ``datetime.UTC``).
+
+Keep in sync with ``requires-python`` in ``pyproject.toml``.
+"""
+
+WINERROR_ALIAS_RESOLUTION = 1920
+"""WinError raised when an App Execution Alias such as winget cannot be resolved."""
 
 
 @dataclass
@@ -34,10 +43,10 @@ class SoftwareUpdateInfo:
     rather than "unknown".
     """
     name: str
-    current_version: Optional[str]
-    latest_version: Optional[str]
+    current_version: str | None
+    latest_version: str | None
     update_available: bool
-    install_command: Optional[str] = None
+    install_command: str | None = None
     source_tracked: bool = True
 
 
@@ -50,56 +59,47 @@ class BootstrapStatus:
     pip_installed: bool
     venv_available: bool
     git_installed: bool
-    git_version: Optional[str]
+    git_version: str | None
     npm_installed: bool
-    npm_version: Optional[str]
+    npm_version: str | None
     mt5_installed: bool
-    mt5_version: Optional[str]
-    mt5_path: Optional[str]
-    missing_prerequisites: List[str]
-    remediation_instructions: List[str]
-    software_updates: List[SoftwareUpdateInfo]
+    mt5_version: str | None
+    mt5_path: str | None
+    missing_prerequisites: list[str]
+    remediation_instructions: list[str]
+    software_updates: list[SoftwareUpdateInfo]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
 # ─── Toolchain probes ───────────────────────────────────────────────────────
 
-def check_git() -> Tuple[bool, Optional[str]]:
+def check_git() -> tuple[bool, str | None]:
     """Check if git is installed and return version."""
     git_path = shutil.which("git")
     if not git_path:
         return False, None
     try:
-        proc = subprocess.run(
-            [git_path, "--version"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=5, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
-        )
+        proc = run_command_simple([git_path, "--version"], timeout=5)
         if proc.returncode == 0:
             return True, proc.stdout.strip()
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("git version check failed: %s", exc)
     return False, None
 
 
-def check_npm() -> Tuple[bool, Optional[str]]:
+def check_npm() -> tuple[bool, str | None]:
     """Check if npm is installed and return version."""
     npm_path = shutil.which("npm")
     if not npm_path:
         return False, None
     try:
-        proc = subprocess.run(
-            [npm_path, "--version"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=5, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
-        )
+        proc = run_command_simple([npm_path, "--version"], timeout=5)
         if proc.returncode == 0:
             return True, proc.stdout.strip()
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("npm version check failed: %s", exc)
     return False, None
 
@@ -109,11 +109,12 @@ def check_venv() -> bool:
     try:
         proc = run_command_simple([sys.executable, "-m", "venv", "--help"])
         return proc.returncode == 0
-    except Exception:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("venv module check failed: %s", exc)
         return False
 
 
-def check_metatrader5() -> Tuple[bool, Optional[str], Optional[str]]:
+def check_metatrader5() -> tuple[bool, str | None, str | None]:
     """Detect MetaTrader 5 (returns: installed, version, path).
 
     Delegates to :func:`env_manager.system_probe.probe_metatrader5`, which
@@ -127,7 +128,7 @@ def check_metatrader5() -> Tuple[bool, Optional[str], Optional[str]]:
 
 # ─── winget invocation ─────────────────────────────────────────────────────
 
-def _winget_command_prefix() -> Optional[List[str]]:
+def _winget_command_prefix() -> list[str] | None:
     """Return the command prefix for invoking winget, or None if unavailable.
 
     On Windows, ``shutil.which("winget")`` returns the App Execution Alias
@@ -151,9 +152,9 @@ def _winget_command_prefix() -> Optional[List[str]]:
 
 
 def _run_winget(
-    args: List[str],
+    args: list[str],
     timeout: int = 30,
-) -> Optional[subprocess.CompletedProcess]:
+) -> subprocess.CompletedProcess | None:
     """Invoke winget with the correct prefix and encoding.
 
     Returns the CompletedProcess on success, or None if winget could not
@@ -164,19 +165,10 @@ def _run_winget(
         return None
 
     try:
-        return subprocess.run(
-            prefix + args,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            check=False,
-            creationflags=WINDOWS_NO_WINDOW,
-        )
+        return run_command_simple(prefix + args, timeout=timeout)
     except OSError as exc:
         winerror = getattr(exc, "winerror", None)
-        if winerror == 1920:
+        if winerror == WINERROR_ALIAS_RESOLUTION:
             _log.debug(
                 "winget subprocess returned WinError 1920 (alias resolution "
                 "failure) for args=%s.",
@@ -184,10 +176,8 @@ def _run_winget(
             )
         else:
             _log.warning("winget subprocess failed (winerror=%s): %s", winerror, exc)
-    except subprocess.TimeoutExpired:
-        _log.debug("winget subprocess timed out after %ss: args=%s", timeout, args)
-    except Exception as exc:
-        _log.warning("winget subprocess crashed: %s", exc)
+    except subprocess.SubprocessError as exc:
+        _log.warning("winget subprocess failed for args=%s (timeout=%ss): %s", args, timeout, exc)
 
     return None
 
@@ -199,7 +189,7 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text or "")
 
 
-def _parse_winget_list_version(stdout: str, pkg_id: str) -> Optional[str]:
+def _parse_winget_list_version(stdout: str, pkg_id: str) -> str | None:
     """Extract the installed version of ``pkg_id`` from ``winget list`` output."""
     text = _strip_ansi(stdout)
     pkg_lower = pkg_id.lower()
@@ -230,7 +220,7 @@ def _parse_winget_list_version(stdout: str, pkg_id: str) -> Optional[str]:
     return None
 
 
-def _parse_winget_show_version(stdout: str) -> Optional[str]:
+def _parse_winget_show_version(stdout: str) -> str | None:
     """Extract the ``Version: X.Y.Z`` line from ``winget show`` output."""
     text = _strip_ansi(stdout)
     for line in text.splitlines():
@@ -240,10 +230,10 @@ def _parse_winget_show_version(stdout: str) -> Optional[str]:
     return None
 
 
-def _winget_query_versions(pkg_id: str) -> Tuple[Optional[str], Optional[str]]:
+def _winget_query_versions(pkg_id: str) -> tuple[str | None, str | None]:
     """Return (installed_version, available_version) for a winget package."""
-    installed: Optional[str] = None
-    available: Optional[str] = None
+    installed: str | None = None
+    available: str | None = None
 
     list_proc = _run_winget(
         ["list", "--id", pkg_id, "--exact", "--accept-source-agreements"],
@@ -264,7 +254,7 @@ def _winget_query_versions(pkg_id: str) -> Tuple[Optional[str], Optional[str]]:
 
 # ─── winget update check ───────────────────────────────────────────────────
 
-def check_winget_updates() -> List[SoftwareUpdateInfo]:
+def check_winget_updates() -> list[SoftwareUpdateInfo]:
     """Check for available software updates via winget for Python and MetaTrader 5.
 
     For each target package:
@@ -280,7 +270,7 @@ def check_winget_updates() -> List[SoftwareUpdateInfo]:
       the package as "installed, not tracked by winget" rather than
       collapsing it to "unknown".
     """
-    updates: List[SoftwareUpdateInfo] = []
+    updates: list[SoftwareUpdateInfo] = []
     if platform.system().lower() != "windows":
         return updates
 
@@ -349,7 +339,7 @@ def check_winget_updates() -> List[SoftwareUpdateInfo]:
 
 # ─── winget install ────────────────────────────────────────────────────────
 
-def install_software(name: str) -> Tuple[bool, str]:
+def install_software(name: str) -> tuple[bool, str]:
     """Download and silently install a software package via winget."""
     if platform.system().lower() != "windows":
         return False, "Automated software installation is only supported on Windows."
@@ -373,17 +363,12 @@ def install_software(name: str) -> Tuple[bool, str]:
         return False, f"Unknown software package '{name}'. Supported: python, metatrader5"
 
     try:
-        proc = subprocess.run(
-            prefix + [
-                "install",
-                "--id", pkg_id,
-                "--silent",
-                "--accept-source-agreements",
-                "--accept-package-agreements",
+        proc = run_command_simple(
+            [
+                *prefix, "install", "--id", pkg_id, "--silent",
+                "--accept-source-agreements", "--accept-package-agreements",
             ],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=900, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
+            timeout=900,
         )
         if proc.returncode == 0:
             return True, f"Successfully installed {name} (winget id: {pkg_id})."
@@ -391,75 +376,79 @@ def install_software(name: str) -> Tuple[bool, str]:
             proc.stderr or proc.stdout
             or f"winget install failed (exit {proc.returncode})."
         )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("winget install of %s failed: %s", pkg_id, exc)
         return False, str(exc)
 
 
 # ─── Full verification ─────────────────────────────────────────────────────
 
+REMEDIATION: dict[str, dict[str, str]] = {
+    "python": {
+        "windows": "Install Python 3.12 using: winget install Python.Python.3.12",
+        "linux": "Install Python 3.12 using: sudo apt-get install python3.12 python3.12-venv",
+        "": "Install Python 3.12 using: brew install python@3.12",
+    },
+    "python-venv": {"linux": "Install venv using: sudo apt-get install python3-venv"},
+    "git": {
+        "windows": "Install Git using: winget install Git.Git",
+        "linux": "Install Git using: sudo apt-get install git",
+        "": "Install Git using: brew install git",
+    },
+    "npm": {
+        "windows": "Install Node.js & npm using: winget install OpenJS.NodeJS.LTS",
+        "linux": "Install Node.js & npm using: sudo apt-get install nodejs npm",
+        "": "Install Node.js & npm using: brew install node",
+    },
+    "metatrader5": {
+        "windows": "Install MetaTrader 5 using: "
+                   "winget install --id MetaQuotes.MetaTrader5 --silent --accept-source-agreements",
+    },
+}
+"""Install instruction per prerequisite and OS; the ``""`` entry covers other systems (macOS)."""
+
+
+def remediation_for(missing_flags: dict[str, bool], current_os: str) -> tuple[list[str], list[str]]:
+    """Return ``(missing, instructions)`` for the prerequisites flagged as missing.
+
+    A prerequisite with no instruction for ``current_os`` (and no ``""``
+    fallback) is still listed as missing.
+    """
+    missing = [name for name, is_missing in missing_flags.items() if is_missing]
+    instructions: list[str] = []
+    for name in missing:
+        by_os = REMEDIATION[name.split(">=", maxsplit=1)[0]]
+        instruction = by_os.get(current_os, by_os.get(""))
+        if instruction:
+            instructions.append(instruction)
+    return missing, instructions
+
+
 def verify_prerequisites() -> BootstrapStatus:
     """Verify all host toolchain prerequisites."""
-    major = sys.version_info.major
-    minor = sys.version_info.minor
-    patch = sys.version_info.micro
-    v_str = f"{major}.{minor}.{patch}"
-    python_valid = (major == 3 and minor >= 10)
-
-    pip_installed = shutil.which("pip") is not None
+    python_valid = sys.version_info[:2] >= MIN_PYTHON
     venv_available = check_venv()
     git_installed, git_version = check_git()
     npm_installed, npm_version = check_npm()
     mt5_installed, mt5_version, mt5_path = check_metatrader5()
     software_updates = check_winget_updates()
 
-    missing: List[str] = []
-    instructions: List[str] = []
-    current_os = platform.system().lower()
-
-    if not python_valid:
-        missing.append("python>=3.10")
-        if current_os == "windows":
-            instructions.append("Install Python 3.12 using: winget install Python.Python.3.12")
-        elif current_os == "linux":
-            instructions.append("Install Python 3.12 using: sudo apt-get install python3.12 python3.12-venv")
-        else:
-            instructions.append("Install Python 3.12 using: brew install python@3.12")
-
-    if not venv_available:
-        missing.append("python-venv")
-        if current_os == "linux":
-            instructions.append("Install venv using: sudo apt-get install python3-venv")
-
-    if not git_installed:
-        missing.append("git")
-        if current_os == "windows":
-            instructions.append("Install Git using: winget install Git.Git")
-        elif current_os == "linux":
-            instructions.append("Install Git using: sudo apt-get install git")
-        else:
-            instructions.append("Install Git using: brew install git")
-
-    if not npm_installed:
-        missing.append("npm")
-        if current_os == "windows":
-            instructions.append("Install Node.js & npm using: winget install OpenJS.NodeJS.LTS")
-        elif current_os == "linux":
-            instructions.append("Install Node.js & npm using: sudo apt-get install nodejs npm")
-        else:
-            instructions.append("Install Node.js & npm using: brew install node")
-
-    if not mt5_installed and current_os == "windows":
-        missing.append("metatrader5")
-        instructions.append(
-            "Install MetaTrader 5 using: "
-            "winget install --id MetaQuotes.MetaTrader5 --silent --accept-source-agreements"
-        )
+    missing, instructions = remediation_for(
+        {
+            f"python>={MIN_PYTHON[0]}.{MIN_PYTHON[1]}": not python_valid,
+            "python-venv": not venv_available,
+            "git": not git_installed,
+            "npm": not npm_installed,
+            "metatrader5": not mt5_installed and platform.system().lower() == "windows",
+        },
+        platform.system().lower(),
+    )
 
     return BootstrapStatus(
         python_valid=python_valid,
-        python_version=v_str,
+        python_version=".".join(str(part) for part in sys.version_info[:3]),
         python_executable=sys.executable,
-        pip_installed=pip_installed,
+        pip_installed=shutil.which("pip") is not None,
         venv_available=venv_available,
         git_installed=git_installed,
         git_version=git_version,

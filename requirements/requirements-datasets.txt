@@ -33,6 +33,8 @@ MetaTrader5==5.0.6231; sys_platform == 'win32'
 pandas-ta-classic==0.9.0
 ruff>=0.9.0
 pyright==1.1.414
+pytest==9.2.0
+httpx2==2.16.0
 # ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
 # pyyaml, requests, psutil, beautifulsoup4, tqdm, scipy, and setuptools ship
 # without complete inline type hints. These stub packages provide .pyi files

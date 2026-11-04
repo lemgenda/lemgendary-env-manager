@@ -4,28 +4,31 @@ import json
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
+import time
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+from pathlib import Path
+from typing import Any
+from collections.abc import Callable, Generator
+
+import psutil
 
 from env_manager._logging import get_logger
+from env_manager.ecosystem import ecosystem
 from env_manager.utils import (
-    WINDOWS_NO_WINDOW,
-    pip_env,
+    drain_lines,
     run_command_simple,
     run_pip_with_recovery,
     stream_pip_with_recovery,
 )
+from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
 
-OPENCV_VARIANTS: Tuple[str, ...] = (
+OPENCV_VARIANTS: tuple[str, ...] = (
     "opencv-python",
     "opencv-python-headless",
     "opencv-contrib-python",
@@ -39,18 +42,21 @@ class ProjectVenvInfo:
     name: str
     project_dir: str
     venv_dir: str
-    python_path: Optional[str]
+    python_path: str | None
     is_valid: bool
-    python_version: Optional[str] = None
+    python_version: str | None = None
     installed_packages_count: int = 0
     is_node_project: bool = False
     node_modules_present: bool = False
+    has_npm_manifest: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
 
 def get_venv_python_path(project_dir: Path) -> Path:
+    """Path of the project's venv interpreter for this platform."""
     venv_dir = project_dir / ".venv"
     is_windows = platform.system().lower() == "windows"
     python_exe_name = "python.exe" if is_windows else "python"
@@ -58,41 +64,49 @@ def get_venv_python_path(project_dir: Path) -> Path:
     return venv_dir / python_subfolder / python_exe_name
 
 
-def is_venv_valid(project_dir: Path) -> bool:
-    venv_dir = project_dir / ".venv"
+def _probe_venv_python(project_dir: Path) -> str | None:
+    """Run the venv interpreter once; return its ``--version`` text, or None if invalid.
+
+    A venv is valid when ``.venv`` has a ``pyvenv.cfg`` and an interpreter
+    that runs.
+    """
     python_path = get_venv_python_path(project_dir)
-
-    cfg_path = venv_dir / "pyvenv.cfg"
-    if not cfg_path.exists() or not python_path.exists() or not python_path.is_file():
-        return False
-    try:
-        proc = run_command_simple([str(python_path), "--version"])
-        return proc.returncode == 0
-    except Exception as exc:
-        _log.debug("venv python --version check failed for %s: %s", project_dir, exc)
-        return False
-
-
-def get_venv_python_version(project_dir: Path) -> Optional[str]:
-    if not is_venv_valid(project_dir):
+    cfg_path = project_dir / ".venv" / "pyvenv.cfg"
+    if not cfg_path.exists() or not python_path.is_file():
         return None
-    python_path = get_venv_python_path(project_dir)
     try:
         proc = run_command_simple([str(python_path), "--version"])
-        if proc.returncode == 0:
-            return proc.stdout.strip()
-    except Exception as exc:
-        _log.debug("venv python version query failed for %s: %s", project_dir, exc)
-    return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("venv python --version check failed for %s: %s", project_dir, exc)
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip() or proc.stderr.strip()
+
+
+def is_venv_valid(project_dir: Path) -> bool:
+    """True when ``.venv`` has a ``pyvenv.cfg`` and an interpreter that runs."""
+    return _probe_venv_python(project_dir) is not None
+
+
+def get_venv_python_version(project_dir: Path) -> str | None:
+    """Return the venv interpreter version, or None when the venv is invalid."""
+    return _probe_venv_python(project_dir)
 
 
 def _handle_remove_readonly(func, path, exc):
-    import stat
+    """``shutil.rmtree`` onexc hook: clear the read-only bit and retry once.
+
+    If the retry fails too, the error is logged and re-raised so rmtree
+    reports it to the caller instead of leaving a half-deleted tree silently.
+    """
+    _log.debug("rmtree hit %s on %s; clearing read-only bit and retrying", exc, path)
     try:
         os.chmod(path, stat.S_IWRITE)
         func(path)
-    except Exception as error:
-        _log.debug("Failed to clear read-only file lock for %s: %s", path, error)
+    except OSError as error:
+        _log.warning("Failed to remove %s after clearing read-only bit: %s", path, error)
+        raise
 
 
 def _is_inside_active_venv(venv_dir: Path) -> bool:
@@ -111,9 +125,8 @@ def _is_inside_active_venv(venv_dir: Path) -> bool:
         return False
 
 
-def find_processes_in_venv(venv_dir: Path) -> List[Any]:
+def find_processes_in_venv(venv_dir: Path) -> list[Any]:
     """Find all active processes whose executable or working directory is inside the venv."""
-    import psutil
     procs = []
     try:
         venv_resolved = str(venv_dir.resolve()).lower()
@@ -122,16 +135,16 @@ def find_processes_in_venv(venv_dir: Path) -> List[Any]:
                 exe = p.info.get("exe")
                 if exe and str(Path(exe).resolve()).lower().startswith(venv_resolved):
                     procs.append(p)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+                _log.debug("Skipping process during venv lock scan: %s", exc)
                 continue
-    except Exception as exc:
-        _log.debug("Process discovery in venv %s failed: %s", venv_dir, exc)
+    except (OSError, psutil.Error) as exc:
+        _log.warning("Process discovery in venv %s failed: %s", venv_dir, exc)
     return procs
 
 
-def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[bool, List[int]]:
+def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> tuple[bool, list[int]]:
     """Terminate any active processes locking files inside the virtual environment."""
-    import psutil
     procs = find_processes_in_venv(venv_dir)
     if not procs:
         return True, []
@@ -141,20 +154,65 @@ def terminate_processes_in_venv(venv_dir: Path, timeout: float = 3.0) -> Tuple[b
     for p in procs:
         try:
             p.terminate()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            _log.warning("Could not terminate PID %d: %s", p.pid, exc)
 
-    gone, alive = psutil.wait_procs(procs, timeout=timeout)
+    _gone, alive = psutil.wait_procs(procs, timeout=timeout)
     for p in alive:
         try:
             p.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            _log.warning("Could not kill PID %d: %s", p.pid, exc)
 
     return len(alive) == 0, pids
 
 
-def create_venv(project_dir: Path) -> Tuple[bool, str]:
+def _remove_existing_venv(project_dir: Path, venv_dir: Path) -> str | None:
+    """Delete ``venv_dir`` after stopping processes that lock it.
+
+    Returns an error message when Windows file locks prevent the removal.
+    On Windows the tree is renamed first so a locked file fails fast.
+    """
+    terminate_processes_in_venv(venv_dir)
+    if platform.system().lower() != "windows":
+        shutil.rmtree(venv_dir, onexc=_handle_remove_readonly)
+        return None
+    temp_trash = project_dir / f".venv_trash_{int(time.time())}"
+    try:
+        venv_dir.rename(temp_trash)
+        shutil.rmtree(temp_trash, onexc=_handle_remove_readonly)
+    except OSError as lock_exc:
+        remaining = find_processes_in_venv(venv_dir)
+        rem_info = [f"PID {p.pid} ({p.name()})" for p in remaining]
+        _log.warning("Cannot remove %s: %s", venv_dir, lock_exc)
+        return (
+            f"Cannot recreate virtual environment for {project_dir.name}: "
+            f"files are locked by active process(es): {', '.join(rem_info) or str(lock_exc)}. "
+            f"Stop all running background services, workers, or terminals using this environment."
+        )
+    return None
+
+
+def _build_venv(project_dir: Path, venv_dir: Path) -> tuple[bool, str]:
+    """Create ``venv_dir`` with the base interpreter and upgrade pip, wheel and setuptools."""
+    base_python = getattr(sys, "_base_executable", sys.executable)
+    proc = run_command_simple([str(base_python), "-m", "venv", str(venv_dir)], timeout=120)
+    if proc.returncode != 0:
+        return False, proc.stderr or f"Failed to execute venv module via {base_python}."
+    if not (venv_dir / "pyvenv.cfg").exists():
+        return False, "Failed to create virtual environment: no pyvenv.cfg file created."
+    upgrade_proc = run_pip_with_recovery(
+        get_venv_python_path(project_dir),
+        ["install", "--upgrade", "pip", "wheel", "setuptools"],
+        timeout=300,
+    )
+    if upgrade_proc.returncode != 0:
+        return False, f"Venv spawned, but core upgrade failed: {upgrade_proc.stderr}"
+    return True, "Virtual environment created and upgraded successfully."
+
+
+def create_venv(project_dir: Path) -> tuple[bool, str]:
+    """(Re)create ``project_dir/.venv``; refuses to replace the running interpreter's venv."""
     venv_dir = project_dir / ".venv"
 
     if _is_inside_active_venv(venv_dir):
@@ -168,77 +226,49 @@ def create_venv(project_dir: Path) -> Tuple[bool, str]:
 
     try:
         if venv_dir.exists():
-            terminate_processes_in_venv(venv_dir)
-
-            if platform.system().lower() == "windows":
-                import time
-                temp_trash = project_dir / f".venv_trash_{int(time.time())}"
-                try:
-                    venv_dir.rename(temp_trash)
-                    shutil.rmtree(temp_trash, onexc=_handle_remove_readonly)
-                except (PermissionError, OSError) as lock_exc:
-                    remaining = find_processes_in_venv(venv_dir)
-                    rem_info = [f"PID {p.pid} ({p.name()})" for p in remaining]
-                    return False, (
-                        f"Cannot recreate virtual environment for {project_dir.name}: "
-                        f"files are locked by active process(es): {', '.join(rem_info) or str(lock_exc)}. "
-                        f"Stop all running background services, workers, or terminals using this environment."
-                    )
-            else:
-                shutil.rmtree(venv_dir, onexc=_handle_remove_readonly)
-
-        base_python = getattr(sys, "_base_executable", sys.executable)
-
-        proc = subprocess.run(
-            [str(base_python), "-m", "venv", str(venv_dir)],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=120, check=False,
-            creationflags=WINDOWS_NO_WINDOW,
-        )
-        if proc.returncode != 0:
-            return False, proc.stderr or f"Failed to execute venv module via {base_python}."
-
-        cfg_path = venv_dir / "pyvenv.cfg"
-        if not cfg_path.exists():
-            return False, "Failed to create virtual environment: no pyvenv.cfg file created."
-
-        python_path = get_venv_python_path(project_dir)
-        upgrade_proc = run_pip_with_recovery(
-            python_path,
-            ["install", "--upgrade", "pip", "wheel", "setuptools"],
-            timeout=300,
-        )
-        if upgrade_proc.returncode != 0:
-            return False, f"Venv spawned, but core upgrade failed: {upgrade_proc.stderr}"
-
-        return True, "Virtual environment created and upgraded successfully."
-    except Exception as exc:
+            removal_error = _remove_existing_venv(project_dir, venv_dir)
+            if removal_error:
+                return False, removal_error
+        return _build_venv(project_dir, venv_dir)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.error("Creating the venv for %s failed: %s", project_dir, exc)
         return False, str(exc)
 
 
-def get_installed_packages(project_dir: Path) -> Dict[str, str]:
+def get_installed_packages(project_dir: Path) -> dict[str, str]:
+    """Return ``{name: version}`` for the venv's packages, or ``{}`` when invalid."""
     if not is_venv_valid(project_dir):
         return {}
-    python_path = get_venv_python_path(project_dir)
+    return _pip_list(project_dir)
 
+
+def _pip_list(project_dir: Path) -> dict[str, str]:
+    """Return ``{name: version}`` from ``pip list`` in a venv already known to be valid."""
+    python_path = get_venv_python_path(project_dir)
+    proc = run_pip_with_recovery(
+        python_path, ["list", "--format=json"], timeout=30,
+    )
+    # stderr is captured separately from stdout (D-07): log it, parse stdout only.
+    for line in (proc.stderr or "").splitlines():
+        if line.strip():
+            _log.warning("pip list (%s): %s", project_dir.name, line.strip())
+    if proc.returncode != 0:
+        _log.error("pip list failed in %s with code %s", project_dir, proc.returncode)
+        return {}
     try:
-        proc = run_pip_with_recovery(
-            python_path, ["list", "--format=json"], timeout=30,
-        )
-        if proc.returncode == 0:
-            data = json.loads(proc.stdout.strip())
-            return {item["name"].lower(): item["version"] for item in data}
-    except Exception as exc:
-        _log.warning("Failed to list installed packages in %s: %s", project_dir, exc)
+        data = json.loads(proc.stdout.strip())
+        return {item["name"].lower(): item["version"] for item in data}
+    except (json.JSONDecodeError, TypeError, KeyError) as exc:
+        _log.error("Failed to parse installed packages in %s: %s", project_dir, exc)
     return {}
 
 
 def stream_install_requirements(
     project_dir: Path,
     requirements_file: Path,
-    extra_index_url: Optional[str] = None,
+    extra_index_url: str | None = None,
     timeout: int = 1800,
-) -> Generator[str, None, Tuple[bool, str]]:
+) -> Generator[str, None, tuple[bool, str]]:
     """Install a requirements file into the project venv, yielding output lines in real time."""
     if not is_venv_valid(project_dir):
         return False, f"Virtual environment at {project_dir} is invalid or missing."
@@ -257,39 +287,32 @@ def stream_install_requirements(
 def install_requirements(
     project_dir: Path,
     requirements_file: Path,
-    extra_index_url: Optional[str] = None,
+    extra_index_url: str | None = None,
     timeout: int = 1800,
-    on_line: Optional[Callable[[str], None]] = None,
-) -> Tuple[bool, str]:
+    on_line: Callable[[str], None] | None = None,
+) -> tuple[bool, str]:
     """Install a requirements file into the project venv.
 
     Uses :func:`stream_install_requirements` so a corrupted download or stale
     cache entry triggers an automatic purge-and-retry rather than a
     hard failure.
     """
-    gen = stream_install_requirements(
-        project_dir,
-        requirements_file,
-        extra_index_url=extra_index_url,
-        timeout=timeout,
+    return drain_lines(
+        stream_install_requirements(
+            project_dir,
+            requirements_file,
+            extra_index_url=extra_index_url,
+            timeout=timeout,
+        ),
+        on_line,
     )
-    try:
-        while True:
-            line = next(gen)
-            if on_line:
-                try:
-                    on_line(line)
-                except Exception as cb_exc:
-                    _log.debug("install_requirements callback error: %s", cb_exc)
-    except StopIteration as stop:
-        return stop.value
 
 
 def normalize_opencv_variant(
     project_dir: Path,
     desired_variant: str,
     timeout: int = 900,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Force a single OpenCV provider inside a project venv.
 
     The uninstall + force-reinstall cycle on Windows is slow because each
@@ -339,49 +362,45 @@ def normalize_opencv_variant(
     )
 
 
-def discover_projects(base_dir: Optional[Path] = None) -> List[ProjectVenvInfo]:
+def discover_projects(base_dir: Path | None = None) -> list[ProjectVenvInfo]:
+    """Find the managed projects under ``base_dir`` and describe each one's environment.
+
+    The projects and their order come from ``ecosystem.json``
+    (``projects[].managed``, ``projects[].upgrade_order``, ``projects[].kind``).
+    """
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent.parent
+        base_dir = workspace_root()
 
-    python_projects = [
-        "lemgendary-env-manager",
-        "lemgendary-datasets",
-        "lemgendary-training-suite",
-        "lemgendary-docs",
-    ]
-    node_projects = ["lemgendary-ai-studio-gui"]
-
-    discovered: List[ProjectVenvInfo] = []
-
-    for proj_name in python_projects:
-        p_dir = base_dir / proj_name
-        if p_dir.exists() and p_dir.is_dir():
-            v_dir = p_dir / ".venv"
-            valid = is_venv_valid(p_dir)
-            py_path = str(get_venv_python_path(p_dir)) if valid else None
-            py_ver = get_venv_python_version(p_dir) if valid else None
-            pkgs = get_installed_packages(p_dir) if valid else {}
-
-            discovered.append(
-                ProjectVenvInfo(
-                    name=proj_name, project_dir=str(p_dir), venv_dir=str(v_dir),
-                    python_path=py_path, is_valid=valid, python_version=py_ver,
-                    installed_packages_count=len(pkgs),
-                    is_node_project=False, node_modules_present=False,
-                )
-            )
-
-    for proj_name in node_projects:
-        p_dir = base_dir / proj_name
-        if p_dir.exists() and p_dir.is_dir():
-            node_modules_present = (p_dir / "node_modules").exists()
-            discovered.append(
-                ProjectVenvInfo(
-                    name=proj_name, project_dir=str(p_dir), venv_dir="",
-                    python_path=None, is_valid=node_modules_present,
-                    python_version=None, installed_packages_count=0,
-                    is_node_project=True, node_modules_present=node_modules_present,
-                )
-            )
-
+    discovered: list[ProjectVenvInfo] = []
+    for project in ecosystem().managed_projects():
+        p_dir = base_dir / project.folder
+        if p_dir.is_dir():
+            describe = _describe_node_project if project.is_node else _describe_python_project
+            discovered.append(describe(project.folder, p_dir))
     return discovered
+
+
+def _describe_python_project(name: str, p_dir: Path) -> ProjectVenvInfo:
+    # One interpreter run per project: validity and version together.
+    py_ver = _probe_venv_python(p_dir)
+    valid = py_ver is not None
+    py_path = str(get_venv_python_path(p_dir)) if valid else None
+    pkgs = _pip_list(p_dir) if valid else {}
+    return ProjectVenvInfo(
+        name=name, project_dir=str(p_dir), venv_dir=str(p_dir / ".venv"),
+        python_path=py_path, is_valid=valid, python_version=py_ver,
+        installed_packages_count=len(pkgs),
+        is_node_project=False, node_modules_present=False,
+        has_npm_manifest=(p_dir / "package.json").exists(),
+    )
+
+
+def _describe_node_project(name: str, p_dir: Path) -> ProjectVenvInfo:
+    node_modules_present = (p_dir / "node_modules").exists()
+    return ProjectVenvInfo(
+        name=name, project_dir=str(p_dir), venv_dir="",
+        python_path=None, is_valid=node_modules_present,
+        python_version=None, installed_packages_count=0,
+        is_node_project=True, node_modules_present=node_modules_present,
+        has_npm_manifest=(p_dir / "package.json").exists(),
+    )
