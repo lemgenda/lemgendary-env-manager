@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.60-STABLE)
+# LemGendary Environment Manager (v16.9.61-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -354,6 +354,13 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.61 - Discover Windows Git sh.exe in Hook Tests
+
+- `tests/test_hooks.py`: `_find_sh` checks the sibling `bin/sh.exe` and
+  `usr/bin/sh.exe` directories of the detected `git` executable when `sh` is
+  not on the default Windows `PATH`, so all five hook tests run instead of
+  skipping.
 
 ### v16.9.60 - GUI Release Version Leaves the Central Manifest
 

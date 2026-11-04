@@ -10,8 +10,22 @@ import pytest
 
 from env_manager.hooks import PRE_COMMIT_TEMPLATE, install_git_hooks
 
-SH = shutil.which("sh")
+
+def _find_sh(git_path: str | None) -> str | None:
+    """Locate ``sh`` on PATH or alongside a Windows Git installation."""
+    found = shutil.which("sh")
+    if found or not git_path:
+        return found
+    git_root = Path(git_path).resolve().parent.parent
+    for rel in ("bin/sh.exe", "usr/bin/sh.exe"):
+        candidate = git_root / rel
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 GIT = shutil.which("git")
+SH = _find_sh(GIT)
 needs_sh_and_git = pytest.mark.skipif(not (SH and GIT), reason="needs sh and git")
 
 
