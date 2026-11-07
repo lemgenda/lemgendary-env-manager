@@ -72,8 +72,9 @@ class SecretsVaultApiTests(unittest.TestCase):
     def test_get_masks_values_and_has_no_side_effect(self) -> None:
         """GET masks values and writes nothing."""
         users = self.root / "lemgendary-training-suite" / ".kaggle_users"
-        users.write_text(f"KAGGLE_USERNAME=alice, KAGGLE_API_TOKEN={KAGGLE_TOKEN};\n",
-                         encoding="utf-8")
+        users.write_text(
+            f"KAGGLE_USERNAME=alice, KAGGLE_API_TOKEN={KAGGLE_TOKEN};\n", encoding="utf-8"
+        )
         before = sorted(p.relative_to(self.root) for p in self.root.rglob("*"))
 
         res = self.client.get("/api/secrets")
@@ -101,8 +102,12 @@ class SecretsVaultApiTests(unittest.TestCase):
 
     def test_post_keeps_stored_value_when_empty_or_omitted(self) -> None:
         """POST keeps the stored value when the new one is empty or missing."""
-        github = {"id": "github-primary", "service": "github", "label": "GitHub",
-                  "secret_value": GITHUB_TOKEN}
+        github = {
+            "id": "github-primary",
+            "service": "github",
+            "label": "GitHub",
+            "secret_value": GITHUB_TOKEN,
+        }
         self.assertEqual(self._post([_kaggle(KAGGLE_TOKEN), github]).status_code, 200)
 
         res = self._post([_kaggle(), {**github, "secret_value": ""}])
@@ -122,8 +127,12 @@ class SecretsVaultApiTests(unittest.TestCase):
 
     def test_post_removes_items_left_out(self) -> None:
         """POST removes items left out of the payload."""
-        github = {"id": "github-primary", "service": "github", "label": "GitHub",
-                  "secret_value": GITHUB_TOKEN}
+        github = {
+            "id": "github-primary",
+            "service": "github",
+            "label": "GitHub",
+            "secret_value": GITHUB_TOKEN,
+        }
         self._post([_kaggle(KAGGLE_TOKEN), github])
         self._post([_kaggle()])
         self.assertNotIn("github-primary", self._stored())
@@ -136,8 +145,9 @@ class SecretsVaultApiTests(unittest.TestCase):
     def test_kaggle_mandatory_accepts_kept_legacy_seed(self) -> None:
         """The mandatory Kaggle secret is satisfied by a kept legacy seed."""
         users = self.root / "lemgendary-training-suite" / ".kaggle_users"
-        users.write_text(f"KAGGLE_USERNAME=alice, KAGGLE_API_TOKEN={KAGGLE_TOKEN};\n",
-                         encoding="utf-8")
+        users.write_text(
+            f"KAGGLE_USERNAME=alice, KAGGLE_API_TOKEN={KAGGLE_TOKEN};\n", encoding="utf-8"
+        )
         res = self._post([_kaggle()])
         self.assertEqual(res.status_code, 200)
         self.assertEqual(self._stored()["kaggle-alice"]["secret_value"], KAGGLE_TOKEN)
@@ -151,30 +161,27 @@ class SecretsVaultApiTests(unittest.TestCase):
 
     def test_post_response_never_echoes_values(self) -> None:
         """The POST response never contains secret values."""
-        github = {"id": "github-primary", "service": "github", "label": "GitHub",
-                  "secret_value": GITHUB_TOKEN}
+        github = {
+            "id": "github-primary",
+            "service": "github",
+            "label": "GitHub",
+            "secret_value": GITHUB_TOKEN,
+        }
         res = self._post([_kaggle(KAGGLE_TOKEN), github])
         self.assertEqual(res.status_code, 200)
         self.assertNotIn(KAGGLE_TOKEN, res.text)
         self.assertNotIn(GITHUB_TOKEN, res.text)
         self.assertEqual(res.json()["count"], 2)
 
-    def test_propagation_writes_legacy_files_without_inventing_usernames(self) -> None:
-        """Propagation writes legacy files and never invents a username."""
-        second = _kaggle("KGAT_second_token_11", username=None, item_id="kaggle-2",
-                         is_default=False)
+    def test_propagation_syncs_kaggle_json(self) -> None:
+        """Propagation syncs default Kaggle credentials to ~/.kaggle/kaggle.json."""
+        second = _kaggle(
+            "KGAT_second_token_11", username=None, item_id="kaggle-2", is_default=False
+        )
         res = self._post([_kaggle(KAGGLE_TOKEN), second])
 
         report = res.json()["propagation"]
         self.assertEqual(report["failed"], [])
-        for repo in ("lemgendary-datasets", "lemgendary-training-suite"):
-            token_file = self.root / repo / ".kaggle_token"
-            self.assertEqual(token_file.read_text(encoding="utf-8"), KAGGLE_TOKEN)
-        self.assertFalse((self.root / "lemgendary-env-manager" / ".kaggle_token").exists())
-        users = (self.root / "lemgendary-training-suite" / ".kaggle_users").read_text(
-            encoding="utf-8")
-        self.assertEqual(users, f"KAGGLE_USERNAME=alice, KAGGLE_API_TOKEN={KAGGLE_TOKEN};\n")
-        self.assertTrue(any("kaggle-2" in s["path"] for s in report["skipped"]))
         kaggle_json = json.loads((self.home_kaggle / "kaggle.json").read_text(encoding="utf-8"))
         self.assertEqual(kaggle_json, {"username": "alice", "key": KAGGLE_TOKEN})
 
@@ -186,13 +193,13 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertFalse((self.home_kaggle / "kaggle.json").exists())
 
     def test_propagation_reports_write_failures(self) -> None:
-        """Failed legacy writes are listed in the report."""
-        # A directory in place of the token file makes the write fail.
-        (self.root / "lemgendary-datasets" / ".kaggle_token").mkdir()
+        """Failed credential writes are listed in the report."""
+        # A directory in place of ~/.kaggle/kaggle.json makes the write fail.
+        (self.home_kaggle / "kaggle.json").mkdir(parents=True, exist_ok=True)
         res = self._post([_kaggle(KAGGLE_TOKEN)])
         self.assertEqual(res.status_code, 200)
         failed = [f["path"] for f in res.json()["propagation"]["failed"]]
-        self.assertEqual(failed, ["lemgendary-datasets/.kaggle_token"])
+        self.assertEqual(failed, ["~/.kaggle/kaggle.json"])
         self.assertIn("could not be written", res.json()["message"])
 
     def test_get_reports_unreadable_vault(self) -> None:
@@ -218,10 +225,12 @@ class SecretsVaultUnitTests(unittest.TestCase):
             root = Path(tmp)
             (root / "lemgendary-training-suite").mkdir()
             (root / "lemgendary-training-suite" / ".GITHUB_PAT").write_text(
-                GITHUB_TOKEN, encoding="utf-8")
+                GITHUB_TOKEN, encoding="utf-8"
+            )
             (root / "lemgendary-datasets").mkdir()
             (root / "lemgendary-datasets" / ".mt5_credentials").write_text(
-                "User: 123\nPass: pw\n", encoding="utf-8")
+                "User: 123\nPass: pw\n", encoding="utf-8"
+            )
             seeds = {s["id"]: s for s in seed_from_legacy_files(root)}
         self.assertIsNone(seeds["github-primary"]["username"])
         self.assertIsNone(seeds["mt5-123"]["server"])

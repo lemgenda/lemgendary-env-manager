@@ -11,10 +11,11 @@ follows a write-only contract towards API clients:
   items are seeded in memory from legacy credential files and persisted only
   on the first save.
 
-After a save the default Kaggle credential is propagated to the legacy files
-that sibling repositories still read (``.kaggle_token``, ``.kaggle_users``
-and ``~/.kaggle/kaggle.json``). Usernames are never invented, and every write
-failure is logged and reported back to the caller.
+After a save the default Kaggle credential is synchronized to the user's
+standard CLI config (``~/.kaggle/kaggle.json``) so official tools work.
+Repositories read directly from ``.secrets.yaml`` as the Single Source of Truth;
+individual repository dotfiles are not written. Usernames are never invented,
+and write failures are logged and reported back to the caller.
 """
 
 from __future__ import annotations
@@ -44,11 +45,21 @@ TRAINING_REPO = ecosystem().require_service("training-suite").project
 
 # Legacy files that hold one token each: (repository, file, id, service, label).
 _SINGLE_TOKEN_SOURCES: tuple[tuple[str, str, str, str, str], ...] = (
-    (TRAINING_REPO, ".GOOGLE_DRIVE", "gdrive-primary", "google_drive",
-     "Google Drive Primary API Key"),
+    (
+        TRAINING_REPO,
+        ".GOOGLE_DRIVE",
+        "gdrive-primary",
+        "google_drive",
+        "Google Drive Primary API Key",
+    ),
     (TRAINING_REPO, ".GITHUB_PAT", "github-primary", "github", "GitHub Personal Access Token"),
-    (DATASETS_REPO, ".huggingface_token", "huggingface-primary", "huggingface",
-     "Hugging Face Access Token"),
+    (
+        DATASETS_REPO,
+        ".huggingface_token",
+        "huggingface-primary",
+        "huggingface",
+        "Hugging Face Access Token",
+    ),
     (TRAINING_REPO, ".SATURN_PAT", "saturn-primary", "saturn_cloud", "Saturn Cloud Bearer Token"),
 )
 
@@ -169,22 +180,22 @@ def _seed_kaggle_users(root: Path) -> list[dict[str, Any]]:
         return []
     seeds: list[dict[str, Any]] = []
     for entry in content.split(";"):
-        parts = dict(
-            p.strip().split("=", 1) for p in entry.split(",") if "=" in p
-        )
+        parts = dict(p.strip().split("=", 1) for p in entry.split(",") if "=" in p)
         username = parts.get("KAGGLE_USERNAME", "").strip()
         token = parts.get("KAGGLE_API_TOKEN", "").strip()
         if username and token:
-            seeds.append({
-                "id": f"kaggle-{username}",
-                "service": KAGGLE_SERVICE,
-                "label": f"Kaggle ({username})",
-                "username": username,
-                "secret_value": token,
-                "server": None,
-                # The first line of .kaggle_users is the default account.
-                "is_default": not seeds,
-            })
+            seeds.append(
+                {
+                    "id": f"kaggle-{username}",
+                    "service": KAGGLE_SERVICE,
+                    "label": f"Kaggle ({username})",
+                    "username": username,
+                    "secret_value": token,
+                    "server": None,
+                    # The first line of .kaggle_users is the default account.
+                    "is_default": not seeds,
+                }
+            )
     return seeds
 
 
@@ -196,15 +207,17 @@ def _seed_single_tokens(root: Path) -> list[dict[str, Any]]:
             continue
         token = _read_text(path)
         if token:
-            seeds.append({
-                "id": item_id,
-                "service": service,
-                "label": label,
-                "username": None,
-                "secret_value": token,
-                "server": None,
-                "is_default": True,
-            })
+            seeds.append(
+                {
+                    "id": item_id,
+                    "service": service,
+                    "label": label,
+                    "username": None,
+                    "secret_value": token,
+                    "server": None,
+                    "is_default": True,
+                }
+            )
     return seeds
 
 
@@ -223,15 +236,17 @@ def _seed_mt5(root: Path) -> list[dict[str, Any]]:
     username = fields.get("user", "")
     if not username:
         return []
-    return [{
-        "id": f"mt5-{username}",
-        "service": "metatrader5",
-        "label": f"MT5 Account ({username})",
-        "username": username,
-        "secret_value": fields.get("pass", ""),
-        "server": fields.get("server") or None,
-        "is_default": True,
-    }]
+    return [
+        {
+            "id": f"mt5-{username}",
+            "service": "metatrader5",
+            "label": f"MT5 Account ({username})",
+            "username": username,
+            "secret_value": fields.get("pass", ""),
+            "server": fields.get("server") or None,
+            "is_default": True,
+        }
+    ]
 
 
 def seed_from_legacy_files(root: Path) -> list[dict[str, Any]]:
@@ -246,7 +261,7 @@ def seed_from_legacy_files(root: Path) -> list[dict[str, Any]]:
 
 @dataclass
 class _Propagator:
-    """Writes the default Kaggle credential to legacy files and records the outcome."""
+    """Synchronizes the default Kaggle credential to standard user CLI config."""
 
     root: Path
     kaggle_config_dir: Path
@@ -260,51 +275,22 @@ class _Propagator:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
         except OSError as exc:
-            _log.error("Failed writing legacy credential file %s: %s", label, exc)
+            _log.error("Failed writing credential file %s: %s", label, exc)
             self.report.failed.append(PropagationIssue(path=label, reason=str(exc)))
             return
         self.report.written.append(label)
 
     def _skip(self, label: str, reason: str) -> None:
-        _log.warning("Skipped legacy credential file %s: %s", label, reason)
+        _log.warning("Skipped credential file %s: %s", label, reason)
         self.report.skipped.append(PropagationIssue(path=label, reason=reason))
 
-    def _write_users_file(self, ordered: list[dict[str, Any]]) -> None:
-        """Write every usable Kaggle credential, default first, to the training suite."""
-        users_path = self.root / TRAINING_REPO / ".kaggle_users"
-        label = self._label(users_path)
-        if not users_path.parent.is_dir():
-            self._skip(label, "repository not present in workspace")
-            return
-        lines = []
-        for record in ordered:
-            username = str(record.get("username") or "").strip()
-            if not username:
-                self._skip(f"{label} ({record.get('id')})", "Kaggle credential has no username")
-                continue
-            token_value = str(record["secret_value"]).strip()
-            lines.append(f"KAGGLE_USERNAME={username}, KAGGLE_API_TOKEN={token_value};")
-        if lines:
-            self._write(users_path, label, "\n".join(lines) + "\n")
-
     def run(self, kaggle_records: list[dict[str, Any]]) -> PropagationReport:
-        """Write the default Kaggle credential to every legacy file and return the report."""
+        """Write the default Kaggle credential to ~/.kaggle/kaggle.json."""
         usable = [r for r in kaggle_records if str(r.get("secret_value") or "").strip()]
         if not usable:
             return self.report
         default = next((r for r in usable if r.get("is_default")), usable[0])
-        ordered = [default] + [r for r in usable if r is not default]
         token = str(default["secret_value"]).strip()
-
-        for repo in KAGGLE_TOKEN_REPOS:
-            repo_dir = self.root / repo
-            target = repo_dir / ".kaggle_token"
-            if not repo_dir.is_dir():
-                self._skip(self._label(target), "repository not present in workspace")
-                continue
-            self._write(target, self._label(target), token)
-
-        self._write_users_file(ordered)
 
         default_username = str(default.get("username") or "").strip()
         if not default_username:
@@ -393,9 +379,7 @@ class SecretsVault:
         self._write_atomically(records)
         report = _Propagator(self.workspace_root, self.kaggle_config_dir).run(kaggle)
         if report.failed:
-            message = (
-                "Secrets saved, but some legacy credential files could not be written."
-            )
+            message = "Secrets saved, but some legacy credential files could not be written."
         else:
             message = "Secrets securely persisted and propagated across repositories."
         return SecretsSaveResponse(

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.61-STABLE)
+# LemGendary Environment Manager (v16.9.62-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -354,6 +354,16 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.62 - Establish .secrets.yaml as SSOT and Drop Repo Dotfile Propagation
+
+- `env_manager/secrets_vault.py`: Removed repository-level propagation of
+  `.kaggle_token` and `.kaggle_users` into sibling repositories. Sibling
+  repositories read directly from `.secrets.yaml` as SSOT. Synchronization
+  of the default Kaggle token to `~/.kaggle/kaggle.json` is preserved for
+  native Kaggle CLI support.
+- `tests/test_secrets_vault.py`: Updated propagation tests to verify
+  `~/.kaggle/kaggle.json` synchronization and failure reporting.
 
 ### v16.9.61 - Discover Windows Git sh.exe in Hook Tests
 

@@ -63,7 +63,7 @@ def run_pa11y_wcag(project_dir: Path) -> list[FileValidationViolation]:
                 *resolve_tool_cmd("pa11y", "pa11y"),
                 "--standard", "WCAG2AA",
                 "--reporter", "cli",
-                f"file:///{html_file.as_posix()}",
+                html_file.resolve().as_uri(),
             ]
             proc = run_tool(cmd, timeout=60)
             combined = proc.stdout + proc.stderr
