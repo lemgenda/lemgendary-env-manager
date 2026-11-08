@@ -355,6 +355,13 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.66 - Robust Netstat Port Holder Discovery on Windows
+
+- `env_manager/service_manager.py`: Added `_find_port_pids_netstat` fallback in
+  `_stop_port_holder` when `psutil.net_connections` encounters Windows permission
+  checks (`RuntimeError: GetExtendedTcpTable failed`), ensuring reliable stop of
+  all sidecar services across the desktop application.
+
 ### v16.9.65 - PSScriptAnalyzer Gate Hardening and WindowsApps pwsh Fallback
 
 - `env_manager/probe/shell.py` and `env_manager/validation/tooling.py`:

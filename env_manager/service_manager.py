@@ -324,23 +324,54 @@ def _stop_via_pid_files(log_dir: Path, name: str) -> bool:
     return terminated
 
 
+def _parse_netstat_pids(output: str, port: int) -> list[int]:
+    """Extract listening PIDs matching port from netstat stdout."""
+    pids: list[int] = []
+    suffix = f":{port}"
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) != 5 or fields[0].upper() != "TCP":
+            continue
+        if not (fields[1].endswith(suffix) and fields[2].endswith(":0")):
+            continue
+        try:
+            pid = int(fields[4])
+            if pid and pid not in pids:
+                pids.append(pid)
+        except ValueError:
+            pass
+    return pids
+
+
+def _find_port_pids_netstat(port: int) -> list[int]:
+    """Find listening PIDs using netstat on Windows when psutil encounters permission gates."""
+    try:
+        proc = run_command_simple(["netstat", "-ano", "-p", "TCP"], timeout=10)
+        return _parse_netstat_pids(proc.stdout or "", port)
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("netstat check for port %d failed: %s", port, exc)
+        return []
+
+
 def _stop_port_holder(port: int) -> bool:
     """Terminate every process tree listening on ``port``; True if any was stopped."""
+    pids: list[int] = []
     try:
         connections = psutil.net_connections(kind="inet")
-    except psutil.AccessDenied as exc:
-        # macOS needs elevated rights to list other processes' sockets.
-        _log.warning("Cannot list sockets to find the process on port %d: %s", port, exc)
-        return False
+        for conn in connections:
+            if conn.laddr and conn.laddr.port == port and conn.pid:
+                pids.append(conn.pid)
+    except (psutil.AccessDenied, RuntimeError, OSError) as exc:
+        _log.debug("Falling back to netstat for port %d: %s", port, exc)
+        pids = _find_port_pids_netstat(port)
+
     terminated = False
-    for conn in connections:
-        if conn.laddr and conn.laddr.port == port and conn.pid:
-            if _kill_process_tree(conn.pid):
-                terminated = True
-                _log.info("Terminated process tree on port %d (PID %d)", port, conn.pid)
-            else:
-                _log.warning("Could not terminate process holding port %d (PID %d)",
-                             port, conn.pid)
+    for pid in pids:
+        if _kill_process_tree(pid):
+            terminated = True
+            _log.info("Terminated process tree on port %d (PID %d)", port, pid)
+        else:
+            _log.warning("Could not terminate process holding port %d (PID %d)", port, pid)
     return terminated
 
 
