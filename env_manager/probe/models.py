@@ -11,6 +11,7 @@ NVIDIA_SMI_FIELDS = ("index", "name", "memory.total", "driver_version")
 """Columns requested from ``nvidia-smi --query-gpu``, in output order."""
 
 CUDA_INDEX_BY_MIN_DRIVER = (
+    (610, "https://download.pytorch.org/whl/cu134"),
     (560, "https://download.pytorch.org/whl/cu126"),
     (535, "https://download.pytorch.org/whl/cu121"),
 )

@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.62-STABLE)
+# LemGendary Environment Manager (v16.9.63-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -354,6 +354,17 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.63 - CUDA 13.4 Toolchain Support & Centralized PyTorch 2.15.0 Manifests
+
+- `env_manager/probe/models.py`: added driver version `610+` mapping to CUDA
+  13.4 index (`https://download.pytorch.org/whl/cu134`) in hardware probe
+  `CUDA_INDEX_BY_MIN_DRIVER`.
+- `requirements/requirements-datasets.txt` & `requirements-training.txt`:
+  updated deep learning toolchain to PyTorch 2.15.0+cu134, TorchVision
+  0.29.2+cu134, and TorchAudio 2.11.1+cu134 on CUDA 13.4.
+- Synchronized package versioning across `pyproject.toml`, `package.json`,
+  `openapi.json`, and PowerShell orchestrator.
 
 ### v16.9.62 - Establish .secrets.yaml as SSOT and Drop Repo Dotfile Propagation
 
