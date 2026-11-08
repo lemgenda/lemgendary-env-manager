@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.63-STABLE)
+# LemGendary Environment Manager (v16.9.64-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -354,6 +354,12 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.64 - Synchronize Central Tauri 2.12 SSOT Manifest
+
+- `requirements/lemgendary-ai-studio-gui.package.json`: Updated `@tauri-apps/api`
+  and `@tauri-apps/cli` to `~2.12.0` and `@tauri-apps/plugin-shell` to `~2.6.0`,
+  aligning with the Tauri 2.12 desktop ecosystem release.
 
 ### v16.9.63 - CUDA 13.4 Toolchain Support & Centralized PyTorch 2.15.0 Manifests
 
