@@ -7,8 +7,9 @@ from env_manager.utils import run_command_simple
 
 
 def preferred_shell() -> str:
-    """Return 'pwsh' if PowerShell 7 is available, else 'powershell'."""
-    if shutil.which("pwsh"):
+    """Return 'pwsh' if working PowerShell 7 is available, else 'powershell'."""
+    pwsh_path = shutil.which("pwsh")
+    if pwsh_path and "WindowsApps" not in pwsh_path:
         return "pwsh"
     return "powershell"
 

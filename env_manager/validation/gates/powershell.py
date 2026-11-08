@@ -36,6 +36,28 @@ def parse_pssa_line(line: str) -> FileValidationViolation | None:
     )
 
 
+def _build_pssa_command(list_file: str) -> str:
+    """Build the PowerShell snippet to execute Invoke-ScriptAnalyzer."""
+    pssa = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / ".venv"
+        / "tools"
+        / "powershell"
+        / "PSScriptAnalyzer"
+        / "1.25.0"
+        / "PSScriptAnalyzer.psd1"
+    )
+    prefix = f"Import-Module '{pssa}'; " if pssa.exists() else ""
+    return (
+        f"{prefix}$files = Get-Content -Path '{list_file}' -Encoding UTF8; "
+        "$files | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { "
+        "    Invoke-ScriptAnalyzer -Path $_ -Severity Warning,Error "
+        "} | ForEach-Object { "
+        "    \"$($_.ScriptPath)`t$($_.Line)`t$($_.Severity)`t$($_.Message)\" "
+        "}"
+    )
+
+
 def run_psscriptanalyzer(project_dir: Path) -> list[FileValidationViolation]:
     """Run PSScriptAnalyzer on all PowerShell scripts in the project.
 
@@ -65,14 +87,7 @@ def run_psscriptanalyzer(project_dir: Path) -> list[FileValidationViolation]:
                 fh.write(str(p) + "\n")
 
         # Single-quoted path is safe because we control the temp filename.
-        ps_cmd = (
-            f"$files = Get-Content -Path '{list_file}' -Encoding UTF8; "
-            "$files | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { "
-            "    Invoke-ScriptAnalyzer -Path $_ -Severity Warning,Error "
-            "} | ForEach-Object { "
-            "    \"$($_.ScriptPath)`t$($_.Line)`t$($_.Severity)`t$($_.Message)\" "
-            "}"
-        )
+        ps_cmd = _build_pssa_command(list_file)
 
         try:
             proc = run_tool(

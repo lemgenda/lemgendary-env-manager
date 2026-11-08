@@ -355,6 +355,15 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.65 - PSScriptAnalyzer Gate Hardening and WindowsApps pwsh Fallback
+
+- `env_manager/probe/shell.py` and `env_manager/validation/tooling.py`:
+  Safely detect and avoid uninstalled WindowsApps execution aliases for `pwsh`,
+  falling back gracefully to Windows PowerShell without WinError 1920.
+- `env_manager/validation/gates/powershell.py`: Integrated local module import
+  for `PSScriptAnalyzer` from isolated virtual environment tools bundle,
+  enabling robust fail-closed static analysis in all local environments.
+
 ### v16.9.64 - Synchronize Central Tauri 2.12 SSOT Manifest
 
 - `requirements/lemgendary-ai-studio-gui.package.json`: Updated `@tauri-apps/api`

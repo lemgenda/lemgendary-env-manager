@@ -13,8 +13,9 @@ from env_manager.workspace import ENV_MANAGER_DIR
 
 
 def preferred_shell() -> str:
-    """Return 'pwsh' when PowerShell 7 is available, else 'powershell'."""
-    if shutil.which("pwsh"):
+    """Return 'pwsh' when working PowerShell 7 is available, else 'powershell'."""
+    pwsh_path = shutil.which("pwsh")
+    if pwsh_path and "WindowsApps" not in pwsh_path:
         return "pwsh"
     return "powershell"
 
