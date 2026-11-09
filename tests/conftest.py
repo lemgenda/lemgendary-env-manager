@@ -64,6 +64,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[_SESSION_ROOT] = session_root
     os.environ[WORKSPACE_ROOT_ENV] = str(session_root)
     os.environ["GIT_CEILING_DIRECTORIES"] = str(session_root.parent)
+    os.environ["LEM_DISABLE_SIDECAR_AUTORUN"] = "1"
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:

@@ -22,6 +22,7 @@ every endpoint manually.
 """
 
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -59,12 +60,18 @@ def _log_sidecar_startup(future: "asyncio.Future[dict[str, Any]]") -> None:
         _log.info("Sidecar %s at startup: %s", service_id, outcome)
 
 
+DISABLE_SIDECAR_AUTORUN_ENV = "LEM_DISABLE_SIDECAR_AUTORUN"
+"""Set to '1' or 'true' to disable automatic sidecar startup in server lifespan (e.g. tests)."""
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Start the ecosystem sidecars in the background; their outcome is logged."""
-    loop = asyncio.get_running_loop()
-    startup = loop.run_in_executor(None, start_all_services)
-    startup.add_done_callback(_log_sidecar_startup)
+    disable_autorun = os.getenv(DISABLE_SIDECAR_AUTORUN_ENV, "").strip().lower() in ("1", "true")
+    if not disable_autorun:
+        loop = asyncio.get_running_loop()
+        startup = loop.run_in_executor(None, start_all_services)
+        startup.add_done_callback(_log_sidecar_startup)
     yield
 
 

@@ -181,6 +181,15 @@ def _spawn_detached(cmd: list[str], popen_kwargs: dict[str, Any]) -> subprocess.
     return subprocess.Popen(cmd, **popen_kwargs)
 
 
+def _save_pid_file(log_dir: Path, pid: int) -> None:
+    """Record daemon PID so stop_service can terminate the process tree."""
+    pid_file = log_dir / "server.pid"
+    try:
+        pid_file.write_text(str(pid), encoding="utf-8")
+    except OSError as p_err:
+        _log.warning("Could not write PID file %s: %s", pid_file, p_err)
+
+
 def _launch_service(svc: Service, python_exe: Path) -> dict[str, Any]:
     """Spawn the service detached from any console and wait for it to come up."""
     port = svc.port
@@ -229,6 +238,7 @@ def _launch_service(svc: Service, python_exe: Path) -> dict[str, Any]:
                 popen_kwargs["start_new_session"] = True
 
             proc = _spawn_detached(cmd, popen_kwargs)
+            _save_pid_file(log_dir, proc.pid)
 
         _log.info(
             "Launched %s sidecar process (PID %d) on port %d",
@@ -335,7 +345,13 @@ def _parse_netstat_pids(output: str, port: int) -> list[int]:
         fields = line.split()
         if len(fields) != _NETSTAT_TCP_COLUMNS or fields[0].upper() != "TCP":
             continue
-        if not (fields[1].endswith(suffix) and fields[2].endswith(":0")):
+        is_local = fields[1].endswith(suffix)
+        is_listening = (
+            fields[3].upper() == "LISTENING"
+            or fields[2].endswith(":0")
+            or fields[2] == "*:*"
+        )
+        if not (is_local and is_listening):
             continue
         try:
             pid = int(fields[4])

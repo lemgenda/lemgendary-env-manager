@@ -16,7 +16,8 @@ from env_manager import server, service_manager, system_probe, venv_manager
 def test_startup_sidecar_failure_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     """A startup failure is logged under ``lem_env.server``, not lost."""
     async def run() -> None:
-        with patch("env_manager.server.start_all_services", side_effect=RuntimeError("boom")):
+        with patch.dict(os.environ, {"LEM_DISABLE_SIDECAR_AUTORUN": "0"}), \
+             patch("env_manager.server.start_all_services", side_effect=RuntimeError("boom")):
             async with server.lifespan(server.app):
                 await asyncio.sleep(0.2)
 

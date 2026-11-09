@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.64-STABLE)
+# LemGendary Environment Manager (v16.9.67-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -354,6 +354,19 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.67 - Resilient Sidecar Process Tree Termination & Autorun Guard
+
+- `env_manager/service_manager.py`: Immediately persist `proc.pid` to
+  `server.pid` upon spawning detached background daemons, guaranteeing
+  direct process tree termination on `/api/services/{id}/stop`.
+- `env_manager/service_manager.py`: Enhanced `_parse_netstat_pids` to match all
+  listening TCP connections across modern Windows versions (`LISTENING` state,
+  wildcard foreign ports `*:*` or `0.0.0.0:0`), resolving unkillable sidecar
+  holder processes.
+- `env_manager/server.py`: Introduced `LEM_DISABLE_SIDECAR_AUTORUN` environment
+  guard to allow test harnesses and sandboxed environments to skip auto-spawning
+  external sidecars during server startup.
 
 ### v16.9.66 - Robust Netstat Port Holder Discovery on Windows
 
