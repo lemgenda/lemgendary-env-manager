@@ -361,6 +361,8 @@ duplicate. Run `lem-env validate` to check.
   `_stop_port_holder` when `psutil.net_connections` encounters Windows permission
   checks (`RuntimeError: GetExtendedTcpTable failed`), ensuring reliable stop of
   all sidecar services across the desktop application.
+- `env_manager/service_manager.py`: Named constant `_NETSTAT_TCP_COLUMNS = 5` to
+  adhere to Ruff PLR2004 comparison rule.
 
 ### v16.9.65 - PSScriptAnalyzer Gate Hardening and WindowsApps pwsh Fallback
 

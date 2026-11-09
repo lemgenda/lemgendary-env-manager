@@ -324,13 +324,16 @@ def _stop_via_pid_files(log_dir: Path, name: str) -> bool:
     return terminated
 
 
+_NETSTAT_TCP_COLUMNS = 5
+
+
 def _parse_netstat_pids(output: str, port: int) -> list[int]:
     """Extract listening PIDs matching port from netstat stdout."""
     pids: list[int] = []
     suffix = f":{port}"
     for line in output.splitlines():
         fields = line.split()
-        if len(fields) != 5 or fields[0].upper() != "TCP":
+        if len(fields) != _NETSTAT_TCP_COLUMNS or fields[0].upper() != "TCP":
             continue
         if not (fields[1].endswith(suffix) and fields[2].endswith(":0")):
             continue
