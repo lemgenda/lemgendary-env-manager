@@ -338,7 +338,7 @@ _NETSTAT_TCP_COLUMNS = 5
 
 
 def _parse_netstat_pids(output: str, port: int) -> list[int]:
-    """Extract listening PIDs matching port from netstat stdout."""
+    """Extract listening or bound PIDs matching port from netstat stdout."""
     pids: list[int] = []
     suffix = f":{port}"
     for line in output.splitlines():
@@ -346,12 +346,12 @@ def _parse_netstat_pids(output: str, port: int) -> list[int]:
         if len(fields) != _NETSTAT_TCP_COLUMNS or fields[0].upper() != "TCP":
             continue
         is_local = fields[1].endswith(suffix)
-        is_listening = (
+        is_listener = (
             fields[3].upper() == "LISTENING"
             or fields[2].endswith(":0")
             or fields[2] == "*:*"
         )
-        if not (is_local and is_listening):
+        if not (is_local and is_listener):
             continue
         try:
             pid = int(fields[4])

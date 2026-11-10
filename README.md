@@ -355,6 +355,15 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.68 - Resilient Netstat Port Holder Discovery & Clean Subprocess Teardown
+
+- `env_manager/service_manager.py`: Hardened `_find_port_pids_netstat` to parse
+  both standard `0.0.0.0:0` listeners and Windows loopback endpoints (`127.0.0.1:0`
+  or `*:*`) so lingering port holder processes on ports 8000, 8100, and 8200
+  are discovered and terminated during service stop requests.
+- `env_manager/service_manager.py`: Preserved direct PID registration on detached
+  server spawns to avoid orphaned daemon trees across test runs and GUI stops.
+
 ### v16.9.67 - Resilient Sidecar Process Tree Termination & Autorun Guard
 
 - `env_manager/service_manager.py`: Immediately persist `proc.pid` to
