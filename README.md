@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.72-STABLE)
+# LemGendary Environment Manager (v16.9.73-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,23 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.73 - Editable Project Install, Portable pip and verify Checks
+
+- `env_manager/venv_manager.py`: new `is_installable_project` and
+  `install_project_editable`. A project with `pyproject.toml` or `setup.py`
+  is installed with `pip install --no-deps --no-build-isolation -e <dir>`,
+  so console scripts such as `lem-env` and `lemtrain` exist in the venv.
+- `env_manager/pipeline/install.py`: step 4 runs the editable install after
+  `requirements.txt`. A failed editable install counts as an install
+  failure for that project.
+- `env_manager/bootstrap.py`: new `check_pip`. pip counts as installed when
+  `pip` or `pip3` is on PATH or `python -m pip --version` succeeds, so hosts
+  that only ship `pip3` are no longer reported as missing pip.
+- `requirements/lemgendary-ai-studio-gui.package.json`: the `verify` script
+  is a node one-liner that picks `.venv/Scripts/lem-env.exe` on Windows and
+  `.venv/bin/lem-env` elsewhere, instead of a Windows-only path.
+- `tests/test_editable_install.py`: covers the above (audit 4.1.5).
 
 ### v16.9.72 - One Upgrade Engine; Manifests Written Only After Validation
 

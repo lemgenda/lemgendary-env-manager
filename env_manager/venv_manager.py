@@ -269,6 +269,35 @@ def stream_install_requirements(
     return False, proc.stderr or proc.stdout or "Pip install failed."
 
 
+PROJECT_BUILD_FILES = ("pyproject.toml", "setup.py")
+"""Files that make a project installable, so its console scripts can be generated."""
+
+
+def is_installable_project(project_dir: Path) -> bool:
+    """Return True when the project declares a build (``pyproject.toml`` or ``setup.py``)."""
+    return any((project_dir / name).is_file() for name in PROJECT_BUILD_FILES)
+
+
+def install_project_editable(project_dir: Path, timeout: int = 600) -> tuple[bool, str]:
+    """Install the project itself in editable mode, without dependencies.
+
+    Run after ``requirements.txt`` so console scripts such as ``lem-env``
+    and ``lemtrain`` exist in the venv. ``--no-build-isolation`` reuses the
+    venv's setuptools (upgraded by :func:`create_venv`) instead of fetching
+    a build environment.
+    """
+    if not is_venv_valid(project_dir):
+        return False, f"Virtual environment at {project_dir} is invalid or missing."
+    proc = run_pip_with_recovery(
+        get_venv_python_path(project_dir),
+        ["install", "--no-deps", "--no-build-isolation", "-e", str(project_dir)],
+        timeout=timeout,
+    )
+    if proc.returncode == 0:
+        return True, f"Editable install of {project_dir.name} complete."
+    return False, (proc.stderr or proc.stdout or "editable install failed").strip()[-500:]
+
+
 def install_requirements(
     project_dir: Path,
     requirements_file: Path,

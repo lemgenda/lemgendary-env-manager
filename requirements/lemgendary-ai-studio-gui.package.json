@@ -13,7 +13,7 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview",
-    "verify": "..\\lemgendary-env-manager\\.venv\\Scripts\\lem-env.exe validate --project lemgendary-ai-studio-gui",
+    "verify": "node -e \"const p=require('path');const w=process.platform==='win32';const exe=p.join('..','lemgendary-env-manager','.venv',w?'Scripts':'bin',w?'lem-env.exe':'lem-env');const r=require('child_process').spawnSync(exe,['validate','--project','lemgendary-ai-studio-gui'],{stdio:'inherit'});process.exit(r.status===null?1:r.status)\"",
     "tauri": "tauri"
   },
   "dependencies": {

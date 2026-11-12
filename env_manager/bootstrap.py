@@ -114,6 +114,22 @@ def check_venv() -> bool:
         return False
 
 
+def check_pip() -> bool:
+    """Check that pip is usable: ``pip``/``pip3`` on PATH or ``python -m pip``.
+
+    Many Linux and macOS installs only ship ``pip3``, and a venv-less
+    Windows install may expose pip only as a module of the interpreter.
+    """
+    if shutil.which("pip") or shutil.which("pip3"):
+        return True
+    try:
+        proc = run_command_simple([sys.executable, "-m", "pip", "--version"], use_pip_env=True)
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log.warning("pip module check failed: %s", exc)
+        return False
+
+
 def check_metatrader5() -> tuple[bool, str | None, str | None]:
     """Detect MetaTrader 5 (returns: installed, version, path).
 
@@ -448,7 +464,7 @@ def verify_prerequisites() -> BootstrapStatus:
         python_valid=python_valid,
         python_version=".".join(str(part) for part in sys.version_info[:3]),
         python_executable=sys.executable,
-        pip_installed=shutil.which("pip") is not None,
+        pip_installed=check_pip(),
         venv_available=venv_available,
         git_installed=git_installed,
         git_version=git_version,

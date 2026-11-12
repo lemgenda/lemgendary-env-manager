@@ -9,6 +9,8 @@ from env_manager.npm_manager import stream_npm_install
 from env_manager.pipeline.events import PIP_PROGRESS_RULES, Emit, PipelineEvent, PipProgress
 from env_manager.requirements_manager import parse_requirements_file
 from env_manager.venv_manager import (
+    install_project_editable,
+    is_installable_project,
     normalize_opencv_variant,
     stream_install_requirements,
 )
@@ -130,6 +132,22 @@ def _install_python(
     return ok
 
 
+def _install_editable(p: Any, emit: Emit) -> Generator[PipelineEvent, None, bool]:
+    """Install an installable project itself (``-e .``) so its entry points exist."""
+    p_dir = Path(p.project_dir)
+    if not is_installable_project(p_dir):
+        return True
+    yield emit("info", f"INSTALLING: {p.name} - [Editable install of the project...]",
+               is_progress=True)
+    ok, msg = install_project_editable(p_dir)
+    if ok:
+        yield emit("success", msg, is_progress=False)
+    else:
+        yield emit("error", f"Editable install failed for {p.name}: {msg[:300]}",
+                   is_progress=False)
+    return ok
+
+
 def _normalize_opencv(p: Any, emit: Emit) -> Generator[PipelineEvent, None, None]:
     """Switch the project's cv2 provider to its preferred OpenCV variant, if it has one."""
     desired = PREFERRED_OPENCV_VARIANT.get(p.name)
@@ -165,5 +183,7 @@ def install_packages(
         if not (yield from _install_python(p, req_file, hw, emit)):
             install_failures.append(p.name)
             continue
+        if not (yield from _install_editable(p, emit)):
+            install_failures.append(p.name)
         yield from _normalize_opencv(p, emit)
     return install_failures

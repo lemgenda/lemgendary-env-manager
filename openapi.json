@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Environment Manager API",
     "description": "REST and WebSocket sidecar service for LemGendary AI Studio.",
-    "version": "16.9.72"
+    "version": "16.9.73"
   },
   "paths": {
     "/api/ping": {
