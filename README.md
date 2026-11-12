@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.80-STABLE)
+# LemGendary Environment Manager (v16.9.81-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,14 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.81 - Drop the Discontinued MDS Container Dependency
+
+- `requirements/runtime_env.yaml` (contract version 1.2): removed
+  `mosaicml-streaming` from `container_runtime_dependencies`. MDS dataset
+  compilation is discontinued, and no requirements file pinned the package.
+- `tests/test_requirements_ssot.py`: asserts the contract no longer lists
+  `mosaicml-streaming` or the `mds` format.
 
 ### v16.9.80 - Validation Tools Run From the Project Directory
 

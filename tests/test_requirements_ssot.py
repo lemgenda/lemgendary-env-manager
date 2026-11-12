@@ -51,3 +51,11 @@ def test_runtime_env_container_specifiers_match_training_pins() -> None:
         assert SpecifierSet(entry["specifier"]).contains(version), name
         checked += 1
     assert checked > 0
+
+
+def test_runtime_env_drops_discontinued_mds_container() -> None:
+    """MDS (mosaicml-streaming) compilation is discontinued; the contract omits it."""
+    contract = yaml.safe_load((REQUIREMENTS_DIR / "runtime_env.yaml").read_text(encoding="utf-8"))
+    containers = contract["container_runtime_dependencies"]
+    assert "mosaicml-streaming" not in containers
+    assert all(entry["format"] != "mds" for entry in containers.values())
