@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.69-STABLE)
+# LemGendary Environment Manager (v16.9.70-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -354,6 +354,19 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.70 - Probe-Driven PyTorch Index and macOS Markers
+
+- `requirements/requirements-datasets.txt`,
+  `requirements/requirements-training.txt`: dropped the fixed
+  `--extra-index-url .../cu134` line. The installer already passes the
+  hardware-probed index; the fixed line won over it (`+cu134` sorts above
+  `+cu126` and `+cpu`), so CPU hosts and older drivers got cu134 wheels.
+- `requirements/requirements-training.txt`: `bitsandbytes` carries
+  `; sys_platform != 'darwin'`.
+- `requirements/runtime_env.yaml`: the `pyarrow` container specifier now
+  matches the `26.0.0` pin.
+- `tests/test_requirements_ssot.py`: guards all three rules.
 
 ### v16.9.69 - POSIX-Safe Active Venv Detection
 

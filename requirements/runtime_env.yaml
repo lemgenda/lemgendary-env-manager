@@ -24,7 +24,7 @@
 #            (currently treated identically to 'all' — see runtime/environment.py)
 
 version: "1.1"
-last_updated: "2026-09-26"
+last_updated: "2026-11-12"
 
 container_runtime_dependencies:
   mosaicml-streaming:
@@ -40,7 +40,7 @@ container_runtime_dependencies:
     format: "webdataset"
     comment: "Sharded tar archive streaming dataset container format."
   pyarrow:
-    specifier: "==25.0.1"
+    specifier: "==26.0.0"
     format: "parquet"
     comment: "High-performance columnar tabular storage format."
   zstandard:
