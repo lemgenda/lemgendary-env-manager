@@ -101,8 +101,8 @@ def parse_pa11y_json(stdout: str, html_file: Path) -> list[FileValidationViolati
     ]
 
 
-def _audit_page(html_file: Path) -> list[FileValidationViolation]:
-    """Run pa11y on one page and report its issues, or a tool failure."""
+def _audit_page(html_file: Path, project_dir: Path) -> list[FileValidationViolation]:
+    """Run pa11y on one page from ``project_dir`` and report its issues, or a tool failure."""
     cmd = [
         *resolve_tool_cmd("pa11y", "pa11y"),
         "--standard", "WCAG2AA",
@@ -110,7 +110,7 @@ def _audit_page(html_file: Path) -> list[FileValidationViolation]:
         html_file.resolve().as_uri(),
     ]
     try:
-        proc = run_tool(cmd, timeout=PA11Y_TIMEOUT_S)
+        proc = run_tool(cmd, timeout=PA11Y_TIMEOUT_S, cwd=project_dir)
     except (OSError, subprocess.SubprocessError) as exc:
         return [tool_failure("pa11y", html_file, str(exc))]
     try:
@@ -124,5 +124,5 @@ def run_pa11y_wcag(project_dir: Path) -> list[FileValidationViolation]:
     """Run a pa11y WCAG 2.2 AA audit on every static HTML file."""
     violations: list[FileValidationViolation] = []
     for html_file in html_files(project_dir):
-        violations.extend(_audit_page(html_file))
+        violations.extend(_audit_page(html_file, project_dir))
     return violations

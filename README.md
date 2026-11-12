@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.79-STABLE)
+# LemGendary Environment Manager (v16.9.80-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,18 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.80 - Validation Tools Run From the Project Directory
+
+- `env_manager/validation/tooling.py`: `run_tool` now requires `cwd`.
+  yamllint resolves `ignore-from-file: .gitignore` against the process
+  working directory, so `validate` launched from the non-git workspace root
+  crashed the yamllint gate with `FileNotFoundError: '.gitignore'`.
+- `validation/gates/data_formats.py` (yamllint), `node_linters.py`
+  (markdownlint), `powershell.py` (PSScriptAnalyzer) and `web.py` (pa11y):
+  run their tool with the project directory as cwd, like the other gates.
+- `tests/test_gate_cwd.py`: runs each gate from a cwd outside the project,
+  including a real yamllint run with a `.gitignore`-reading config.
 
 ### v16.9.79 - Manifest Editor Edits the Central SSOT Manifests
 

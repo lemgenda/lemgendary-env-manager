@@ -54,7 +54,7 @@ def run_yamllint(project_dir: Path) -> list[FileValidationViolation]:
     cmd.extend([str(f) for f in yaml_files])
 
     try:
-        proc = run_tool(cmd, timeout=120, use_pip_env=True)
+        proc = run_tool(cmd, timeout=120, cwd=project_dir, use_pip_env=True)
         # yamllint parsable format: path:line:col: [level] message (rule)
         violations.extend(regex_violations(
             proc.stdout,

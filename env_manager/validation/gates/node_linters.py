@@ -47,7 +47,7 @@ def run_markdownlint(project_dir: Path) -> list[FileValidationViolation]:
     cmd.extend([str(f) for f in md_files])
 
     try:
-        proc = run_tool(cmd, timeout=120)
+        proc = run_tool(cmd, timeout=120, cwd=project_dir)
         violations.extend(regex_violations(
             proc.stdout + proc.stderr,
             r"^(?P<path>.+?):(?P<line>\d+)(?::\d+)?\s+(?P<rule>MD\d+/\S+)\s+(?P<msg>.+)$",

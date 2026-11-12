@@ -91,9 +91,14 @@ def regex_violations(
 
 
 def run_tool(
-    cmd: list[str], timeout: int, cwd: Path | None = None, use_pip_env: bool = False,
+    cmd: list[str], *, timeout: int, cwd: Path, use_pip_env: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a lint tool with captured UTF-8 output, no console window and no check.
+
+    ``cwd`` is required: tools resolve config-relative paths (yamllint's
+    ``ignore-from-file: .gitignore``, ESLint flat configs, markdownlint
+    ignores) against the process working directory, so every gate runs its
+    tool from the project directory, wherever ``validate`` was launched.
 
     Raises ``OSError`` or ``subprocess.SubprocessError`` (including a
     timeout); every gate turns those into a ``tool_failure``.

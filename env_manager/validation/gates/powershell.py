@@ -91,12 +91,15 @@ def run_psscriptanalyzer(project_dir: Path) -> list[FileValidationViolation]:
 
         try:
             proc = run_tool(
-                [shell, "-NoProfile", "-NonInteractive", "-Command", ps_cmd], timeout=180,
+                [shell, "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                timeout=180, cwd=project_dir,
             )
         except FileNotFoundError:
             # pwsh not on PATH despite shutil.which finding it earlier; fall
             # back to Windows PowerShell.
-            proc = run_tool(["powershell", "-NoProfile", "-Command", ps_cmd], timeout=180)
+            proc = run_tool(
+                ["powershell", "-NoProfile", "-Command", ps_cmd], timeout=180, cwd=project_dir,
+            )
 
         combined = proc.stdout + proc.stderr
         if (
