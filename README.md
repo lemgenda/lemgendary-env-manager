@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.74-STABLE)
+# LemGendary Environment Manager (v16.9.75-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,20 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.75 - ESLint Flat Configs, Warnings and Node tsconfig Checked
+
+- `env_manager/validation/gates/node_linters.py`: new `eslint_config_args`.
+  `--ext` is passed only for legacy `.eslintrc*` configs. ESLint v9 rejects
+  it with a flat `eslint.config.*`, so the gate used to fail with a tool
+  error on the GUI. Flat config names now include `.cjs`, `.ts`, `.mts`
+  and `.cts`.
+- ESLint warnings (severity 1) are `eslint_warning` violations, matching the
+  `--max-warnings 0` the projects lint with.
+- `run_typescript_check` runs `tsc -p <config> --noEmit` for
+  `tsconfig.json` and, when present, `tsconfig.node.json`, so build files
+  such as `vite.config.ts` are type checked.
+- `tests/test_node_linters.py`: covers the above (audit 4.2.2).
 
 ### v16.9.74 - Pylint Pinned in Every Python Manifest; Config Fallback
 

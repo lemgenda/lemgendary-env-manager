@@ -59,21 +59,58 @@ def run_markdownlint(project_dir: Path) -> list[FileValidationViolation]:
     return violations
 
 
+ESLINT_SEVERITY_WARNING = 1
+"""ESLint message severity for warnings. Projects lint with ``--max-warnings 0``,
+so a warning fails validation just like an error."""
+
+FLAT_ESLINT_CONFIGS = (
+    "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
+    "eslint.config.ts", "eslint.config.mts", "eslint.config.cts",
+)
+"""ESLint v9 flat configs. ESLint rejects ``--ext`` when one of these is used."""
+
+LEGACY_ESLINT_CONFIGS = (
+    ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs",
+    ".eslintrc.yaml", ".eslintrc.yml", ".eslintrc",
+)
+"""Legacy eslintrc configs, which need ``--ext`` to lint TypeScript files."""
+
+LEGACY_ESLINT_EXTENSIONS = ".js,.jsx,.ts,.tsx"
+
+_ESLINT_VIOLATION_TYPES = {
+    ESLINT_SEVERITY_ERROR: "eslint_error",
+    ESLINT_SEVERITY_WARNING: "eslint_warning",
+}
+
+
 def _eslint_report_violations(
     report: list[dict[str, Any]], project_dir: Path,
 ) -> list[FileValidationViolation]:
-    """Turn the error-severity messages of an ESLint JSON report into violations."""
+    """Turn the error and warning messages of an ESLint JSON report into violations."""
     return [
         FileValidationViolation(
             file_path=entry.get("filePath", str(project_dir)),
             line_number=msg.get("line", 0),
-            violation_type="eslint_error",
+            violation_type=_ESLINT_VIOLATION_TYPES[msg["severity"]],
             message=msg.get("message", "").strip(),
         )
         for entry in report
         for msg in entry.get("messages", [])
-        if msg.get("severity") == ESLINT_SEVERITY_ERROR
+        if msg.get("severity") in _ESLINT_VIOLATION_TYPES
     ]
+
+
+def eslint_config_args(project_dir: Path) -> list[str] | None:
+    """Extra ESLint arguments for the project's config style, or None without a config.
+
+    A flat config needs no extra arguments; a legacy eslintrc config gets
+    ``--ext`` so TypeScript files are linted.
+    """
+    if any((project_dir / name).exists() for name in FLAT_ESLINT_CONFIGS):
+        return []
+    if any((project_dir / name).exists() for name in LEGACY_ESLINT_CONFIGS):
+        return ["--ext", LEGACY_ESLINT_EXTENSIONS]
+    return None
 
 
 def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
@@ -85,15 +122,8 @@ def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
     """
     violations: list[FileValidationViolation] = []
 
-    eslint_cfg = (
-        project_dir / ".eslintrc.json",
-        project_dir / ".eslintrc.js",
-        project_dir / ".eslintrc.cjs",
-        project_dir / "eslint.config.js",
-        project_dir / "eslint.config.mjs",
-    )
-    has_eslint_config = any(f.exists() for f in eslint_cfg)
-    if not has_eslint_config:
+    config_args = eslint_config_args(project_dir)
+    if config_args is None:
         return violations
 
     src_dir = project_dir / "src"
@@ -103,7 +133,7 @@ def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
         cmd = [
             *resolve_tool_cmd("eslint", "eslint", project_dir=project_dir),
             lint_target,
-            "--ext", ".js,.jsx,.ts,.tsx",
+            *config_args,
             "--format", "json",
         ]
         proc = run_tool(cmd, cwd=project_dir, timeout=180)
@@ -132,16 +162,28 @@ def run_eslint(project_dir: Path) -> list[FileValidationViolation]:
     return violations
 
 
+TSCONFIG_FILES = ("tsconfig.json", "tsconfig.node.json")
+"""TypeScript projects checked with ``tsc --noEmit``; the node config covers
+build tooling such as ``vite.config.ts``."""
+
+
 def run_typescript_check(project_dir: Path) -> list[FileValidationViolation]:
-    """Run tsc --noEmit for TypeScript projects."""
+    """Run ``tsc --noEmit`` for each TypeScript config the project has."""
     violations: list[FileValidationViolation] = []
+    for name in TSCONFIG_FILES:
+        if (project_dir / name).exists():
+            violations.extend(_run_tsc(project_dir, name))
+    return violations
 
-    tsconfig = project_dir / "tsconfig.json"
-    if not tsconfig.exists():
-        return violations
 
+def _run_tsc(project_dir: Path, tsconfig: str) -> list[FileValidationViolation]:
+    """Run ``tsc -p <tsconfig> --noEmit`` and report its errors."""
+    violations: list[FileValidationViolation] = []
     try:
-        cmd = [*resolve_tool_cmd("tsc", "typescript", project_dir=project_dir), "--noEmit"]
+        cmd = [
+            *resolve_tool_cmd("tsc", "typescript", project_dir=project_dir),
+            "-p", tsconfig, "--noEmit",
+        ]
         proc = run_tool(cmd, cwd=project_dir, timeout=180)
         if proc.returncode != 0:
             violations.extend(regex_violations(
