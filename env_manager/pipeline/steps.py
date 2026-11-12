@@ -18,7 +18,7 @@ from env_manager.bootstrap import verify_prerequisites
 from env_manager.ecosystem import EcosystemFileError, ecosystem, ecosystem_file
 from env_manager.health_checker import run_full_health_audit
 from env_manager.pipeline.events import EventPublisher, PipelineEvent, StepEmitter
-from env_manager.pipeline.install import install_packages
+from env_manager.pipeline.install import InstallWarning, install_packages
 from env_manager.pipeline.upgrades import execute_safe_upgrades
 from env_manager.pipeline.venvs import is_same_venv, purge_node_modules
 from env_manager.requirements_manager import sync_all_manifests
@@ -53,6 +53,7 @@ class PipelineRun:
     hw: HardwareProfile | None = None
     projects: list[ProjectVenvInfo] | None = None
     install_failures: list[str] = field(default_factory=list)
+    install_warnings: list[InstallWarning] = field(default_factory=list)
     upgrades_applied: bool = False
 
     def step(self, number: int, name: str | None = None) -> StepEmitter:
@@ -199,9 +200,10 @@ def requirements_install(run: PipelineRun) -> StepEvents:
     install = run.step(4, "Package Installation")
     yield install("info", "Installing dependencies into target environments...")
     hw = run.hardware()
-    failures = yield from install_packages(run.managed_projects(), hw, install)
-    run.install_failures.extend(failures)
-    return StepOutcome(sync_results, _status(not failures))
+    result = yield from install_packages(run.managed_projects(), hw, install)
+    run.install_failures.extend(result.failures)
+    run.install_warnings.extend(result.warnings)
+    return StepOutcome(sync_results, _status(not result.failures and not result.warnings))
 
 
 def dependency_upgrades(run: PipelineRun) -> StepEvents:
@@ -259,6 +261,16 @@ def codebase_verification(run: PipelineRun) -> StepEvents:
     return StepOutcome(all_passed, _status(all_passed))
 
 
+def _install_warnings_event(warnings: list[InstallWarning], emit: StepEmitter) -> PipelineEvent:
+    """Summarize the step 4 install warnings, listing each as structured data."""
+    listed = "; ".join(f"{w.project} ({w.stage}): {w.message}" for w in warnings)
+    return emit(
+        "warning",
+        f"Install completed with {len(warnings)} warning(s): {listed}",
+        data={"install_warnings": [w.to_dict() for w in warnings]},
+    )
+
+
 def health_matrix(run: PipelineRun) -> StepEvents:
     """Step 7: run the full health audit and report the result."""
     emit = run.step(7)
@@ -269,6 +281,8 @@ def health_matrix(run: PipelineRun) -> StepEvents:
             f"Dependency installation failed for: {', '.join(run.install_failures)}. "
             f"Fix pip resolver conflicts and re-run.",
         )
+    if run.install_warnings:
+        yield _install_warnings_event(run.install_warnings, emit)
     report = run_full_health_audit(run.base_dir)
     done = "Pipeline execution completed." if run.options.full_run else "Step 7 completed."
     yield emit(
@@ -276,7 +290,8 @@ def health_matrix(run: PipelineRun) -> StepEvents:
         f"{done} Ecosystem healthy status: {report.overall_healthy}.",
         data=report.to_dict(),
     )
-    return StepOutcome(report, _status(report.overall_healthy))
+    clean_install = not run.install_failures and not run.install_warnings
+    return StepOutcome(report, _status(report.overall_healthy and clean_install))
 
 
 _HANDLERS: dict[str, Step] = {

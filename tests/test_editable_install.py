@@ -7,23 +7,25 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from env_manager import bootstrap, venv_manager
-from env_manager.pipeline import install
+from env_manager.pipeline import install, steps
+from env_manager.pipeline.install import EDITABLE_INSTALL_STAGE, InstallResult, InstallWarning
 from env_manager.pipeline.events import PipelineEvent
 from env_manager.venv_manager import install_project_editable, is_installable_project
 
 ENV_MANAGER_DIR = Path(__file__).resolve().parents[1]
 
 
-def _emit(level: str, message: str, **_kwargs: object) -> PipelineEvent:
-    return MagicMock(level=level, message=message)
+def _emit(level: str, message: str, **kwargs: object) -> PipelineEvent:
+    return MagicMock(status=level, message=message, data=kwargs.get("data"))
 
 
-def _drain(gen: Generator[PipelineEvent, None, list[str]]) -> list[str]:
+def _collect[R](gen: Generator[PipelineEvent, None, R]) -> tuple[list[PipelineEvent], R]:
+    events: list[PipelineEvent] = []
     try:
         while True:
-            next(gen)
+            events.append(next(gen))
     except StopIteration as stop:
-        return stop.value
+        return events, stop.value
 
 
 def test_only_projects_with_a_build_file_are_installable(tmp_path: Path) -> None:
@@ -55,7 +57,9 @@ def test_editable_install_reports_pip_failure(tmp_path: Path) -> None:
     assert msg == "backend missing"
 
 
-def _install_with(project_dir: Path, editable_ok: bool) -> tuple[list[str], MagicMock]:
+def _install_with(
+    project_dir: Path, editable_ok: bool,
+) -> tuple[list[PipelineEvent], InstallResult, MagicMock]:
     (project_dir / "requirements.txt").write_text("rich==15.1.0\n", encoding="utf-8")
     project = MagicMock(project_dir=str(project_dir), is_node_project=False)
     project.name = "proj"
@@ -71,29 +75,47 @@ def _install_with(project_dir: Path, editable_ok: bool) -> tuple[list[str], Magi
             patch.object(install, "_normalize_opencv", side_effect=opencv), \
             patch.object(install, "install_project_editable",
                          return_value=(editable_ok, "msg")) as editable:
-        failures = _drain(install.install_packages([project], MagicMock(), MagicMock()))
-    return failures, editable
+        emit = MagicMock(side_effect=_emit)
+        events, result = _collect(install.install_packages([project], MagicMock(), emit))
+    return events, result, editable
 
 
 def test_pipeline_installs_the_project_after_requirements(tmp_path: Path) -> None:
     """Pipeline installs the project after requirements."""
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
-    failures, editable = _install_with(tmp_path, editable_ok=True)
-    assert failures == []
+    _events, result, editable = _install_with(tmp_path, editable_ok=True)
+    assert result == InstallResult()
     editable.assert_called_once_with(tmp_path)
 
 
-def test_failed_editable_install_is_an_install_failure(tmp_path: Path) -> None:
-    """Failed editable install is an install failure."""
+def test_failed_editable_install_is_a_structured_warning(tmp_path: Path) -> None:
+    """A failed editable install warns; it does not fail the project install (R2-E2)."""
     (tmp_path / "setup.py").write_text("", encoding="utf-8")
-    failures, _editable = _install_with(tmp_path, editable_ok=False)
-    assert failures == ["proj"]
+    events, result, _editable = _install_with(tmp_path, editable_ok=False)
+    warning = InstallWarning("proj", EDITABLE_INSTALL_STAGE, "msg")
+    assert result.failures == []
+    assert result.warnings == [warning]
+    warned = [event for event in events if event.status == "warning"]
+    assert [event.data for event in warned] == [{"install_warning": warning.to_dict()}]
+
+
+def test_health_matrix_summarizes_install_warnings(tmp_path: Path) -> None:
+    """Step 7 lists the install warnings as data and reports a warning status."""
+    warning = InstallWarning("proj", EDITABLE_INSTALL_STAGE, "no backend")
+    run = MagicMock(base_dir=tmp_path, install_failures=[], install_warnings=[warning])
+    run.step.return_value = _emit
+    report = MagicMock(overall_healthy=True)
+    with patch.object(steps, "run_full_health_audit", return_value=report):
+        events, outcome = _collect(steps.health_matrix(run))
+    warned = [event for event in events if event.status == "warning"]
+    assert [event.data for event in warned] == [{"install_warnings": [warning.to_dict()]}]
+    assert outcome.status == "warning"
 
 
 def test_projects_without_a_build_file_skip_the_editable_install(tmp_path: Path) -> None:
     """Projects without a build file skip the editable install."""
-    failures, editable = _install_with(tmp_path, editable_ok=False)
-    assert failures == []
+    _events, result, editable = _install_with(tmp_path, editable_ok=False)
+    assert result == InstallResult()
     editable.assert_not_called()
 
 

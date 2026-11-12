@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.81-STABLE)
+# LemGendary Environment Manager (v16.9.82-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,22 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.82 - Failed Editable Install Is a Structured Warning
+
+- `env_manager/pipeline/install.py`: a failed `pip install -e` of the
+  project no longer fails the project install; its dependencies are already
+  installed. `install_packages` returns an `InstallResult` (`failures`,
+  `warnings`); each warning is an `InstallWarning` (`project`, `stage`
+  `editable_install`, `message`) and its step 4 event is a `warning` with
+  the warning under `data.install_warning`.
+- `env_manager/pipeline/steps.py`: `PipelineRun.install_warnings` collects
+  them. Step 4 reports `warning` status when there are any; step 7 emits an
+  install warnings summary (`data.install_warnings`) and its status, the
+  job's `last_status` of a full run, is `warning` when the install had any
+  failure or warning.
+- `tests/test_editable_install.py`: covers the warning, its event data and
+  the step 7 summary.
 
 ### v16.9.81 - Drop the Discontinued MDS Container Dependency
 

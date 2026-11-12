@@ -1,6 +1,7 @@
 """Pipeline step 4: npm and pip installs with live progress, then OpenCV normalization."""
 
 from collections.abc import Callable, Generator
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,31 @@ from env_manager.venv_manager import (
 )
 
 _log = get_logger(__name__)
+
+
+EDITABLE_INSTALL_STAGE = "editable_install"
+"""``InstallWarning.stage`` of a failed ``pip install -e`` of the project itself."""
+
+
+@dataclass(frozen=True)
+class InstallWarning:
+    """A non-fatal install problem: the project's dependencies are installed, one stage was not."""
+
+    project: str
+    stage: str
+    message: str
+
+    def to_dict(self) -> dict[str, str]:
+        """Convert the warning to a JSON-ready dictionary."""
+        return asdict(self)
+
+
+@dataclass
+class InstallResult:
+    """Projects whose dependency install failed, and non-fatal warnings of the others."""
+
+    failures: list[str] = field(default_factory=list)
+    warnings: list[InstallWarning] = field(default_factory=list)
 
 
 # Which OpenCV provider each project should end up with.
@@ -132,20 +158,27 @@ def _install_python(
     return ok
 
 
-def _install_editable(p: Any, emit: Emit) -> Generator[PipelineEvent, None, bool]:
-    """Install an installable project itself (``-e .``) so its entry points exist."""
+def _install_editable(
+    p: Any, emit: Emit,
+) -> Generator[PipelineEvent, None, InstallWarning | None]:
+    """Install an installable project itself (``-e .``) so its entry points exist.
+
+    A failure does not fail the project install: its dependencies are in
+    place, so it is returned as a structured :class:`InstallWarning`.
+    """
     p_dir = Path(p.project_dir)
     if not is_installable_project(p_dir):
-        return True
+        return None
     yield emit("info", f"INSTALLING: {p.name} - [Editable install of the project...]",
                is_progress=True)
     ok, msg = install_project_editable(p_dir)
     if ok:
         yield emit("success", msg, is_progress=False)
-    else:
-        yield emit("error", f"Editable install failed for {p.name}: {msg[:300]}",
-                   is_progress=False)
-    return ok
+        return None
+    warning = InstallWarning(p.name, EDITABLE_INSTALL_STAGE, msg[:300])
+    yield emit("warning", f"Editable install failed for {p.name}: {warning.message}",
+               data={"install_warning": warning.to_dict()}, is_progress=False)
+    return warning
 
 
 def _normalize_opencv(p: Any, emit: Emit) -> Generator[PipelineEvent, None, None]:
@@ -170,20 +203,21 @@ def install_packages(
     projects: list[Any],
     hw: Any,
     emit: Emit,
-) -> Generator[PipelineEvent, None, list[str]]:
+) -> Generator[PipelineEvent, None, InstallResult]:
     """Install node and python dependencies with live streaming progress telemetry."""
-    install_failures: list[str] = []
+    result = InstallResult()
     for p in projects:
         if p.is_node_project and not (yield from _install_node(p, emit)):
-            install_failures.append(p.name)
+            result.failures.append(p.name)
 
         req_file = Path(p.project_dir) / "requirements.txt"
         if not req_file.exists():
             continue
         if not (yield from _install_python(p, req_file, hw, emit)):
-            install_failures.append(p.name)
+            result.failures.append(p.name)
             continue
-        if not (yield from _install_editable(p, emit)):
-            install_failures.append(p.name)
+        warning = yield from _install_editable(p, emit)
+        if warning is not None:
+            result.warnings.append(warning)
         yield from _normalize_opencv(p, emit)
-    return install_failures
+    return result
