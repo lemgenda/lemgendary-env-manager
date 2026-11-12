@@ -25,12 +25,14 @@ from env_manager.pipeline.events import EventPublisher
 from env_manager.updater import (
     EcosystemUpgradePlan,
     ProjectUpgradePlan,
+    UpgradeEvent,
     build_upgrade_plan,
 )
 from env_manager.venv_manager import ProjectVenvInfo, discover_projects
 
 
 _emit = EventPublisher(total_steps=7).step(5, "Dependency Upgrades")
+CUDA_INDEX = "https://download.pytorch.org/whl/cu126"
 
 
 def _project(name: str, root: Path, *, is_node: bool, has_npm: bool) -> ProjectVenvInfo:
@@ -84,37 +86,41 @@ class TestStep5Routing(unittest.TestCase):
         self.pkg_count = patch(
             "env_manager.pipeline.upgrades.venv_package_count", return_value=5
         ).start()
+        self.py_plan = ProjectUpgradePlan(
+            name="p", project_dir="p", is_node_project=False,
+            outdated_packages=[self.pip_pkg], safe_packages=[self.pip_pkg],
+            blocked_packages=[], has_updates=True, has_safe_updates=True,
+        )
         self.pip_outdated = patch(
-            "env_manager.pipeline.upgrades.find_outdated_packages", return_value=[self.pip_pkg]
-        ).start()
-        patch(
-            "env_manager.pipeline.upgrades.classify_safe_upgrades",
-            return_value=([self.pip_pkg], []),
+            "env_manager.pipeline.upgrades.plan_python_project", return_value=self.py_plan
         ).start()
         self.pip_apply = patch(
-            "env_manager.pipeline.upgrades.apply_batch_with_rollback",
-            return_value=(True, "ok", False),
+            "env_manager.pipeline.upgrades.apply_python_project",
+            side_effect=lambda *_a: iter([UpgradeEvent(
+                project="p", package="rich", old_version="13.0.0", new_version="13.1.0",
+                status="upgraded", message="Upgraded 13.0.0 -> 13.1.0.",
+            )]),
         ).start()
-        self.sync = patch("env_manager.pipeline.upgrades.sync_manifests_from_venvs").start()
 
     def tearDown(self) -> None:
         patch.stopall()
 
     def _run(self, project: ProjectVenvInfo) -> list[PipelineEvent]:
         orchestrator = PipelineOrchestrator(base_dir=self.root)
-        hw = MagicMock(recommended_torch_index=None)
+        hw = MagicMock(recommended_torch_index=None, primary_backend="cpu")
         return list(orchestrator.execute_safe_upgrades([project], hw, _emit))
 
     def test_dual_stack_project_gets_pip_and_npm(self) -> None:
         """A project with requirements and package.json gets pip and npm upgrades."""
         proj = _project("lemgendary-env-manager", self.root, is_node=False, has_npm=True)
-        self._run(proj)
+        events = self._run(proj)
         p_dir = Path(proj.project_dir)
         self.npm_outdated.assert_called_once_with(p_dir)
         self.npm_update.assert_called_once_with(p_dir)
-        self.pip_outdated.assert_called_once_with(p_dir)
-        self.pip_apply.assert_called_once_with(p_dir, ["rich==13.1.0"], extra_index_url=None)
-        self.sync.assert_called_once_with(self.root)
+        self.pip_outdated.assert_called_once_with(proj, None)
+        self.pip_apply.assert_called_once_with(self.py_plan, None, None)
+        self.assertTrue(any("Upgraded 1 package(s) safely [rich (13.1.0)]" in e.message
+                            for e in events))
 
     def test_python_only_project_gets_pip_only(self) -> None:
         """A Python-only project gets pip upgrades only."""
@@ -122,9 +128,27 @@ class TestStep5Routing(unittest.TestCase):
         self._run(proj)
         self.npm_outdated.assert_not_called()
         self.npm_update.assert_not_called()
-        self.pip_apply.assert_called_once_with(
-            Path(proj.project_dir), ["rich==13.1.0"], extra_index_url=None
+        self.pip_apply.assert_called_once_with(self.py_plan, None, None)
+
+    def test_cuda_host_plans_and_applies_with_the_gpu_index(self) -> None:
+        """Step 5 hands the GPU index to the shared planner and applier."""
+        proj = _project("lemgendary-datasets", self.root, is_node=False, has_npm=False)
+        hw = MagicMock(recommended_torch_index=CUDA_INDEX, primary_backend="cuda")
+        orchestrator = PipelineOrchestrator(base_dir=self.root)
+        list(orchestrator.execute_safe_upgrades([proj], hw, _emit))
+        self.pip_outdated.assert_called_once_with(proj, CUDA_INDEX)
+        self.pip_apply.assert_called_once_with(self.py_plan, CUDA_INDEX, CUDA_INDEX)
+
+    def test_step5_reports_whether_anything_was_upgraded(self) -> None:
+        """The step returns True after an upgrade so step 6 syncs the manifests."""
+        proj = _project("lemgendary-datasets", self.root, is_node=False, has_npm=False)
+        gen = PipelineOrchestrator(base_dir=self.root).execute_safe_upgrades(
+            [proj], MagicMock(recommended_torch_index=None, primary_backend="cpu"), _emit,
         )
+        with self.assertRaises(StopIteration) as done:
+            while True:
+                next(gen)
+        self.assertTrue(done.exception.value)
 
     def test_npm_only_project_gets_npm_only(self) -> None:
         """A Node-only project gets npm upgrades only."""

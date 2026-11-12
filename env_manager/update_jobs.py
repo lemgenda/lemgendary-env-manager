@@ -21,9 +21,15 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
-from env_manager.updater import apply_upgrade_plan, build_upgrade_plan
+from env_manager.updater import (
+    EcosystemUpgradePlan,
+    UpgradeEvent,
+    apply_upgrade_plan,
+    build_upgrade_plan,
+)
+from env_manager.upgrade.finalize import UpgradeFinalization, finalize_upgrade
 
 _log = logging.getLogger("env_manager.update_jobs")
 
@@ -74,16 +80,43 @@ def lifecycle_event(job: UpdateJob, status: str, message: str) -> dict[str, Any]
     }
 
 
+def _finalization_events(result: UpgradeFinalization) -> Iterator[UpgradeEvent]:
+    """Validation failures, or the manifest sync results when validation passed."""
+    for name, report in result.reports:
+        if not report.passed:
+            yield UpgradeEvent(
+                project=name, package="(validation)", old_version="", new_version="",
+                status="failed", message="post-upgrade validation failed; manifest sync skipped",
+            )
+    for name, (ok, message) in result.manifest_sync.items():
+        yield UpgradeEvent(
+            project=name, package="(manifest sync)", old_version="", new_version="",
+            status="upgraded" if ok else "failed", message=message,
+        )
+
+
+def _upgrade_events(
+    plan: EcosystemUpgradePlan, project: str | None, base_dir: Path,
+) -> Iterator[UpgradeEvent]:
+    """Apply events as they happen, then the validation and manifest sync events."""
+    yield from apply_upgrade_plan(plan)
+    yield from _finalization_events(finalize_upgrade(base_dir, project))
+
+
 def run_safe_update(project: str | None, emit: EventSink, base_dir: Path) -> str:
-    """Build and apply the upgrade plan for one project or all projects."""
+    """Build and apply the upgrade plan, validate, then sync the manifests.
+
+    The job is ``partial`` when any event failed; ``blocked`` candidates and
+    ``verified`` checks are reported but do not fail the job.
+    """
     plan = build_upgrade_plan(base_dir, project=project)
     if not plan.has_any_updates:
         return "up_to_date"
 
     all_ok = True
-    for ev in apply_upgrade_plan(plan, base_dir):
+    for ev in _upgrade_events(plan, project, base_dir):
         ev_dict = ev.to_dict()
-        if ev_dict.get("status") not in ("upgraded", "skipped"):
+        if ev_dict.get("status") == "failed":
             all_ok = False
         emit(ev_dict)
     return "success" if all_ok else "partial"

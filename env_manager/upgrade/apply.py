@@ -9,7 +9,6 @@ from env_manager._logging import get_logger
 from env_manager.dependency_resolver import (
     OutdatedPackage,
 )
-from env_manager.upgrade.manifest_sync import sync_manifests_from_venvs
 from env_manager.upgrade.models import (
     EcosystemUpgradePlan,
     ProjectUpgradePlan,
@@ -24,7 +23,6 @@ from env_manager.venv_manager import (
     get_venv_python_path,
     is_venv_valid,
 )
-from env_manager.workspace import workspace_root
 
 _log = get_logger(__name__)
 
@@ -221,12 +219,15 @@ def _split_torch(
     return regular, torch_safe
 
 
-def _apply_python_project(
+def apply_python_project(
     proj_plan: ProjectUpgradePlan,
     cuda_index_url: str | None,
     extra_index_url: str | None,
 ) -> Generator[UpgradeEvent, None, None]:
-    """Apply one Python project's vetted candidates, then verify the venv."""
+    """Apply one Python project's vetted candidates, then verify the venv.
+
+    Shared by :func:`apply_upgrade_plan` and pipeline step 5.
+    """
     p_dir = Path(proj_plan.project_dir)
     non_torch, torch_safe = _split_torch(proj_plan, cuda_index_url)
 
@@ -262,18 +263,16 @@ def _apply_python_project(
 
 def apply_upgrade_plan(
     plan: EcosystemUpgradePlan,
-    base_dir: Path | None = None,
     extra_index_url: str | None = None,
 ) -> Generator[UpgradeEvent, None, None]:
     """Apply the plan bottom-up and yield telemetry events.
 
     Only the vetted candidates are installed, each pinned to the version the
     plan checked. The GPU torch index is the one stored in the plan;
-    ``extra_index_url`` defaults to it.
+    ``extra_index_url`` defaults to it. Manifests are not touched here:
+    :func:`env_manager.upgrade.finalize.finalize_upgrade` writes them back
+    only after the upgraded projects pass validation.
     """
-    if base_dir is None:
-        base_dir = workspace_root()
-
     cuda_index_url = plan.cuda_index_url
     if extra_index_url is None:
         extra_index_url = cuda_index_url
@@ -288,7 +287,4 @@ def apply_upgrade_plan(
         if proj_plan.is_node_project:
             yield from _apply_node_project(proj_plan)
         else:
-            yield from _apply_python_project(proj_plan, cuda_index_url, extra_index_url)
-
-    for proj_name, (ok, sync_msg) in sync_manifests_from_venvs(base_dir).items():
-        yield _event(proj_name, "(manifest sync)", ok, sync_msg, "upgraded")
+            yield from apply_python_project(proj_plan, cuda_index_url, extra_index_url)

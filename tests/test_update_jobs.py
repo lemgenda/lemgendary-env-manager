@@ -22,6 +22,7 @@ from env_manager.update_jobs import (
     UpdateJobManager,
     run_safe_update,
 )
+from env_manager.upgrade.finalize import UpgradeFinalization
 
 
 @dataclass
@@ -128,10 +129,56 @@ class TestRunSafeUpdate(unittest.TestCase):
         ]
         emitted: list[dict[str, Any]] = []
         with patch("env_manager.update_jobs.build_upgrade_plan", return_value=plan), \
-                patch("env_manager.update_jobs.apply_upgrade_plan", return_value=iter(events)):
+                patch("env_manager.update_jobs.apply_upgrade_plan", return_value=iter(events)), \
+                patch("env_manager.update_jobs.finalize_upgrade",
+                      return_value=UpgradeFinalization(reports=[])):
             status = run_safe_update(None, emitted.append, Path("ws"))
         self.assertEqual(status, "partial")
         self.assertEqual(len(emitted), 2)
+
+    def test_verified_and_blocked_events_do_not_fail_the_job(self) -> None:
+        """Only ``failed`` events make a job partial."""
+        plan = MagicMock(has_any_updates=True)
+        events = [
+            MagicMock(to_dict=lambda: {"status": "upgraded"}),
+            MagicMock(to_dict=lambda: {"status": "blocked"}),
+            MagicMock(to_dict=lambda: {"status": "verified"}),
+        ]
+        with patch("env_manager.update_jobs.build_upgrade_plan", return_value=plan), \
+                patch("env_manager.update_jobs.apply_upgrade_plan", return_value=iter(events)), \
+                patch("env_manager.update_jobs.finalize_upgrade",
+                      return_value=UpgradeFinalization(reports=[])):
+            status = run_safe_update(None, lambda ev: None, Path("ws"))
+        self.assertEqual(status, "success")
+
+    def test_validation_failure_skips_manifest_sync(self) -> None:
+        """A failed validation is reported and no manifest is written."""
+        plan = MagicMock(has_any_updates=True)
+        emitted: list[dict[str, Any]] = []
+        with patch("env_manager.update_jobs.build_upgrade_plan", return_value=plan), \
+                patch("env_manager.update_jobs.apply_upgrade_plan", return_value=iter([])), \
+                patch("env_manager.upgrade.finalize.validate_upgraded_projects",
+                      return_value=[("lemgendary-docs", MagicMock(passed=False))]), \
+                patch("env_manager.upgrade.finalize.sync_manifests_from_venvs") as sync:
+            status = run_safe_update("lemgendary-docs", emitted.append, Path("ws"))
+        sync.assert_not_called()
+        self.assertEqual(status, "partial")
+        self.assertEqual(emitted[0]["package"], "(validation)")
+
+    def test_passing_validation_syncs_only_the_target_project(self) -> None:
+        """Manifests are synced after validation, scoped to the requested project."""
+        plan = MagicMock(has_any_updates=True)
+        emitted: list[dict[str, Any]] = []
+        with patch("env_manager.update_jobs.build_upgrade_plan", return_value=plan), \
+                patch("env_manager.update_jobs.apply_upgrade_plan", return_value=iter([])), \
+                patch("env_manager.upgrade.finalize.validate_upgraded_projects",
+                      return_value=[("lemgendary-docs", MagicMock(passed=True))]), \
+                patch("env_manager.upgrade.finalize.sync_manifests_from_venvs",
+                      return_value={"lemgendary-docs": (True, "ok")}) as sync:
+            status = run_safe_update("lemgendary-docs", emitted.append, Path("ws"))
+        sync.assert_called_once_with(Path("ws"), project="lemgendary-docs")
+        self.assertEqual(status, "success")
+        self.assertEqual(emitted[0]["package"], "(manifest sync)")
 
 
 class TestUpdateEndpoint(unittest.TestCase):

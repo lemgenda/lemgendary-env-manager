@@ -48,8 +48,15 @@ def _dedupe(packages: list[OutdatedPackage]) -> list[OutdatedPackage]:
     return deduped
 
 
-def _plan_python_project(p: ProjectVenvInfo, cuda_index_url: str | None) -> ProjectUpgradePlan:
-    """Vet a Python project's outdated packages; torch-family goes via the CUDA index."""
+def plan_python_project(p: ProjectVenvInfo, cuda_index_url: str | None) -> ProjectUpgradePlan:
+    """Vet a Python project's outdated packages; torch-family goes via the CUDA index.
+
+    This is the one Python planning path: ``lem-env update``, the GUI update
+    job and pipeline step 5 all call it. On a GPU host the torch-family
+    candidates found on the CUDA index are typed ``wheel-cuda`` and vetted
+    by :func:`classify_safe_upgrades` (reverse dependencies, then a family
+    dry-run) before they count as safe.
+    """
     p_dir = Path(p.project_dir)
     raw = find_outdated_packages(p_dir)
     torch_raw = [pkg for pkg in raw if is_torch_family(pkg.name)]
@@ -61,10 +68,14 @@ def _plan_python_project(p: ProjectVenvInfo, cuda_index_url: str | None) -> Proj
 
     torch_cuda_candidates: list[OutdatedPackage] = []
     if cuda_index_url is not None and torch_installed(p_dir):
-        torch_cuda_candidates, _reason = check_torch_cuda_upgrades(
+        found, _reason = check_torch_cuda_upgrades(
             p_dir, cuda_index_url, venv_package_map(p_dir),
         )
+        torch_cuda_candidates, torch_blocked = classify_safe_upgrades(
+            p_dir, found, cuda_index_url=cuda_index_url,
+        )
         safe_pkgs.extend(torch_cuda_candidates)
+        blocked.extend(torch_blocked)
     elif torch_raw:
         torch_safe, torch_blocked = classify_safe_upgrades(p_dir, torch_raw)
         safe_pkgs.extend(torch_safe)
@@ -107,7 +118,7 @@ def build_upgrade_plan(
     _log.info("CUDA detection: %s (index=%s)", cuda_desc, cuda_index_url)
 
     plan_items = [
-        _plan_node_project(p) if p.is_node_project else _plan_python_project(p, cuda_index_url)
+        _plan_node_project(p) if p.is_node_project else plan_python_project(p, cuda_index_url)
         for p in _projects_in_order(base_dir, project)
     ]
     total_outdated = sum(len(item.outdated_packages) for item in plan_items)

@@ -23,6 +23,7 @@ from env_manager.pipeline.upgrades import execute_safe_upgrades
 from env_manager.pipeline.venvs import is_same_venv, purge_node_modules
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import HardwareProfile, probe_hardware
+from env_manager.upgrade.manifest_sync import sync_manifests_from_venvs
 from env_manager.validator import ProjectValidationReport, validate_project
 from env_manager.venv_manager import (
     ProjectVenvInfo,
@@ -52,6 +53,7 @@ class PipelineRun:
     hw: HardwareProfile | None = None
     projects: list[ProjectVenvInfo] | None = None
     install_failures: list[str] = field(default_factory=list)
+    upgrades_applied: bool = False
 
     def step(self, number: int, name: str | None = None) -> StepEmitter:
         """Emitter for events of step ``number``, named as in ``ecosystem.json`` by default."""
@@ -207,7 +209,7 @@ def dependency_upgrades(run: PipelineRun) -> StepEvents:
     emit = run.step(5)
     yield emit("info", "Auditing outdated packages and applying safe upgrades bottom-up...")
     hw = run.hardware()
-    yield from execute_safe_upgrades(run.base_dir, run.managed_projects(), hw, emit)
+    run.upgrades_applied = yield from execute_safe_upgrades(run.managed_projects(), hw, emit)
     return StepOutcome(None, "success")
 
 
@@ -223,7 +225,12 @@ def _failure_summary(report: ProjectValidationReport) -> str:
 
 
 def _sync_after_validation(run: PipelineRun, emit: StepEmitter) -> PipelineEvent:
-    sync_result = sync_all_manifests(run.base_dir)
+    """Write step 5 upgrades back to the manifests, then copy them to the projects."""
+    sync_result: dict[str, tuple[bool, str]] = {}
+    if run.upgrades_applied:
+        from_venvs = sync_manifests_from_venvs(run.base_dir, project=run.options.target_project)
+        sync_result.update({f"{name} (from venv)": res for name, res in from_venvs.items()})
+    sync_result.update(sync_all_manifests(run.base_dir))
     sync_ok = all(ok for ok, _ in sync_result.values()) if sync_result else False
     sync_msg = "; ".join(
         f"{name}: {msg}" for name, (_, msg) in sync_result.items()

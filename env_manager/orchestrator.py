@@ -176,9 +176,9 @@ class PipelineOrchestrator:
 
     def execute_safe_upgrades(
         self, projects: list[ProjectVenvInfo], hw: HardwareProfile, emit: Emit,
-    ) -> Generator[PipelineEvent, None, None]:
-        """Apply safe dependency upgrades bottom-up across managed projects."""
-        yield from execute_safe_upgrades(self.base_dir, projects, hw, emit)
+    ) -> Generator[PipelineEvent, None, bool]:
+        """Apply safe dependency upgrades bottom-up; True when anything was upgraded."""
+        return (yield from execute_safe_upgrades(projects, hw, emit))
 
 
 __all__ = [

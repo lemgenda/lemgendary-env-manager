@@ -5,6 +5,7 @@ from pathlib import Path
 
 from env_manager._logging import get_logger
 from env_manager.dependency_resolver import (
+    CUDA_WHEEL_TYPE,
     OutdatedPackage,
     constraint_preserving_dry_run,
 )
@@ -116,7 +117,7 @@ def check_torch_cuda_upgrades(
             name=pkg_name,
             current_version=old_ver,
             latest_version=new_ver,
-            package_type="wheel-cuda",
+            package_type=CUDA_WHEEL_TYPE,
         ))
 
     reason = f"CUDA index checked ({len(installed_torch)} installed)"

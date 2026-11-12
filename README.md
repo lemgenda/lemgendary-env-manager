@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.71-STABLE)
+# LemGendary Environment Manager (v16.9.72-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,35 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.72 - One Upgrade Engine; Manifests Written Only After Validation
+
+- `env_manager/pipeline/upgrades.py`: pipeline step 5 now plans with
+  `upgrade.plan.plan_python_project` and installs with
+  `upgrade.apply.apply_python_project`, the same engine as `lem-env update`.
+  Torch-family packages therefore go through the CUDA index on GPU hosts
+  instead of being upgraded from PyPI.
+- `env_manager/resolver/classify.py`: `wheel-cuda` candidates (new
+  `CUDA_WHEEL_TYPE`) are vetted as one family: reverse dependencies outside
+  the torch family, then a single CUDA-index dry-run. `plan_python_project`
+  sends the CUDA candidates through this check instead of trusting the
+  discovery dry-run alone.
+- `env_manager/upgrade/manifest_sync.py`: only exact `==` pins are
+  re-pinned; local build tags (`+cu134`, `+cpu`) are stripped, extras
+  (`uvicorn[standard]`), `>=` floors, ranges and marker text are kept, and
+  `project=` limits the sync to one project.
+- `env_manager/upgrade/npm_manifest_sync.py`: new. Upgraded npm dependency
+  sections flow back from a project `package.json` to its central manifest;
+  the central `version` is kept.
+- `env_manager/upgrade/finalize.py`: new `finalize_upgrade()` validates the
+  upgraded projects and syncs manifests from the venvs only when all pass.
+  `apply_upgrade_plan()` no longer syncs (and drops its unused `base_dir`).
+  `lem-env update`, the GUI update job and pipeline step 6 all follow this
+  order; step 6 writes back only when step 5 upgraded something.
+- `env_manager/update_jobs.py`: a job is `partial` only when an event
+  failed; `blocked` and `verified` events no longer mark it partial.
+- Tests: `test_manifest_sync.py`, `test_torch_vetting.py`,
+  `test_step6_manifest_sync.py`, and updated step 5 and update job tests.
 
 ### v16.9.71 - Apple MPS, DirectML 64-bit VRAM and rocm-smi CSV Probes
 

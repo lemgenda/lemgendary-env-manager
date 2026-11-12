@@ -28,7 +28,8 @@ from env_manager.orchestrator import PipelineOrchestrator
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
 from env_manager.updater import apply_upgrade_plan, build_upgrade_plan
-from env_manager.upgrade.verify import UpgradeTally, validate_upgraded_projects
+from env_manager.upgrade.finalize import finalize_upgrade
+from env_manager.upgrade.verify import UpgradeTally
 from env_manager.utils import purge_workspace_caches
 from env_manager.validator import validate_workspace
 from env_manager.venv_manager import discover_projects
@@ -156,7 +157,7 @@ def update(
 
     console.print("[bold green]Applying upgrades bottom-up...[/bold green]")
     tally = UpgradeTally()
-    for event in apply_upgrade_plan(plan, base_dir):
+    for event in apply_upgrade_plan(plan):
         tally.record(event)
         console.print(event_line(event))
 
@@ -166,18 +167,19 @@ def update(
     console.print(f"[bold green]Upgrade complete. {tally.summary()}.[/bold green]")
 
     console.print("[bold cyan]Running post-upgrade validation on modified projects...[/bold cyan]")
-    reports = validate_upgraded_projects(base_dir, project)
-    for name, report in reports:
+    finalization = finalize_upgrade(base_dir, project)
+    for name, report in finalization.reports:
         for line in validation_lines(name, report):
             console.print(line)
 
-    if not all(report.passed for _, report in reports):
+    if not finalization.passed:
         console.print(
-            "[bold red]Manifest sync SKIPPED — validation failures detected above. "
+            "[bold red]Manifest sync SKIPPED - validation failures detected above. "
             "Fix errors and re-run.[/bold red]"
         )
         raise typer.Exit(code=1)
     console.print("[bold green]All projects passed validation. Syncing manifests...[/bold green]")
+    _print_sync_results(finalization.manifest_sync)
     _print_sync_results(sync_all_manifests(base_dir))
     console.print("[bold green]Manifests synced successfully.[/bold green]")
 

@@ -23,6 +23,9 @@ CO_DEPENDENT_PAIRS: dict[str, set[str]] = {
 }
 """Tightly coupled packages that must be upgraded in lockstep."""
 
+CUDA_WHEEL_TYPE = "wheel-cuda"
+"""``OutdatedPackage.package_type`` of torch-family candidates from the CUDA index."""
+
 TORCH_FAMILY_NORMALIZED = frozenset(normalize(t) for t in ("torch", "torchvision", "torchaudio"))
 
 
@@ -107,28 +110,39 @@ def _vet_normal(ctx: _Context, candidates: list[OutdatedPackage], out: _Verdicts
             out.blocked.append((pkg, _pinned_reason(ctx, pkg)))
 
 
-def _vet_torch(ctx: _Context, pkg: OutdatedPackage, out: _Verdicts) -> None:
-    """Vet one CUDA wheel: reverse deps outside the torch family, then a dry-run."""
-    reason = check_reverse_deps(
-        pkg.name, pkg.latest_version, ctx.reverse_deps,
-        exclude_requirer=set(TORCH_FAMILY_NORMALIZED),
-    )
-    if reason is not None:
-        out.blocked.append((pkg, reason))
+def _vet_torch(ctx: _Context, candidates: list[OutdatedPackage], out: _Verdicts) -> None:
+    """Vet the CUDA wheels as one family: reverse deps, then a single dry-run.
+
+    Reverse dependencies inside the torch family do not block (the family
+    moves together). The survivors are dry-run together against the CUDA
+    index, because a lone torchvision dry-run with torch pinned would fail.
+    """
+    survivors: list[OutdatedPackage] = []
+    for pkg in candidates:
+        reason = check_reverse_deps(
+            pkg.name, pkg.latest_version, ctx.reverse_deps,
+            exclude_requirer=set(TORCH_FAMILY_NORMALIZED),
+        )
+        if reason is None:
+            survivors.append(pkg)
+        else:
+            out.blocked.append((pkg, reason))
+    if not survivors:
         return
 
     ok, changed, msg = constraint_preserving_dry_run(
-        ctx.project_dir, [pkg.name], current_state=ctx.current_state,
+        ctx.project_dir, [pkg.name for pkg in survivors], current_state=ctx.current_state,
         index_url=ctx.cuda_index_url,
     )
-    if ok and normalize(pkg.name) in changed:
-        out.safe.append(pkg)
-    elif not ctx.cuda_index_url:
-        out.blocked.append((pkg, "no safe resolution available"))
-    elif ok:
-        out.blocked.append((pkg, f"CUDA dry-run did not change version: {msg}"))
-    else:
-        out.blocked.append((pkg, f"CUDA dry-run failed: {msg}"))
+    for pkg in survivors:
+        if ok and normalize(pkg.name) in changed:
+            out.safe.append(pkg)
+        elif not ctx.cuda_index_url:
+            out.blocked.append((pkg, "no safe resolution available"))
+        elif ok:
+            out.blocked.append((pkg, f"CUDA dry-run did not change version: {msg}"))
+        else:
+            out.blocked.append((pkg, f"CUDA dry-run failed: {msg}"))
 
 
 def classify_safe_upgrades(
@@ -153,10 +167,10 @@ def classify_safe_upgrades(
         return [], [(pkg, f"installed package state unavailable: {exc}") for pkg in candidates]
 
     out = _Verdicts()
-    normal = [pkg for pkg in candidates if pkg.package_type != "wheel-cuda"]
+    normal = [pkg for pkg in candidates if pkg.package_type != CUDA_WHEEL_TYPE]
+    cuda_wheels = [pkg for pkg in candidates if pkg.package_type == CUDA_WHEEL_TYPE]
     if normal:
         _vet_normal(ctx, normal, out)
-    for pkg in candidates:
-        if pkg.package_type == "wheel-cuda":
-            _vet_torch(ctx, pkg, out)
+    if cuda_wheels:
+        _vet_torch(ctx, cuda_wheels, out)
     return out.safe, out.blocked

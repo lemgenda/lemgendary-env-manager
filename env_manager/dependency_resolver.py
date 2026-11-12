@@ -3,7 +3,7 @@
 
 
 from env_manager._logging import get_logger
-from env_manager.resolver.classify import classify_safe_upgrades
+from env_manager.resolver.classify import CUDA_WHEEL_TYPE, classify_safe_upgrades
 from env_manager.resolver.dry_run import constraint_preserving_dry_run
 from env_manager.resolver.models import OutdatedPackage
 from env_manager.resolver.pip_json import (
@@ -18,6 +18,7 @@ _log = get_logger(__name__)
 
 
 __all__ = [
+    "CUDA_WHEEL_TYPE",
     "OutdatedPackage",
     "PipJsonError",
     "classify_safe_upgrades",
