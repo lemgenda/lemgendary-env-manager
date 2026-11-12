@@ -4,6 +4,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 from fastapi import (
@@ -57,13 +58,25 @@ class ManifestSaveRequest(BaseModel):
 
 @dataclass(frozen=True)
 class ManifestTarget:
-    """An editable manifest: its file name, owning project and project-relative path."""
+    """An editable manifest: its file name, owning project and where the file lives.
+
+    ``folder`` is the workspace folder holding the file (the owning project
+    unless set). Central manifests live in the env-manager's
+    ``requirements/`` and are copied into their project by
+    :func:`sync_all_manifests` (``central=True``).
+    """
 
     name: str
     project: str
     relative_path: str
     format: str
     description: str
+    folder: str | None = None
+    central: bool = False
+
+    def path_in(self, root: Path) -> Path:
+        """Absolute path of the file under workspace ``root``."""
+        return root / (self.folder or self.project) / self.relative_path
 
     def describe(self) -> dict[str, str]:
         """The public fields listed by ``/api/manifests/registry``."""
@@ -98,28 +111,33 @@ def manifest_targets() -> list[ManifestTarget]:
         )
         for service_id, name, path, description in _SERVICE_MANIFESTS
     ]
+    central_folder = eco.self_folder()
     targets.extend(
         ManifestTarget(
-            p.requirements_manifest, p.folder, "requirements.txt", "text",
-            f"{p.display_name} Python dependency manifest.",
+            p.requirements_manifest, p.folder, f"requirements/{p.requirements_manifest}", "text",
+            f"{p.display_name} Python dependency manifest (central SSOT).",
+            folder=central_folder, central=True,
         )
         for p in eco.projects if p.requirements_manifest
     )
     targets.extend(
         ManifestTarget(
-            "package.json", p.folder, "package.json", "json",
-            f"{p.display_name} npm package manifest.",
+            "package.json", p.folder, f"requirements/{p.npm_manifest}", "json",
+            f"{p.display_name} npm package manifest (central SSOT).",
+            folder=central_folder, central=True,
         )
-        for p in eco.projects if p.is_node
+        for p in eco.projects if p.is_node and p.npm_manifest
     )
     return targets
 
 
+def _find_manifest_target(name: str) -> ManifestTarget | None:
+    return next((t for t in manifest_targets() if t.name == name), None)
+
+
 def _resolve_manifest_target(name: str) -> Path | None:
-    for target in manifest_targets():
-        if target.name == name:
-            return workspace_root() / target.project / target.relative_path
-    return None
+    target = _find_manifest_target(name)
+    return target.path_in(workspace_root()) if target else None
 
 
 @router.get("/api/manifests/registry")
@@ -128,7 +146,7 @@ async def get_manifest_registry():
     items = []
     root = workspace_root()
     for target in manifest_targets():
-        target_path = root / target.project / target.relative_path
+        target_path = target.path_in(root)
         exists = target_path.exists()
         items.append({
             **target.describe(),
@@ -174,10 +192,15 @@ async def validate_manifest_content(req: ManifestValidateRequest):
 
 @router.post("/api/manifests/save")
 async def save_manifest_content(req: ManifestSaveRequest):
-    """Safely validate, back up, and atomically write manifest content to disk."""
-    target_path = _resolve_manifest_target(req.name)
-    if not target_path:
+    """Validate, back up and write manifest content to disk.
+
+    Saving a central manifest copies it into its project right away
+    (``sync_all_manifests``); the sync results are returned as ``sync``.
+    """
+    target = _find_manifest_target(req.name)
+    if not target:
         raise HTTPException(status_code=404, detail=f"Unknown manifest '{req.name}'")
+    target_path = target.path_in(workspace_root())
     ext = target_path.suffix.lstrip(".")
     try:
         if ext in ("yaml", "yml"):
@@ -193,10 +216,15 @@ async def save_manifest_content(req: ManifestSaveRequest):
         bak_path = target_path.with_suffix(target_path.suffix + ".bak")
         bak_path.write_bytes(target_path.read_bytes())
 
-    # Write new content atomically
+    # Write the new content
     target_path.write_text(req.content, encoding="utf-8")
-    return {
+    response: dict[str, Any] = {
         "status": "success",
         "name": req.name,
         "bytes_written": len(req.content.encode("utf-8")),
     }
+    if target.central:
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(None, sync_all_manifests)
+        response["sync"] = {k: {"success": ok, "message": msg} for k, (ok, msg) in results.items()}
+    return response

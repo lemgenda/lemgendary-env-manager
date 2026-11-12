@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.78-STABLE)
+# LemGendary Environment Manager (v16.9.79-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,18 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.79 - Manifest Editor Edits the Central SSOT Manifests
+
+- `env_manager/api/routes_manifests.py`: the Python and npm dependency
+  manifests listed by `/api/manifests/registry` now resolve to
+  `<env-manager>/requirements/<manifest>` (`ManifestTarget.folder`,
+  `central=True`) instead of the generated project copies, which the next
+  sync overwrote. `POST /api/manifests/save` on a central manifest runs
+  `sync_all_manifests` and returns its results as `sync`. Service
+  registries (`unified_data.yaml` and others) still save in place.
+- `openapi.json`: regenerated for the new save description.
+- `tests/test_manifest_editor_targets.py`: covers the above (audit GUI-3).
 
 ### v16.9.78 - Docs Suite in a Subprocess; Complete Step 6 Validation
 

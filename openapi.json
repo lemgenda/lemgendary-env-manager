@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Environment Manager API",
     "description": "REST and WebSocket sidecar service for LemGendary AI Studio.",
-    "version": "16.9.78"
+    "version": "16.9.79"
   },
   "paths": {
     "/api/ping": {
@@ -499,7 +499,7 @@
     "/api/manifests/save": {
       "post": {
         "summary": "Save Manifest Content",
-        "description": "Safely validate, back up, and atomically write manifest content to disk.",
+        "description": "Validate, back up and write manifest content to disk.\n\nSaving a central manifest copies it into its project right away\n(``sync_all_manifests``); the sync results are returned as ``sync``.",
         "operationId": "save_manifest_content_api_manifests_save_post",
         "requestBody": {
           "content": {
