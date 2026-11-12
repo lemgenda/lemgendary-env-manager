@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.82-STABLE)
+# LemGendary Environment Manager (v16.9.83-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -103,6 +103,14 @@ and the **LemGendary AI Studio Desktop GUI** (`lemgendary-ai-studio-gui`).
   GUI it also checks the snapshot, CSP ports, pipeline steps, the
   `ProjectHealth` keys against `openapi.json` and `package.json` against
   its central manifest.
+- README changelog gate (`readme-changelog`, domain): the tracked
+  working-tree changes, or on a clean tree the last commit, must update
+  `README.md` when they touch source, manifests, requirements, runtime or
+  service configuration, scripts or assets. Docs-only (Markdown other than
+  `README.md`, a top-level `docs/` folder), test-only and tooling-only (CI,
+  git hooks, editor, lint, format and git configuration) changes need no
+  entry. `env_manager/validation/domain/changelog_scope.py` is the single
+  definition of those exemptions; anything it does not list needs an entry.
 - Not implemented: detection of silent `except` blocks.
 - Gates are pluggable: each one is a `Gate` in
   `env_manager/validation/registry.py` with the report list it fills and a
@@ -355,6 +363,23 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.83 - Changelog Gate Allows Docs, Test and Tooling Commits
+
+- `env_manager/validation/domain/changelog_scope.py` (new): the single
+  definition of which changed paths need a README changelog entry. Exempt
+  are docs (Markdown other than `README.md`, anything under a top-level
+  `docs/`), tests (`tests`/`test`/`__tests__` folders, `test_*.py`,
+  `*_test.py`, `conftest.py`, `*.test.*`, `*.spec.*`) and tooling
+  (`.github`, `.githooks`, `.husky`, `.vscode`, and lint, format and git
+  config files by name). Everything else, including `pyproject.toml`,
+  `package.json`, requirements and runtime config, needs an entry.
+- `env_manager/validation/domain/project_hygiene.py`:
+  `audit_readme_changelog` checks only the paths that need an entry, so a
+  docs-only or tooling-only last commit no longer fails the domain gate.
+  The violation names the first path that needs an entry.
+- `tests/test_changelog_scope.py`: exempt and covered paths, and the audit
+  in both directions.
 
 ### v16.9.82 - Failed Editable Install Is a Structured Warning
 

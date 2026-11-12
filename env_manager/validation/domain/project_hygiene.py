@@ -6,6 +6,7 @@ from pathlib import Path
 
 from env_manager._logging import get_logger
 from env_manager.ecosystem import ecosystem
+from env_manager.validation.domain.changelog_scope import is_readme, needs_changelog_entry
 from env_manager.validation.models import FileValidationViolation
 from env_manager.validation.tooling import run_tool
 
@@ -74,7 +75,8 @@ def audit_readme_changelog(project_dir: Path) -> list[FileValidationViolation]:
     """Verify that README.md's changelog was updated along with the project files.
 
     The changes checked are the tracked working-tree changes, or, on a
-    clean tree, the files changed by the last commit.
+    clean tree, the files changed by the last commit. Docs-only, test-only
+    and tooling-only changes need no entry; ``changelog_scope`` defines them.
     """
     readme_path = project_dir / "README.md"
     try:
@@ -82,13 +84,13 @@ def audit_readme_changelog(project_dir: Path) -> list[FileValidationViolation]:
     except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("README changelog audit skipped for %s: %s", project_dir, exc)
         return []
-    non_readme_changes = [f for f in modified_files if Path(f).name.lower() != "readme.md"]
-    if not non_readme_changes:
+    needing_entry = [f for f in modified_files if needs_changelog_entry(f)]
+    if not needing_entry:
         return []
     if not readme_path.exists():
         return [_readme_violation(
             readme_path, "readme_changelog_missing",
-            f"Project '{project_dir.name}' has {len(non_readme_changes)} "
+            f"Project '{project_dir.name}' has {len(needing_entry)} "
             "modified files but README.md does not exist.",
         )]
     readme_text = readme_path.read_text(encoding="utf-8", errors="replace")
@@ -102,11 +104,12 @@ def audit_readme_changelog(project_dir: Path) -> list[FileValidationViolation]:
             f"Project '{project_dir.name}' has modified files but README.md "
             "lacks a valid Changelog section.",
         )]
-    if len(non_readme_changes) == len(modified_files):
+    if not any(is_readme(f) for f in modified_files):
         return [_readme_violation(
             readme_path, "readme_changelog_unupdated",
-            f"Project '{project_dir.name}' has {origin} {len(non_readme_changes)} "
-            "files, but README.md changelog was not updated.",
+            f"Project '{project_dir.name}' has {origin} {len(needing_entry)} "
+            f"files that need a changelog entry (first: {needing_entry[0]}), "
+            "but README.md changelog was not updated.",
         )]
     return []
 
