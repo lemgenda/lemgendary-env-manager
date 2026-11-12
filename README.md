@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.67-STABLE)
+# LemGendary Environment Manager (v16.9.69-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -354,6 +354,19 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.69 - POSIX-Safe Active Venv Detection
+
+- `env_manager/pipeline/venvs.py`: `get_active_venv()` now reads
+  `sys.prefix` instead of resolving `sys.executable`. On Linux and macOS
+  the venv interpreter is a symlink to the base Python, so the old check
+  never saw the running venv and `lem-env install --clean` could delete it.
+- `env_manager/venv_manager.py`: `create_venv()` uses the same check, and
+  `find_processes_in_venv()` also matches `cmdline[0]`, resolving only the
+  parent directory, so venv processes are found on Linux where `exe` is
+  reported already resolved. Relative `argv[0]` values are skipped.
+- `tests/test_active_venv.py`: covers the symlinked interpreter cases.
+- The README title now matches the latest changelog entry again.
 
 ### v16.9.68 - Resilient Netstat Port Holder Discovery & Clean Subprocess Teardown
 

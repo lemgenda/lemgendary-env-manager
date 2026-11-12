@@ -17,6 +17,7 @@ import psutil
 
 from env_manager._logging import get_logger
 from env_manager.ecosystem import ecosystem
+from env_manager.pipeline.venvs import is_inside_active_venv, process_runs_from_venv
 from env_manager.utils import (
     drain_lines,
     run_command_simple,
@@ -109,31 +110,15 @@ def _handle_remove_readonly(func, path, exc):
         raise
 
 
-def _is_inside_active_venv(venv_dir: Path) -> bool:
-    try:
-        current_exe = Path(sys.executable).resolve()
-        target_dir = venv_dir.resolve()
-        if hasattr(current_exe, "is_relative_to"):
-            return current_exe.is_relative_to(target_dir)
-        try:
-            current_exe.relative_to(target_dir)
-            return True
-        except ValueError:
-            return False
-    except OSError as exc:
-        _log.debug("Failed to resolve executable path for venv check: %s", exc)
-        return False
-
-
 def find_processes_in_venv(venv_dir: Path) -> list[Any]:
-    """Find all active processes whose executable or working directory is inside the venv."""
+    """Find all active processes whose interpreter path lives inside the venv."""
     procs = []
     try:
-        venv_resolved = str(venv_dir.resolve()).lower()
-        for p in psutil.process_iter(["pid", "name", "exe"]):
+        for p in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
             try:
-                exe = p.info.get("exe")
-                if exe and str(Path(exe).resolve()).lower().startswith(venv_resolved):
+                cmdline = p.info.get("cmdline") or []
+                candidates = [p.info.get("exe") or "", *cmdline[:1]]
+                if process_runs_from_venv(candidates, venv_dir):
                     procs.append(p)
             except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
                 _log.debug("Skipping process during venv lock scan: %s", exc)
@@ -215,7 +200,7 @@ def create_venv(project_dir: Path) -> tuple[bool, str]:
     """(Re)create ``project_dir/.venv``; refuses to replace the running interpreter's venv."""
     venv_dir = project_dir / ".venv"
 
-    if _is_inside_active_venv(venv_dir):
+    if is_inside_active_venv(venv_dir):
         if is_venv_valid(project_dir):
             _log.info("Refusing to recreate active orchestrator venv at '%s'.", venv_dir)
             return True, "Active execution environment preserved intact."
