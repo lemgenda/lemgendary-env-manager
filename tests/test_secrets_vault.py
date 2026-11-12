@@ -24,6 +24,7 @@ from env_manager.secrets_vault import (
 )
 
 KAGGLE_TOKEN = "KGAT_abcdefgh12345678"
+LEGACY_KEY = "0123456789abcdef-fake-key"
 GITHUB_TOKEN = "ghp_secretsecret9876"
 
 
@@ -173,8 +174,8 @@ class SecretsVaultApiTests(unittest.TestCase):
         self.assertNotIn(GITHUB_TOKEN, res.text)
         self.assertEqual(res.json()["count"], 2)
 
-    def test_propagation_syncs_kaggle_json(self) -> None:
-        """Propagation syncs default Kaggle credentials to ~/.kaggle/kaggle.json."""
+    def test_propagation_writes_api_token_to_access_token(self) -> None:
+        """A default ``KGAT_`` token goes to ~/.kaggle/access_token, not kaggle.json."""
         second = _kaggle(
             "KGAT_second_token_11", username=None, item_id="kaggle-2", is_default=False
         )
@@ -182,24 +183,50 @@ class SecretsVaultApiTests(unittest.TestCase):
 
         report = res.json()["propagation"]
         self.assertEqual(report["failed"], [])
-        kaggle_json = json.loads((self.home_kaggle / "kaggle.json").read_text(encoding="utf-8"))
-        self.assertEqual(kaggle_json, {"username": "alice", "key": KAGGLE_TOKEN})
+        self.assertEqual(report["written"], ["~/.kaggle/access_token"])
+        token = (self.home_kaggle / "access_token").read_text(encoding="utf-8")
+        self.assertEqual(token, KAGGLE_TOKEN)
+        self.assertFalse((self.home_kaggle / "kaggle.json").exists())
 
-    def test_propagation_skips_kaggle_json_without_username(self) -> None:
-        """``kaggle.json`` is skipped when no username is known."""
+    def test_propagation_api_token_needs_no_username(self) -> None:
+        """An API token is written even when the vault holds no username for it."""
         res = self._post([_kaggle(KAGGLE_TOKEN, username=None)])
+        report = res.json()["propagation"]
+        self.assertEqual(report["skipped"], [])
+        self.assertTrue((self.home_kaggle / "access_token").is_file())
+
+    def test_propagation_removes_api_token_stored_as_legacy_key(self) -> None:
+        """A kaggle.json holding a ``KGAT_`` token as ``key`` is removed."""
+        self.home_kaggle.mkdir(parents=True)
+        stale = json.dumps({"username": "alice", "key": KAGGLE_TOKEN})
+        (self.home_kaggle / "kaggle.json").write_text(stale, encoding="utf-8")
+        res = self._post([_kaggle(KAGGLE_TOKEN)])
+        self.assertEqual(res.json()["propagation"]["removed"], ["~/.kaggle/kaggle.json"])
+        self.assertFalse((self.home_kaggle / "kaggle.json").exists())
+
+    def test_propagation_writes_legacy_key_to_kaggle_json(self) -> None:
+        """A legacy key goes to ~/.kaggle/kaggle.json with its username."""
+        res = self._post([_kaggle(LEGACY_KEY)])
+        self.assertEqual(res.json()["propagation"]["written"], ["~/.kaggle/kaggle.json"])
+        kaggle_json = json.loads((self.home_kaggle / "kaggle.json").read_text(encoding="utf-8"))
+        self.assertEqual(kaggle_json, {"username": "alice", "key": LEGACY_KEY})
+        self.assertFalse((self.home_kaggle / "access_token").exists())
+
+    def test_propagation_skips_legacy_key_without_username(self) -> None:
+        """``kaggle.json`` is skipped when a legacy key has no known username."""
+        res = self._post([_kaggle(LEGACY_KEY, username=None)])
         report = res.json()["propagation"]
         self.assertIn("~/.kaggle/kaggle.json", [s["path"] for s in report["skipped"]])
         self.assertFalse((self.home_kaggle / "kaggle.json").exists())
 
     def test_propagation_reports_write_failures(self) -> None:
         """Failed credential writes are listed in the report."""
-        # A directory in place of ~/.kaggle/kaggle.json makes the write fail.
-        (self.home_kaggle / "kaggle.json").mkdir(parents=True, exist_ok=True)
+        # A directory in place of ~/.kaggle/access_token makes the write fail.
+        (self.home_kaggle / "access_token").mkdir(parents=True, exist_ok=True)
         res = self._post([_kaggle(KAGGLE_TOKEN)])
         self.assertEqual(res.status_code, 200)
         failed = [f["path"] for f in res.json()["propagation"]["failed"]]
-        self.assertEqual(failed, ["~/.kaggle/kaggle.json"])
+        self.assertEqual(failed, ["~/.kaggle/access_token"])
         self.assertIn("could not be written", res.json()["message"])
 
     def test_get_reports_unreadable_vault(self) -> None:

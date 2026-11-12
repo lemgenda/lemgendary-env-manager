@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.83-STABLE)
+# LemGendary Environment Manager (v16.9.84-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -200,7 +200,9 @@ documentation is available at `http://127.0.0.1:8000/docs`.
   omitted `secret_value` keeps the stored value for the same `id`; a non-empty
   value replaces it; items left out are removed. A Kaggle token (new or kept) is
   mandatory. The response never echoes values and includes a `propagation`
-  report (`written`, `skipped`, `failed`) for the legacy Kaggle files.
+  report (`written`, `removed`, `skipped`, `failed`) for the Kaggle CLI
+  files: a `KGAT_` API token goes to `~/.kaggle/access_token`, a legacy key
+  to `~/.kaggle/kaggle.json` (both 0600).
 - `WS /ws/logs`: Real-time streaming log feed for pipeline and background tasks.
 
 ### Bug Report Endpoint
@@ -363,6 +365,29 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.84 - Kaggle API Tokens Go to access_token, One Credential Loader
+
+- `env_manager/kaggle_auth/credentials.py` (new): the one Kaggle credential
+  loader. `load_kaggle_credential(vault_records, environ, config_dir)`
+  resolves the vault default first, then `KAGGLE_API_TOKEN` (or
+  `KAGGLE_USERNAME`/`KAGGLE_KEY`), then `~/.kaggle/access_token`, the names
+  kaggle 2.2.5 and kagglesdk read. Each source has its own reader
+  (`credential_from_vault`, `credential_from_env`,
+  `credential_from_access_token_file`). `KaggleCredential` never shows its
+  token in `repr`. Nothing mutates `os.environ`.
+- `env_manager/kaggle_auth/cli_config.py` (new): `KaggleCliConfigWriter`
+  writes a `KGAT_` API token to `~/.kaggle/access_token` and removes a
+  `kaggle.json` that holds an API token as its legacy `key` (the CLI rejects
+  that with 401). A legacy key still goes to `kaggle.json` with its
+  username. Files are created 0600. The report gains `removed`.
+- `env_manager/secrets_vault.py`: propagation uses the loader and the writer
+  instead of always writing the token as `kaggle.json` `key` (audit
+  K-AUTH-3, K-AUTH-4). The unused `.kaggle_token` repository list is gone;
+  `.kaggle_users` is only read to seed a new vault.
+- `tests/test_kaggle_auth.py` (new), `tests/test_secrets_vault.py`: loader
+  order, both file kinds, stale-file removal and write failures, with fake
+  tokens.
 
 ### v16.9.83 - Changelog Gate Allows Docs, Test and Tooling Commits
 

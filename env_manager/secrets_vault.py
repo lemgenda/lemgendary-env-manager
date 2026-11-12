@@ -12,7 +12,10 @@ follows a write-only contract towards API clients:
   on the first save.
 
 After a save the default Kaggle credential is synchronized to the user's
-standard CLI config (``~/.kaggle/kaggle.json``) so official tools work.
+standard Kaggle CLI config so official tools work: a ``KGAT_`` API token to
+``~/.kaggle/access_token``, a legacy key to ``~/.kaggle/kaggle.json`` (see
+:mod:`env_manager.kaggle_auth`). ``.kaggle_users`` in the training suite is
+only read once, to seed a new vault; nothing writes it.
 Repositories read directly from ``.secrets.yaml`` as the Single Source of Truth;
 individual repository dotfiles are not written. Usernames are never invented,
 and write failures are logged and reported back to the caller.
@@ -20,11 +23,9 @@ and write failures are logged and reported back to the caller.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -32,14 +33,18 @@ import yaml
 from pydantic import BaseModel
 
 from env_manager.ecosystem import ecosystem
+from env_manager.kaggle_auth import (
+    KAGGLE_SERVICE,
+    KaggleCliConfigWriter,
+    PropagationReport,
+    credential_from_vault,
+)
 
 _log = logging.getLogger("env_manager.secrets_vault")
 
 SECRETS_FILE_NAME = ".secrets.yaml"
 HINT_LENGTH = 4
 MIN_LENGTH_FOR_HINT = 8
-KAGGLE_SERVICE = "kaggle"
-KAGGLE_JSON_LABEL = "~/.kaggle/kaggle.json"
 DATASETS_REPO = ecosystem().require_service("dataset-compiler").project
 TRAINING_REPO = ecosystem().require_service("training-suite").project
 
@@ -62,11 +67,6 @@ _SINGLE_TOKEN_SOURCES: tuple[tuple[str, str, str, str, str], ...] = (
     ),
     (TRAINING_REPO, ".SATURN_PAT", "saturn-primary", "saturn_cloud", "Saturn Cloud Bearer Token"),
 )
-
-# Repositories that read the default Kaggle token from ``.kaggle_token``.
-# Both repositories ignore that file in their own ``.gitignore``.
-KAGGLE_TOKEN_REPOS: tuple[str, ...] = (DATASETS_REPO, TRAINING_REPO)
-
 
 class SecretItem(BaseModel):
     """A secret as sent by a client. An empty ``secret_value`` keeps the stored value."""
@@ -99,21 +99,6 @@ class MaskedSecretItem(BaseModel):
     created_at: str | None = None
     has_value: bool
     value_hint: str
-
-
-class PropagationIssue(BaseModel):
-    """A legacy credential file that was skipped or could not be written."""
-
-    path: str
-    reason: str
-
-
-class PropagationReport(BaseModel):
-    """Outcome of propagating the default Kaggle credential to legacy files."""
-
-    written: list[str] = []
-    skipped: list[PropagationIssue] = []
-    failed: list[PropagationIssue] = []
 
 
 class SecretsListResponse(BaseModel):
@@ -259,48 +244,6 @@ def seed_from_legacy_files(root: Path) -> list[dict[str, Any]]:
     return seeds
 
 
-@dataclass
-class _Propagator:
-    """Synchronizes the default Kaggle credential to standard user CLI config."""
-
-    root: Path
-    kaggle_config_dir: Path
-    report: PropagationReport = field(default_factory=PropagationReport)
-
-    def _label(self, path: Path) -> str:
-        return path.relative_to(self.root).as_posix()
-
-    def _write(self, path: Path, label: str, content: str) -> None:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-        except OSError as exc:
-            _log.error("Failed writing credential file %s: %s", label, exc)
-            self.report.failed.append(PropagationIssue(path=label, reason=str(exc)))
-            return
-        self.report.written.append(label)
-
-    def _skip(self, label: str, reason: str) -> None:
-        _log.warning("Skipped credential file %s: %s", label, reason)
-        self.report.skipped.append(PropagationIssue(path=label, reason=reason))
-
-    def run(self, kaggle_records: list[dict[str, Any]]) -> PropagationReport:
-        """Write the default Kaggle credential to ~/.kaggle/kaggle.json."""
-        usable = [r for r in kaggle_records if str(r.get("secret_value") or "").strip()]
-        if not usable:
-            return self.report
-        default = next((r for r in usable if r.get("is_default")), usable[0])
-        token = str(default["secret_value"]).strip()
-
-        default_username = str(default.get("username") or "").strip()
-        if not default_username:
-            self._skip(KAGGLE_JSON_LABEL, "default Kaggle credential has no username")
-        else:
-            content = json.dumps({"username": default_username, "key": token}, indent=2)
-            self._write(self.kaggle_config_dir / "kaggle.json", KAGGLE_JSON_LABEL, content)
-        return self.report
-
-
 class SecretsVault:
     """Masked, write-only access to the workspace secrets file."""
 
@@ -377,9 +320,9 @@ class SecretsVault:
                 "Validation failed: Kaggle API token is mandatory across the LemGendary Ecosystem."
             )
         self._write_atomically(records)
-        report = _Propagator(self.workspace_root, self.kaggle_config_dir).run(kaggle)
+        report = KaggleCliConfigWriter(self.kaggle_config_dir).sync(credential_from_vault(kaggle))
         if report.failed:
-            message = "Secrets saved, but some legacy credential files could not be written."
+            message = "Secrets saved, but some Kaggle credential files could not be written."
         else:
             message = "Secrets securely persisted and propagated across repositories."
         return SecretsSaveResponse(

@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Environment Manager API",
     "description": "REST and WebSocket sidecar service for LemGendary AI Studio.",
-    "version": "16.9.83"
+    "version": "16.9.84"
   },
   "paths": {
     "/api/ping": {
@@ -1524,7 +1524,7 @@
           "reason"
         ],
         "title": "PropagationIssue",
-        "description": "A legacy credential file that was skipped or could not be written."
+        "description": "A credential file that was skipped or could not be written."
       },
       "PropagationReport": {
         "properties": {
@@ -1534,6 +1534,14 @@
             },
             "type": "array",
             "title": "Written",
+            "default": []
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Removed",
             "default": []
           },
           "skipped": {
@@ -1555,7 +1563,7 @@
         },
         "type": "object",
         "title": "PropagationReport",
-        "description": "Outcome of propagating the default Kaggle credential to legacy files."
+        "description": "Outcome of propagating the default Kaggle credential to the CLI config."
       },
       "RunPipelineRequest": {
         "properties": {
