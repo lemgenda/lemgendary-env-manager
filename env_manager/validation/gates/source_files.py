@@ -1,11 +1,10 @@
 """Per-file gates: Python bytecode compilation and the zero-emoji rule."""
 
-import py_compile
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from env_manager.validation.files import SCANNABLE_EXTENSIONS, iter_project_files
+from env_manager.validation.files import is_text_source, iter_project_files
 from env_manager.validation.models import FileValidationViolation
 
 # Comprehensive emoji regex range (Unicode 15.0 ranges)
@@ -21,6 +20,9 @@ EMOJI_PATTERN = re.compile(
     "\U0001FA00-\U0001FA6F"  # Chess Symbols
     "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
     "\U00002702-\U000027B0"  # Dingbats
+    "\U00002300-\U000023FF"  # Misc Technical (hourglass, watch, play and stop buttons)
+    "\U00002600-\U000026FF"  # Misc Symbols (sun, warning sign, check boxes, zap)
+    "\U00002B00-\U00002BFF"  # Misc Symbols and Arrows (stars, big circles, heavy arrows)
     "\U0001F100-\U0001F251"  # Enclosed Alphanumeric and Ideographic Supplement
     "]+",
     flags=re.UNICODE,
@@ -55,18 +57,21 @@ def scan_file_for_emojis(file_path: Path) -> list[FileValidationViolation]:
 
 
 def compile_python_file(file_path: Path) -> FileValidationViolation | None:
-    """Compile single Python file and catch syntax errors."""
+    """Compile one Python file in memory and report a syntax error.
+
+    The source is compiled with the built-in ``compile``, so no bytecode is
+    written and validation leaves no ``__pycache__`` behind.
+    """
     try:
-        py_compile.compile(str(file_path), doraise=True)
+        source = file_path.read_bytes()
+        compile(source, str(file_path), "exec", dont_inherit=True)
         return None
-    except py_compile.PyCompileError as err:
-        exc_val = getattr(err, "exc_value", None)
-        line_num = getattr(exc_val, "lineno", 0) if exc_val else 0
+    except SyntaxError as err:
         return FileValidationViolation(
             file_path=str(file_path),
-            line_number=line_num or 0,
+            line_number=err.lineno or 0,
             violation_type="syntax_error",
-            message=str(err),
+            message=f"{err.msg} ({file_path.name}, line {err.lineno})",
         )
     except (OSError, ValueError) as exc:
         return FileValidationViolation(
@@ -96,6 +101,6 @@ def scan_sources(project_dir: Path) -> SourceScan:
             err = compile_python_file(path)
             if err:
                 scan.compile_errors.append(err)
-        if ext in SCANNABLE_EXTENSIONS:
+        if is_text_source(path):
             scan.emoji_violations.extend(scan_file_for_emojis(path))
     return scan

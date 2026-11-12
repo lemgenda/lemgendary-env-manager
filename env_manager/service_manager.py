@@ -353,12 +353,12 @@ def _parse_netstat_pids(output: str, port: int) -> list[int]:
         )
         if not (is_local and is_listener):
             continue
-        try:
-            pid = int(fields[4])
-            if pid and pid not in pids:
-                pids.append(pid)
-        except ValueError:
-            pass
+        if not fields[4].isdigit():
+            _log.debug("Skipping netstat row with a non-numeric PID: %r", line)
+            continue
+        pid = int(fields[4])
+        if pid and pid not in pids:
+            pids.append(pid)
     return pids
 
 

@@ -7,7 +7,7 @@ POSIX home directories in text files. References must resolve relative to the pr
 import re
 from pathlib import Path
 
-from env_manager.validation.files import TEXT_FILE_EXTENSIONS, iter_project_files
+from env_manager.validation.files import is_text_source, iter_project_files
 from env_manager.validation.models import FileValidationViolation, read_error
 
 ABSOLUTE_PATH = "absolute_path"
@@ -18,10 +18,6 @@ _ABSOLUTE_PATH = re.compile(
     r"|\bfile:///[A-Za-z/]"                                  # file URL with a literal path
     r"|(?<![\w.~-])/(?:home|Users)/[A-Za-z0-9_.-]+"          # POSIX home directory
 )
-
-PATH_SCAN_EXTENSIONS = TEXT_FILE_EXTENSIONS
-"""Text file types checked for absolute paths."""
-
 
 def scan_file_for_absolute_paths(path: Path) -> list[FileValidationViolation]:
     """Return one violation per line of ``path`` that holds an absolute path."""
@@ -46,6 +42,6 @@ def run_absolute_path_scan(project_dir: Path) -> list[FileValidationViolation]:
     """Scan every text file in the project for hardcoded absolute paths."""
     found: list[FileValidationViolation] = []
     for path in iter_project_files(project_dir):
-        if path.suffix.lower() in PATH_SCAN_EXTENSIONS:
+        if is_text_source(path):
             found.extend(scan_file_for_absolute_paths(path))
     return found

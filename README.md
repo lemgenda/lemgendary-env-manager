@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.76-STABLE)
+# LemGendary Environment Manager (v16.9.77-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,31 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.77 - Scanner Blind Spots Closed
+
+- `env_manager/validation/files.py`: one set of text types
+  (`TEXT_FILE_EXTENSIONS`) for every text scan; `SCANNABLE_EXTENSIONS`
+  is gone, so the emoji scan now reads `.rs`, `.js`, `.jsx`, `.mjs`,
+  `.cjs`, `.sh`, `.psm1` and `.ipynb` too. New `is_text_source` also
+  treats every file in `.githooks` as text. The walker now enters
+  `.githooks`, `.github` and `.agents` (`SCANNED_HIDDEN_DIRS`).
+- `env_manager/validation/gates/source_files.py`: the emoji pattern adds
+  U+2300-23FF, U+2600-26FF and U+2B00-2BFF. Python files are compiled in
+  memory with the built-in `compile`, so validation no longer writes
+  `__pycache__`.
+- `env_manager/validation/gates/suppressions.py`: also flags silent
+  `except` blocks (body only `pass` or `...`), `filterwarnings` and
+  `simplefilter` called by their bare imported name, empty or
+  comment-only JS/TS `catch` blocks, and PowerShell `SilentlyContinue` or
+  `Ignore` error actions.
+- New `env_manager/validation/gates/config_disables.py`: rule disables in
+  linter configs (Ruff ignore lists, Pylint `disable`, Pyright `report*`
+  set to off, markdownlint rules set to `false`, ESLint rules set to
+  `"off"` or `0`) are suppressions.
+- `env_manager/service_manager.py`: the netstat parser skips non-numeric
+  PIDs with a debug log instead of `except ValueError: pass`.
+- `tests/test_scanner_blind_spots.py`: covers the above (audit 4.2.4).
 
 ### v16.9.76 - HTML Gates Name the File and Audit Every Page
 
