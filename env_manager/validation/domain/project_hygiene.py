@@ -30,84 +30,85 @@ _HOOK_PY_SCRIPT_RE = re.compile(
 """Python script path invoked by a git hook line, e.g. ``python tools/check.py``."""
 
 
+UNTRACKED_STATUS = "??"
+"""``git status --porcelain`` code for an untracked file, which is not a change."""
+
+
+def tracked_changes(porcelain: str) -> list[str]:
+    """Paths of tracked files changed in the working tree or index.
+
+    Untracked files (``??``) are skipped: scratch files are not changes
+    that need a changelog entry. For a rename the new path is kept.
+    """
+    changed: list[str] = []
+    for line in porcelain.splitlines():
+        if len(line) < len("XY f") or line.startswith(UNTRACKED_STATUS):
+            continue
+        path_part = line[3:].strip()
+        if " -> " in path_part:
+            path_part = path_part.split(" -> ", 1)[1].strip()
+        changed.append(path_part)
+    return changed
+
+
+def _changed_files(project_dir: Path) -> tuple[list[str], str]:
+    """Changed files and where they come from: the working tree, else the last commit."""
+    status = run_tool(["git", "status", "--porcelain"], cwd=project_dir, timeout=15)
+    working = tracked_changes(status.stdout)
+    if working:
+        return working, "uncommitted changes in"
+    diff = run_tool(["git", "diff", "HEAD~1", "--name-only"], cwd=project_dir, timeout=15)
+    if diff.returncode != 0:
+        return [], ""
+    committed = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+    return committed, "a last commit that changed"
+
+
+def _readme_violation(readme_path: Path, kind: str, message: str) -> FileValidationViolation:
+    return FileValidationViolation(
+        file_path=str(readme_path), line_number=1, violation_type=kind, message=message,
+    )
+
+
 def audit_readme_changelog(project_dir: Path) -> list[FileValidationViolation]:
-    """Verify that README.md has an updated changelog if any project files have been modified."""
-    violations: list[FileValidationViolation] = []
+    """Verify that README.md's changelog was updated along with the project files.
+
+    The changes checked are the tracked working-tree changes, or, on a
+    clean tree, the files changed by the last commit.
+    """
     readme_path = project_dir / "README.md"
-
-    # Inspect git status of working directory
     try:
-        proc = run_tool(["git", "status", "--porcelain"], cwd=project_dir, timeout=15)
-        status_lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-        modified_files: list[str] = []
-        for line in status_lines:
-            path_part = line[2:].strip()
-            if " -> " in path_part:
-                path_part = path_part.split(" -> ")[1].strip()
-            modified_files.append(path_part)
-
-        # If working tree is clean, inspect latest commit against parent
-        if not modified_files:
-            diff_proc = run_tool(
-                ["git", "diff", "HEAD~1", "--name-only"], cwd=project_dir, timeout=15,
-            )
-            if diff_proc.returncode == 0:
-                modified_files = [
-                    line.strip() for line in diff_proc.stdout.splitlines() if line.strip()
-                ]
-
-        non_readme_changes = [f for f in modified_files if Path(f).name.lower() != "readme.md"]
-        readme_changed = any(Path(f).name.lower() == "readme.md" for f in modified_files)
-
-        if non_readme_changes:
-            if not readme_path.exists():
-                violations.append(
-                    FileValidationViolation(
-                        file_path=str(readme_path),
-                        line_number=1,
-                        violation_type="readme_changelog_missing",
-                        message=(
-                            f"Project '{project_dir.name}' has {len(non_readme_changes)} "
-                            "modified files but README.md does not exist."
-                        ),
-                    )
-                )
-            else:
-                readme_text = readme_path.read_text(encoding="utf-8", errors="ignore")
-                has_changelog = bool(
-                    re.search(r"##\s+(?:Changelog|CHANGELOG)", readme_text)
-                    or re.search(r"###\s+v\d+\.\d+", readme_text)
-                )
-                if not has_changelog:
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=str(readme_path),
-                            line_number=1,
-                            violation_type="readme_changelog_missing",
-                            message=(
-                                f"Project '{project_dir.name}' has modified files but README.md "
-                                "lacks a valid Changelog section."
-                            ),
-                        )
-                    )
-                elif not readme_changed and len(modified_files) > 0 and len(status_lines) > 0:
-                    # Uncommitted working tree files modified without README.md being updated
-                    violations.append(
-                        FileValidationViolation(
-                            file_path=str(readme_path),
-                            line_number=1,
-                            violation_type="readme_changelog_unupdated",
-                            message=(
-                                f"Project '{project_dir.name}' has uncommitted changes in "
-                                f"{len(non_readme_changes)} files, but README.md changelog "
-                                "was not updated."
-                            ),
-                        )
-                    )
+        modified_files, origin = _changed_files(project_dir)
     except (OSError, subprocess.SubprocessError) as exc:
         _log.warning("README changelog audit skipped for %s: %s", project_dir, exc)
-
-    return violations
+        return []
+    non_readme_changes = [f for f in modified_files if Path(f).name.lower() != "readme.md"]
+    if not non_readme_changes:
+        return []
+    if not readme_path.exists():
+        return [_readme_violation(
+            readme_path, "readme_changelog_missing",
+            f"Project '{project_dir.name}' has {len(non_readme_changes)} "
+            "modified files but README.md does not exist.",
+        )]
+    readme_text = readme_path.read_text(encoding="utf-8", errors="replace")
+    has_changelog = bool(
+        re.search(r"##\s+(?:Changelog|CHANGELOG)", readme_text)
+        or re.search(r"###\s+v\d+\.\d+", readme_text)
+    )
+    if not has_changelog:
+        return [_readme_violation(
+            readme_path, "readme_changelog_missing",
+            f"Project '{project_dir.name}' has modified files but README.md "
+            "lacks a valid Changelog section.",
+        )]
+    if len(non_readme_changes) == len(modified_files):
+        return [_readme_violation(
+            readme_path, "readme_changelog_unupdated",
+            f"Project '{project_dir.name}' has {origin} {len(non_readme_changes)} "
+            "files, but README.md changelog was not updated.",
+        )]
+    return []
 
 
 RETIRED_HOOK_SCRIPTS = frozenset({

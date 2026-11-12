@@ -18,7 +18,8 @@ def _run(root: Path, *, upgrades_applied: bool, target: str | None = None) -> Pi
 
 
 def _drive(run: PipelineRun, passed: bool) -> tuple[MagicMock, MagicMock]:
-    with patch(f"{STEPS}.validate_project", return_value=MagicMock(passed=passed)), \
+    reports = [("p", MagicMock(passed=passed))]
+    with patch(f"{STEPS}.iter_workspace_validation", return_value=iter(reports)), \
             patch(f"{STEPS}.sync_manifests_from_venvs", return_value={"p": (True, "ok")}) as venv, \
             patch(f"{STEPS}.sync_all_manifests", return_value={"p": (True, "ok")}) as central:
         list(codebase_verification(run))

@@ -58,15 +58,14 @@ def event_line(event: UpgradeEvent) -> str:
 
 
 def validation_lines(name: str, report: ProjectValidationReport) -> list[str]:
-    """Return the post-upgrade validation line and, on failure, its first compile errors."""
+    """Return the post-upgrade validation line and, on failure, its first three findings."""
     tag = "[bold green][PASS][/bold green]" if report.passed else "[bold red][FAIL][/bold red]"
     lines = [
-        f"{tag} {name}: compiled={report.compiled_files_count}, "
-        f"lint={len(report.lint_errors)}, yaml={len(report.yaml_errors)}"
+        f"{tag} {name}: compiled={report.compiled_files_count}, {report.failure_summary()}"
     ]
     if not report.passed:
         lines += [
             f"  [red]{err.file_path}:{err.line_number}: {err.message}[/red]"
-            for err in report.compile_errors[:3]
+            for err in report.failing_violations()[:3]
         ]
     return lines

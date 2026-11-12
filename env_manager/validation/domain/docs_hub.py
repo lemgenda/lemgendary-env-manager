@@ -1,15 +1,21 @@
 """Domain gates for the LemGendary AI Documentation Hub: paper sync, manifests and suite tests."""
 
-import io
 import json
 import re
-import unittest
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from env_manager.validation.models import MANIFEST_READ_ERRORS, FileValidationViolation
+from env_manager.validation.models import (
+    MANIFEST_READ_ERRORS,
+    FileValidationViolation,
+    tool_failure,
+    unexplained_exit,
+)
+from env_manager.validation.tooling import get_env_manager_python, run_tool
+from env_manager.venv_manager import get_venv_python_path
 
 DOCS_HUB_PROJECTS = ("lemgendary-docs",)
 """Project folders the documentation hub gates apply to."""
@@ -259,37 +265,50 @@ def audit_docs_synchronization(docs_dir: Path) -> list[FileValidationViolation]:
     return violations
 
 
+DOCS_SUITE_TIMEOUT_S = 600
+"""Upper bound for one run of the docs test suite."""
+
+_UNITTEST_PROBLEM = re.compile(r"^(?P<kind>FAIL|ERROR): (?P<test>.+)$", re.MULTILINE)
+
+
+def docs_suite_command(docs_dir: Path) -> list[str] | None:
+    """``unittest discover`` over ``tests/`` with the docs venv Python, else the env-manager's."""
+    venv_python = get_venv_python_path(docs_dir)
+    python = str(venv_python) if venv_python.exists() else get_env_manager_python()
+    if not python:
+        return None
+    return [python, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"]
+
+
+def parse_unittest_output(output: str, tests_dir: Path) -> list[FileValidationViolation]:
+    """One violation per ``FAIL:`` or ``ERROR:`` header in unittest output."""
+    return [
+        FileValidationViolation(
+            file_path=str(tests_dir),
+            line_number=0,
+            violation_type="doc_integrity_failure",
+            message=f"[{m.group('kind')}] {m.group('test').strip()}",
+        )
+        for m in _UNITTEST_PROBLEM.finditer(output)
+    ]
+
+
 def audit_documentation_suite(docs_dir: Path) -> list[FileValidationViolation]:
-    """Execute the comprehensive 20-rule documentation test suite in lemgendary-docs/tests."""
-    violations: list[FileValidationViolation] = []
+    """Run the docs test suite in ``lemgendary-docs/tests`` as a subprocess.
+
+    The suite runs with the docs project's own venv and ``cwd=docs_dir``,
+    so its imports and ``sys.path`` changes never touch the env-manager
+    process.
+    """
     tests_dir = docs_dir / "tests"
     if not tests_dir.exists():
-        return violations
-
+        return []
+    cmd = docs_suite_command(docs_dir)
+    if cmd is None:
+        return [tool_failure("docs-suite", tests_dir, "no Python interpreter found")]
     try:
-        loader = unittest.TestLoader()
-        suite = loader.discover(start_dir=str(tests_dir), pattern="test_*.py")
-        runner = unittest.TextTestRunner(stream=io.StringIO(), verbosity=1)
-        result = runner.run(suite)
-
-        for test, trace in result.failures + result.errors:
-            t_id = test.id() if hasattr(test, "id") else str(test)
-            err_line = trace.strip().splitlines()[-1] if trace.strip() else "Test failed"
-            violations.append(
-                FileValidationViolation(
-                    file_path=str(tests_dir / "test_documentation.py"),
-                    line_number=1,
-                    violation_type="doc_integrity_failure",
-                    message=f"[{t_id}] {err_line}",
-                )
-            )
-    except (ImportError, OSError) as exc:
-        violations.append(
-            FileValidationViolation(
-                file_path=str(tests_dir),
-                line_number=0,
-                violation_type="doc_test_execution_error",
-                message=f"Failed executing documentation test suite: {exc}",
-            )
-        )
-    return violations
+        proc = run_tool(cmd, timeout=DOCS_SUITE_TIMEOUT_S, cwd=docs_dir)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [tool_failure("docs-suite", tests_dir, str(exc))]
+    found = parse_unittest_output(proc.stdout + proc.stderr, tests_dir)
+    return found + unexplained_exit("docs-suite", tests_dir, proc, len(found))

@@ -54,6 +54,32 @@ class ProjectValidationReport:
         """Return the fields as a plain dict for JSON output."""
         return asdict(self)
 
+    def failure_buckets(self) -> dict[str, list[FileValidationViolation]]:
+        """Every bucket that fails the report, by display label, in report order.
+
+        The one list behind every failure summary (pipeline step 6 and
+        ``lem-env update``), so no bucket can be left out of one of them.
+        """
+        return {
+            "Syntax": self.compile_errors,
+            "Emoji": self.emoji_violations,
+            "Lint": self.lint_errors,
+            "YAML": self.yaml_errors,
+            "JSON": self.json_errors,
+            "HTML": self.html_errors,
+            "WCAG": self.wcag_violations,
+            "Domain": self.domain_errors,
+        }
+
+    def failure_summary(self) -> str:
+        """``"Syntax: 0, Emoji: 0, ..."`` counts over every failing bucket."""
+        buckets = self.failure_buckets().items()
+        return ", ".join(f"{label}: {len(found)}" for label, found in buckets)
+
+    def failing_violations(self) -> list[FileValidationViolation]:
+        """All violations that fail the report, bucket by bucket."""
+        return [v for found in self.failure_buckets().values() for v in found]
+
 
 TOOL_ERROR = "tool_error"
 """Violation type for a lint tool that is missing or crashed: the report fails closed."""

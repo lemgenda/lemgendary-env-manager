@@ -11,6 +11,7 @@ This module also keeps the public names that callers import from
 ``env_manager.validator``.
 """
 
+from collections.abc import Iterator
 from pathlib import Path
 
 from env_manager.ecosystem import ecosystem
@@ -64,15 +65,24 @@ def validate_workspace(
     The one implementation behind the CLI and the API, so both check the
     same projects with the same ``is_node_project`` flags.
     """
-    reports: dict[str, ProjectValidationReport] = {}
+    return dict(iter_workspace_validation(base_dir, project))
+
+
+def iter_workspace_validation(
+    base_dir: Path, project: str | None = None,
+) -> Iterator[tuple[str, ProjectValidationReport]]:
+    """Yield ``(folder, report)`` for each validated project, one at a time.
+
+    Same projects and flags as :func:`validate_workspace`; callers that
+    stream progress (pipeline step 6) report each project as it finishes.
+    """
     for target in ecosystem().validated_projects():
         name = target.folder
         if project is not None and name != project:
             continue
         project_dir = base_dir / name
         if project_dir.exists():
-            reports[name] = validate_project(project_dir, is_node_project=target.is_node)
-    return reports
+            yield name, validate_project(project_dir, is_node_project=target.is_node)
 
 
 def validate_project(project_dir: Path, is_node_project: bool = False) -> ProjectValidationReport:
@@ -105,6 +115,7 @@ __all__ = [
     "FileValidationViolation",
     "ProjectValidationReport",
     "compile_python_file",
+    "iter_workspace_validation",
     "parse_pssa_line",
     "run_domain_verification",
     "run_eslint",

@@ -24,7 +24,7 @@ from env_manager.pipeline.venvs import is_same_venv, purge_node_modules
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import HardwareProfile, probe_hardware
 from env_manager.upgrade.manifest_sync import sync_manifests_from_venvs
-from env_manager.validator import ProjectValidationReport, validate_project
+from env_manager.validator import iter_workspace_validation
 from env_manager.venv_manager import (
     ProjectVenvInfo,
     create_venv,
@@ -213,17 +213,6 @@ def dependency_upgrades(run: PipelineRun) -> StepEvents:
     return StepOutcome(None, "success")
 
 
-def _failure_summary(report: ProjectValidationReport) -> str:
-    return (
-        f"Syntax: {len(report.compile_errors)}, "
-        f"Emoji: {len(report.emoji_violations)}, "
-        f"Lint: {len(report.lint_errors)}, "
-        f"YAML: {len(report.yaml_errors)}, "
-        f"HTML: {len(report.html_errors)}, "
-        f"WCAG: {len(report.wcag_violations)}"
-    )
-
-
 def _sync_after_validation(run: PipelineRun, emit: StepEmitter) -> PipelineEvent:
     """Write step 5 upgrades back to the manifests, then copy them to the projects."""
     sync_result: dict[str, tuple[bool, str]] = {}
@@ -239,24 +228,24 @@ def _sync_after_validation(run: PipelineRun, emit: StepEmitter) -> PipelineEvent
 
 
 def codebase_verification(run: PipelineRun) -> StepEvents:
-    """Step 6: validate every project; sync manifests only when all pass."""
+    """Step 6: validate every validated project; sync manifests only when all pass.
+
+    The projects are the ecosystem's ``validated_projects()`` (the same
+    list as ``lem-env validate``), not only the ones with a venv.
+    """
     emit = run.step(6)
     yield emit("info", "Running full validation suite (py_compile, emoji, lint, PS1)...")
     all_passed = True
-    for project in run.managed_projects():
-        report = validate_project(
-            Path(project.project_dir), is_node_project=project.is_node_project,
-        )
+    for name, report in iter_workspace_validation(run.base_dir, run.options.target_project):
         if report.passed:
             yield emit(
                 "success",
-                f"{project.name}: Compiled {report.compiled_files_count} files, "
-                f"0 syntax errors, 0 emoji violations.",
+                f"{name}: Compiled {report.compiled_files_count} files, all gates passed.",
             )
         else:
             all_passed = False
             yield emit(
-                "error", f"{project.name} validation failed: {_failure_summary(report)}",
+                "error", f"{name} validation failed: {report.failure_summary()}",
                 data=report.to_dict(),
             )
     if all_passed:

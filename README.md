@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.77-STABLE)
+# LemGendary Environment Manager (v16.9.78-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,30 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.78 - Docs Suite in a Subprocess; Complete Step 6 Validation
+
+- `env_manager/validation/domain/docs_hub.py`: `audit_documentation_suite`
+  runs `python -m unittest discover -s tests` as a subprocess, with the
+  docs `.venv` Python (falling back to the env-manager's) and
+  `cwd=docs_dir`, instead of importing the docs tests into the
+  env-manager process. `FAIL:`/`ERROR:` headers become violations; a
+  crash with neither is a tool failure.
+- `env_manager/validation/domain/project_hygiene.py`: new
+  `tracked_changes` skips untracked (`??`) files. On a clean tree, a last
+  commit that changed files but not README.md is now flagged; the old
+  guard only ever checked uncommitted changes.
+- `env_manager/validation/models.py`: `ProjectValidationReport` gains
+  `failure_buckets`, `failure_summary` and `failing_violations`, the one
+  list of failing buckets (now including JSON and domain findings).
+- `env_manager/validator.py`: new `iter_workspace_validation`, which
+  `validate_workspace` wraps.
+- `env_manager/pipeline/steps.py`: step 6 validates every
+  `validated_projects()` entry, not only the projects with a venv, and
+  streams one line per project.
+- `env_manager/cli_views/update.py`: the post-upgrade line shows every
+  bucket count, and on failure the first three findings of any bucket.
+- `tests/test_validation_reporting.py`: covers the above (audit 4.2.5).
 
 ### v16.9.77 - Scanner Blind Spots Closed
 
