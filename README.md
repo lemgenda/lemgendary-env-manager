@@ -378,7 +378,7 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
-### v16.9.85 - Kaggle Accelerators, Collaborators and GitHub URL in the Ecosystem File
+### v16.9.85 - Kaggle Accelerators, Collaborators and GitHub URL in Ecosystem
 
 - `ecosystem/ecosystem.json`, `ecosystem/ecosystem.schema.json`: new
   `identity.github_url` and a new `kaggle` section with `collaborators`,
