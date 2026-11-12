@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.70-STABLE)
+# LemGendary Environment Manager (v16.9.71-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -50,8 +50,9 @@ and the **LemGendary AI Studio Desktop GUI** (`lemgendary-ai-studio-gui`).
 
 ### 1. Hardware Probing & Platform Intelligence
 
-- Deep hardware detection across Windows architectures via
-  `env_manager.system_probe`.
+- Hardware detection on Windows, Linux and macOS via
+  `env_manager.system_probe`: NVIDIA CUDA, AMD ROCm (name and VRAM from
+  `rocm-smi --csv`), Apple Silicon MPS, and DirectML with 64-bit VRAM.
 - Queries NVIDIA driver versions, CUDA toolkit capabilities, cuDNN, TensorRT
   library availability, and PyTorch CUDA build compatibility.
 - Recommends tailored PyTorch index URLs (e.g.
@@ -354,6 +355,22 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.71 - Apple MPS, DirectML 64-bit VRAM and rocm-smi CSV Probes
+
+- `env_manager/probe/apple.py`: new probe. macOS on arm64 reports one
+  `mps` device (chip name from `sysctl`, unified memory as VRAM) and the
+  standard PyPI index instead of the CPU wheel index.
+- `env_manager/probe/directml.py`: DirectML probe moved out of
+  `accelerators.py`. It reads the 64-bit
+  `HardwareInformation.qwMemorySize` from the display class registry keys,
+  so GPUs above 4 GB no longer report 4095 MB, and it skips Basic Display,
+  Hyper-V, remote and virtual display adapters.
+- `env_manager/probe/accelerators.py`: `rocm-smi` runs with `--csv`;
+  device index, product name and total VRAM come from the CSV columns.
+  Backend order is CUDA, ROCm, MPS, DirectML, CPU.
+- `env_manager/probe/models.py`: new `PYPI_INDEX` constant.
+- `tests/test_accelerator_probes.py`: covers all three probes.
 
 ### v16.9.70 - Probe-Driven PyTorch Index and macOS Markers
 

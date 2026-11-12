@@ -29,6 +29,9 @@ ROCM_INDEX = "https://download.pytorch.org/whl/rocm6.0"
 CPU_INDEX = "https://download.pytorch.org/whl/cpu"
 """PyTorch wheel index for DirectML and CPU-only hosts."""
 
+PYPI_INDEX = "https://pypi.org/simple"
+"""Standard PyPI index; its macOS arm64 torch wheels include the MPS backend."""
+
 
 @dataclass
 class AcceleratorDevice:

@@ -13,10 +13,10 @@ class TestSystemProbe(unittest.TestCase):
         self.assertIsInstance(profile, HardwareProfile)
         self.assertIn(profile.os_name, ["Windows", "Linux", "Darwin"])
         self.assertGreaterEqual(profile.cpu_count_logical, 1)
-        self.assertIn(profile.primary_backend, ["cuda", "rocm", "directml", "cpu"])
-        self.assertTrue(
-            profile.recommended_torch_index.startswith("https://download.pytorch.org/whl/")
-        )
+        self.assertIn(profile.primary_backend, ["cuda", "rocm", "mps", "directml", "cpu"])
+        self.assertTrue(profile.recommended_torch_index.startswith(
+            ("https://download.pytorch.org/whl/", "https://pypi.org/simple")
+        ))
         data = profile.to_dict()
         self.assertIn("os_name", data)
         self.assertIn("accelerators", data)

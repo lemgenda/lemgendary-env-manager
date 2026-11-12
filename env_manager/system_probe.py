@@ -3,13 +3,14 @@
 Detects operating system, CPU, memory, and accelerator backends:
 - NVIDIA CUDA
 - AMD ROCm
+- Apple Silicon MPS (macOS arm64)
 - DirectML (Windows)
 - CPU Fallback
 
 Also probes MetaTrader 5 terminal installation on Windows. The probes live
 in the ``env_manager.probe`` package (``models``, ``shell``,
-``accelerators``, ``metatrader``); this module assembles the full
-:class:`HardwareProfile` and re-exports the public names.
+``accelerators``, ``apple``, ``directml``, ``metatrader``); this module
+assembles the full :class:`HardwareProfile` and re-exports the public names.
 """
 
 import os
@@ -20,10 +21,11 @@ import psutil
 
 from env_manager.probe.accelerators import (
     detect_accelerators,
-    probe_directml,
     probe_nvidia_smi,
     probe_rocm_smi,
 )
+from env_manager.probe.apple import probe_apple_mps
+from env_manager.probe.directml import probe_directml
 from env_manager.probe.metatrader import mt5_known_paths_probe, probe_metatrader5
 from env_manager.probe.models import (
     CUDA_FALLBACK_INDEX,
@@ -44,6 +46,7 @@ __all__ = [
     "HardwareProfile",
     "MetaTrader5Info",
     "mt5_known_paths_probe",
+    "probe_apple_mps",
     "probe_directml",
     "probe_hardware",
     "probe_metatrader5",
