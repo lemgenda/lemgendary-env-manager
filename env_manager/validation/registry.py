@@ -46,10 +46,13 @@ def is_node(ctx: ProjectContext) -> bool:
 
 
 def has_static_html(ctx: ProjectContext) -> bool:
-    """Static HTML sites (an ``index.html`` or ``papers/``), not Tauri apps."""
+    """Projects with HTML pages: an ``index.html`` (a static site or an app shell) or ``papers/``.
+
+    The Tauri GUI's ``index.html`` is checked too; its build output
+    (``dist``, ``target``) is skipped by the shared project walker.
+    """
     root = ctx.project_dir
-    has_html = (root / "index.html").exists() or (root / "papers").exists()
-    return has_html and not (root / "src-tauri").exists()
+    return (root / "index.html").exists() or (root / "papers").exists()
 
 
 def is_code_project(ctx: ProjectContext) -> bool:

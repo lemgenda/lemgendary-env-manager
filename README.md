@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.75-STABLE)
+# LemGendary Environment Manager (v16.9.76-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,19 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.76 - HTML Gates Name the File and Audit Every Page
+
+- `env_manager/validation/gates/web.py`: html-validate runs with
+  `--formatter json`, so each finding names its `.html` file and line
+  instead of the project folder. pa11y runs with `--reporter json` on every
+  HTML page, not only `index.html`. Both read one file list (`html_files`)
+  from the shared project walker, which skips build output (`dist`,
+  `target`) and hidden folders. Output without a readable report is a tool
+  failure.
+- `env_manager/validation/registry.py`: `has_static_html` no longer skips
+  projects with `src-tauri`, so the GUI `index.html` is validated.
+- `tests/test_web_gates.py`: covers the above (audit 4.2.3).
 
 ### v16.9.75 - ESLint Flat Configs, Warnings and Node tsconfig Checked
 
