@@ -1,10 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "LemGendary Ecosystem",
-  "description": "Single source of truth for LemGendary services, projects, pipeline steps and identity.",
+  "description": "Single source of truth for LemGendary services, projects, pipeline steps, identity and Kaggle settings.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "identity", "services", "projects", "pipeline_steps"],
+  "required": [
+    "schema_version", "identity", "services", "projects", "pipeline_steps", "kaggle"
+  ],
   "properties": {
     "$schema": {"type": "string"},
     "schema_version": {"const": 1},
@@ -23,7 +25,8 @@
       "type": "array",
       "minItems": 1,
       "items": {"$ref": "#/$defs/pipeline_step"}
-    }
+    },
+    "kaggle": {"$ref": "#/$defs/kaggle"}
   },
   "$defs": {
     "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
@@ -38,11 +41,16 @@
     "identity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["docs_url", "kaggle_owner", "bind_host"],
+      "required": ["docs_url", "kaggle_owner", "bind_host", "github_url"],
       "properties": {
         "docs_url": {"type": "string", "pattern": "^https://[A-Za-z0-9._~/-]*[A-Za-z0-9._~-]$"},
         "kaggle_owner": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
-        "bind_host": {"type": "string", "minLength": 1}
+        "bind_host": {"type": "string", "minLength": 1},
+        "github_url": {
+          "description": "GitHub owner URL; a project's clone URL is <github_url>/<folder>.git.",
+          "type": "string",
+          "pattern": "^https://github[.]com/[A-Za-z0-9-]+$"
+        }
       }
     },
     "service": {
@@ -110,6 +118,54 @@
         "name": {"type": "string", "minLength": 1},
         "short_description": {"type": "string", "minLength": 1},
         "long_description": {"type": "string", "minLength": 1}
+      }
+    },
+    "machine_shape": {"type": "string", "pattern": "^[A-Za-z0-9]+$"},
+    "kaggle_accelerator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "kind", "machine_shape"],
+      "properties": {
+        "id": {"$ref": "#/$defs/slug"},
+        "label": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["cpu", "gpu", "tpu"]},
+        "machine_shape": {
+          "description": "Kernel metadata machine_shape and kernels_push acc value; null for CPU.",
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/machine_shape"}]
+        }
+      },
+      "if": {"properties": {"kind": {"const": "cpu"}}},
+      "then": {"properties": {"machine_shape": {"type": "null"}}},
+      "else": {"properties": {"machine_shape": {"type": "string"}}}
+    },
+    "kaggle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collaborators", "default_accelerator", "accelerators", "retired_machine_shapes"
+      ],
+      "properties": {
+        "collaborators": {
+          "description": "Kaggle usernames granted the editor role on pushed models.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"}
+        },
+        "default_accelerator": {
+          "description": "Id of the accelerator used when none is chosen.",
+          "$ref": "#/$defs/slug"
+        },
+        "accelerators": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/kaggle_accelerator"}
+        },
+        "retired_machine_shapes": {
+          "description": "Machine shapes Kaggle no longer offers (compared case-insensitively).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/machine_shape"}
+        }
       }
     }
   }

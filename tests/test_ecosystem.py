@@ -18,6 +18,10 @@ from env_manager.ecosystem import (
     EcosystemFileError,
     ecosystem,
     ecosystem_file,
+    github_repo_url,
+    kaggle_accelerator,
+    kaggle_accelerators,
+    kaggle_collaborators,
 )
 from env_manager.pipeline.steps import STEPS, TOTAL_STEPS
 from env_manager.upgrade.models import upgrade_order
@@ -129,3 +133,61 @@ def test_api_returns_the_file() -> None:
     response = TestClient(server.app).get("/api/ecosystem")
     assert response.status_code == HTTPStatus.OK
     assert response.json() == _raw()
+
+
+def test_kaggle_readers_follow_the_file() -> None:
+    """Collaborators and accelerators are read from the ``kaggle`` section."""
+    kaggle = _raw()["kaggle"]
+    assert list(kaggle_collaborators()) == kaggle["collaborators"]
+    assert [a.id for a in kaggle_accelerators()] == [a["id"] for a in kaggle["accelerators"]]
+    assert kaggle_accelerator().id == kaggle["default_accelerator"]
+    assert kaggle_accelerator("cpu").machine_shape is None
+    with pytest.raises(KeyError, match="unknown-gpu"):
+        kaggle_accelerator("unknown-gpu")
+
+
+def test_no_retired_accelerator_is_offered() -> None:
+    """P100 is retired and no offered shape is on the retired list."""
+    retired = {s.lower() for s in ecosystem().kaggle.retired_machine_shapes}
+    assert "nvidiateslap100" in retired
+    offered = {(a.machine_shape or "").lower() for a in kaggle_accelerators()}
+    assert not offered & retired
+
+
+def test_github_repo_url_names_a_known_project() -> None:
+    """Clone URLs are ``<github_url>/<folder>.git`` for listed projects only."""
+    folder = ecosystem().self_folder()
+    expected = f"{_raw()['identity']['github_url']}/{folder}.git"
+    assert github_repo_url(folder) == expected
+    with pytest.raises(KeyError):
+        github_repo_url("not-a-project")
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda k: k.update(default_accelerator="missing"), "default_accelerator"),
+        (lambda k: k["accelerators"][1].update(machine_shape="NvidiaTeslaP100"), "retired"),
+        (lambda k: k["accelerators"][0].update(machine_shape="NvidiaTeslaT4"), "cpu"),
+    ],
+)
+@pytest.mark.usefixtures("fresh_cache")
+def test_invalid_kaggle_settings_are_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change, message: str,
+) -> None:
+    """A dangling default, a retired shape or a CPU with a shape fails loudly."""
+    raw = _raw()
+    change(raw["kaggle"])
+    fixture = tmp_path / "ecosystem.json"
+    fixture.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setenv(ECOSYSTEM_FILE_ENV, str(fixture))
+    with pytest.raises(EcosystemFileError, match=message):
+        ecosystem()
+
+
+def test_schema_rejects_cpu_with_machine_shape() -> None:
+    """The schema ties a null ``machine_shape`` to the ``cpu`` kind."""
+    schema = json.loads(SCHEMA_FILE.read_text(encoding="utf-8"))
+    raw = _raw()
+    raw["kaggle"]["accelerators"][0]["machine_shape"] = "NvidiaTeslaT4"
+    assert list(Draft202012Validator(schema).iter_errors(raw))

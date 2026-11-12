@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.84-STABLE)
+# LemGendary Environment Manager (v16.9.85-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -308,7 +308,19 @@ python -m env_manager.cli serve
     `requirements_manifest`, `npm_manifest`, `legacy_folders`.
   - `pipeline_steps[]`: `number`, `id`, `name`, `short_description`,
     `long_description`.
-  - `identity`: `docs_url`, `kaggle_owner`, `bind_host`.
+  - `identity`: `docs_url`, `kaggle_owner`, `bind_host`, `github_url` (the
+    GitHub owner URL; a project's clone URL is `<github_url>/<folder>.git`).
+  - `kaggle`: `collaborators` (Kaggle usernames given the editor role on
+    pushed models), `default_accelerator` (an accelerator `id`),
+    `accelerators[]` (`id`, `label`, `kind` `cpu`/`gpu`/`tpu`,
+    `machine_shape`: the kernel metadata `machine_shape` and `kernels_push`
+    `acc` value, `null` for CPU) and `retired_machine_shapes` (shapes Kaggle
+    no longer offers, compared case-insensitively; none may be offered).
+- Readers for the shared settings, in `env_manager.ecosystem`:
+  `kaggle_collaborators()`, `kaggle_accelerators()`,
+  `kaggle_accelerator(id=None)` (the default when `None`) and
+  `github_repo_url(folder)`. Other repositories read the same keys from the
+  file or from `GET /api/ecosystem`.
 - Python code reads it through `env_manager.ecosystem.ecosystem()` (parsed
   once and cached). `LEMGENDARY_ECOSYSTEM_FILE` overrides the location;
   otherwise this repository's own file is used, then the copy the wheel
@@ -365,6 +377,24 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.85 - Kaggle Accelerators, Collaborators and GitHub URL in the Ecosystem File
+
+- `ecosystem/ecosystem.json`, `ecosystem/ecosystem.schema.json`: new
+  `identity.github_url` and a new `kaggle` section with `collaborators`,
+  `default_accelerator`, `accelerators[]` and `retired_machine_shapes`
+  (audit K-AUTH-6, K-DS-5, K-GUI-2). The accelerator table holds the shapes
+  kaggle 2.2.5 documents: CPU (no shape), GPU T4 x2 (`NvidiaTeslaT4`) and
+  TPU v5e-8 (`TpuV5E8`); P100 and the old TPU shapes are listed as retired.
+  The collaborator list keeps the three names the training suite used; the
+  owner will confirm it.
+- `env_manager/ecosystem.py`: `KaggleSettings` and `KaggleAccelerator`
+  models with checks (unique ids, a listed default, no retired shape offered,
+  `machine_shape` null exactly for CPU) and the readers
+  `kaggle_collaborators`, `kaggle_accelerators`, `kaggle_accelerator` and
+  `github_repo_url`.
+- `tests/test_ecosystem.py`: readers, retired shapes, clone URLs and the
+  rejected configurations.
 
 ### v16.9.84 - Kaggle API Tokens Go to access_token, One Credential Loader
 

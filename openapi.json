@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Environment Manager API",
     "description": "REST and WebSocket sidecar service for LemGendary AI Studio.",
-    "version": "16.9.84"
+    "version": "16.9.85"
   },
   "paths": {
     "/api/ping": {
@@ -1135,6 +1135,9 @@
             },
             "type": "array",
             "title": "Pipeline Steps"
+          },
+          "kaggle": {
+            "$ref": "#/components/schemas/KaggleSettings"
           }
         },
         "additionalProperties": false,
@@ -1145,7 +1148,8 @@
           "identity",
           "services",
           "projects",
-          "pipeline_steps"
+          "pipeline_steps",
+          "kaggle"
         ],
         "title": "Ecosystem",
         "description": "The whole ecosystem file."
@@ -1194,6 +1198,10 @@
           "bind_host": {
             "type": "string",
             "title": "Bind Host"
+          },
+          "github_url": {
+            "type": "string",
+            "title": "Github Url"
           }
         },
         "additionalProperties": false,
@@ -1201,10 +1209,92 @@
         "required": [
           "docs_url",
           "kaggle_owner",
-          "bind_host"
+          "bind_host",
+          "github_url"
         ],
         "title": "Identity",
         "description": "Public names and addresses shared by every project."
+      },
+      "KaggleAccelerator": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "gpu",
+              "tpu"
+            ],
+            "title": "Kind"
+          },
+          "machine_shape": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Shape"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "machine_shape"
+        ],
+        "title": "KaggleAccelerator",
+        "description": "A Kaggle session type: what a notebook or kernel push asks for.\n\n``machine_shape`` is the value for the kernel metadata ``machine_shape``\nand the ``acc`` argument of ``kernels_push`` (``None`` for CPU)."
+      },
+      "KaggleSettings": {
+        "properties": {
+          "collaborators": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Collaborators"
+          },
+          "default_accelerator": {
+            "type": "string",
+            "title": "Default Accelerator"
+          },
+          "accelerators": {
+            "items": {
+              "$ref": "#/components/schemas/KaggleAccelerator"
+            },
+            "type": "array",
+            "title": "Accelerators"
+          },
+          "retired_machine_shapes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Retired Machine Shapes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collaborators",
+          "default_accelerator",
+          "accelerators",
+          "retired_machine_shapes"
+        ],
+        "title": "KaggleSettings",
+        "description": "Kaggle facts shared by every project."
       },
       "ManifestSaveRequest": {
         "properties": {

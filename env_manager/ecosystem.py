@@ -1,4 +1,4 @@
-"""Load the ecosystem registry: services, projects, pipeline steps and identity.
+"""Load the ecosystem registry: services, projects, pipeline steps, identity, Kaggle.
 
 ``ecosystem/ecosystem.json`` at the root of this repository is the single
 source of truth for these facts; every module that needs a port, a project
@@ -10,6 +10,10 @@ folder, a pipeline step or the documentation URL reads it through
 3. the copy installed with the wheel under ``<prefix>/share``.
 
 A missing or invalid file raises :class:`EcosystemFileError` naming the path.
+
+Readers for the cross-project Kaggle and GitHub settings:
+:func:`kaggle_collaborators`, :func:`kaggle_accelerators`,
+:func:`kaggle_accelerator` and :func:`github_repo_url`.
 """
 
 import json
@@ -56,6 +60,8 @@ class Identity(_Record):
     docs_url: str
     kaggle_owner: str
     bind_host: str
+    github_url: str
+    """GitHub owner URL; a project's clone URL is ``<github_url>/<folder>.git``."""
 
 
 class Service(_Record):
@@ -102,6 +108,56 @@ class PipelineStep(_Record):
     long_description: str
 
 
+class KaggleAccelerator(_Record):
+    """A Kaggle session type: what a notebook or kernel push asks for.
+
+    ``machine_shape`` is the value for the kernel metadata ``machine_shape``
+    and the ``acc`` argument of ``kernels_push`` (``None`` for CPU).
+    """
+
+    id: str
+    label: str
+    kind: Literal["cpu", "gpu", "tpu"]
+    machine_shape: str | None
+
+    @model_validator(mode="after")
+    def _shape_matches_kind(self) -> "KaggleAccelerator":
+        if (self.kind == "cpu") != (self.machine_shape is None):
+            raise ValueError(f"accelerator {self.id}: machine_shape is null exactly for cpu")
+        return self
+
+
+class KaggleSettings(_Record):
+    """Kaggle facts shared by every project."""
+
+    collaborators: tuple[str, ...]
+    """Kaggle usernames granted the editor role on pushed models."""
+    default_accelerator: str
+    accelerators: tuple[KaggleAccelerator, ...]
+    retired_machine_shapes: tuple[str, ...]
+    """Shapes Kaggle no longer offers (compared case-insensitively)."""
+
+    @model_validator(mode="after")
+    def _check_accelerators(self) -> "KaggleSettings":
+        ids = [a.id for a in self.accelerators]
+        if len(set(ids)) != len(ids):
+            raise ValueError("kaggle accelerator ids must be unique")
+        if self.default_accelerator not in ids:
+            raise ValueError(f"default_accelerator {self.default_accelerator} is not listed")
+        retired = {shape.lower() for shape in self.retired_machine_shapes}
+        for acc in self.accelerators:
+            if acc.machine_shape and acc.machine_shape.lower() in retired:
+                raise ValueError(f"accelerator {acc.id} uses retired {acc.machine_shape}")
+        return self
+
+    def accelerator(self, accelerator_id: str) -> KaggleAccelerator:
+        """Return the accelerator ``accelerator_id``; raise :class:`KeyError` when unknown."""
+        for acc in self.accelerators:
+            if acc.id == accelerator_id:
+                return acc
+        raise KeyError(f"Unknown Kaggle accelerator '{accelerator_id}' in {ecosystem_file()}")
+
+
 class Ecosystem(_Record):
     """The whole ecosystem file."""
 
@@ -111,6 +167,7 @@ class Ecosystem(_Record):
     services: tuple[Service, ...]
     projects: tuple[Project, ...]
     pipeline_steps: tuple[PipelineStep, ...]
+    kaggle: KaggleSettings
 
     @model_validator(mode="after")
     def _check_references(self) -> "Ecosystem":
@@ -179,6 +236,11 @@ class Ecosystem(_Record):
         """Return pipeline step ``number``."""
         return self.pipeline_steps[number - 1]
 
+    def github_repo_url(self, folder: str) -> str:
+        """Git clone URL of the project in ``folder`` (``KeyError`` when unknown)."""
+        project = self.project(folder)
+        return f"{self.identity.github_url.rstrip('/')}/{project.folder}.git"
+
 
 def ecosystem_file() -> Path:
     """Path of the ecosystem file that :func:`ecosystem` reads."""
@@ -215,3 +277,24 @@ def ecosystem() -> Ecosystem:
 def clear_cache() -> None:
     """Forget every parsed file (tests that rewrite a fixture call this)."""
     _load.cache_clear()
+
+
+def kaggle_collaborators() -> tuple[str, ...]:
+    """Kaggle usernames that get the editor role on pushed models."""
+    return ecosystem().kaggle.collaborators
+
+
+def kaggle_accelerators() -> tuple[KaggleAccelerator, ...]:
+    """Every Kaggle session type, in the order a picker should show them."""
+    return ecosystem().kaggle.accelerators
+
+
+def kaggle_accelerator(accelerator_id: str | None = None) -> KaggleAccelerator:
+    """The accelerator ``accelerator_id``, or the default one when ``None``."""
+    settings = ecosystem().kaggle
+    return settings.accelerator(accelerator_id or settings.default_accelerator)
+
+
+def github_repo_url(folder: str) -> str:
+    """Git clone URL of the project in ``folder``."""
+    return ecosystem().github_repo_url(folder)

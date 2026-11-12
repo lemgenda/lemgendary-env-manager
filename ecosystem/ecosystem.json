@@ -4,7 +4,8 @@
   "identity": {
     "docs_url": "https://lemgenda.github.io/ai-training-whitepapers",
     "kaggle_owner": "lemtreursi",
-    "bind_host": "127.0.0.1"
+    "bind_host": "127.0.0.1",
+    "github_url": "https://github.com/lemgenda"
   },
   "services": [
     {
@@ -177,5 +178,15 @@
       "short_description": "Generates complete ecosystem health report and evaluates overall system integrity.",
       "long_description": "Compiles complete cross-project audit matrix covering environment statuses, package counts, missing libraries, and operational health verdicts."
     }
-  ]
+  ],
+  "kaggle": {
+    "collaborators": ["lemgenda", "shyning123", "kuznetsovr"],
+    "default_accelerator": "gpu-t4x2",
+    "accelerators": [
+      {"id": "cpu", "label": "CPU", "kind": "cpu", "machine_shape": null},
+      {"id": "gpu-t4x2", "label": "GPU T4 x2", "kind": "gpu", "machine_shape": "NvidiaTeslaT4"},
+      {"id": "tpu-v5e8", "label": "TPU v5e-8", "kind": "tpu", "machine_shape": "TpuV5E8"}
+    ],
+    "retired_machine_shapes": ["NvidiaTeslaP100", "TpuV38", "Tpu1VmV38", "TpuV232", "TpuV2256"]
+  }
 }
