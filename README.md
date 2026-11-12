@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.73-STABLE)
+# LemGendary Environment Manager (v16.9.74-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -355,6 +355,22 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.74 - Pylint Pinned in Every Python Manifest; Config Fallback
+
+- `requirements/requirements-{env-manager,datasets,training,documentation}.txt`:
+  pin `pylint==4.1.3`. The pylint gate runs from each project's venv, and
+  without the pin a clean install failed validation with
+  `No module named pylint`.
+- `env_manager/validation/gates/pylint_gate.py`: a project with no Pylint
+  config of its own (`pylintrc`, `.pylintrc`, or a pylint section in
+  `pyproject.toml`, `setup.cfg` or `tox.ini`) is linted with
+  `--rcfile=<env-manager>/.pylintrc`.
+- `env_manager/probe/accelerators.py`: a local no longer shadows the
+  `rocm_devices` function. New tests from this audit got docstrings, so
+  the env-manager passes its own pylint gate (10.00/10).
+- `tests/test_pylint_config.py`: covers the pins and the fallback
+  (audit 4.2.1).
 
 ### v16.9.73 - Editable Project Install, Portable pip and verify Checks
 

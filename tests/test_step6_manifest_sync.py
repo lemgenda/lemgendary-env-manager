@@ -26,18 +26,21 @@ def _drive(run: PipelineRun, passed: bool) -> tuple[MagicMock, MagicMock]:
 
 
 def test_upgrades_are_written_back_after_validation(tmp_path: Path) -> None:
+    """Upgrades are written back after validation."""
     venv, central = _drive(_run(tmp_path, upgrades_applied=True, target="p"), passed=True)
     venv.assert_called_once_with(tmp_path, project="p")
     central.assert_called_once_with(tmp_path)
 
 
 def test_failed_validation_writes_nothing(tmp_path: Path) -> None:
+    """Failed validation writes nothing."""
     venv, central = _drive(_run(tmp_path, upgrades_applied=True), passed=False)
     venv.assert_not_called()
     central.assert_not_called()
 
 
 def test_no_upgrades_means_no_venv_write_back(tmp_path: Path) -> None:
+    """No upgrades means no venv write back."""
     venv, central = _drive(_run(tmp_path, upgrades_applied=False), passed=True)
     venv.assert_not_called()
     central.assert_called_once_with(tmp_path)

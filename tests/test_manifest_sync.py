@@ -23,36 +23,43 @@ INSTALLED = {
 
 
 def test_local_build_tag_is_stripped() -> None:
+    """Local build tag is stripped."""
     assert public_version("2.16.0+cu134") == "2.16.0"
     assert synced_line("torch==2.15.0", INSTALLED) == "torch==2.16.0"
 
 
 def test_extras_are_preserved() -> None:
+    """Extras are preserved."""
     assert synced_line("uvicorn[standard]==0.54.0", INSTALLED) == "uvicorn[standard]==0.60.0"
 
 
 def test_floor_specifiers_are_left_as_written() -> None:
+    """Floor specifiers are left as written."""
     assert synced_line("rich>=13.0.0", INSTALLED) == "rich>=13.0.0"
     assert synced_line("rich>=13,<16", INSTALLED) == "rich>=13,<16"
 
 
 def test_marker_text_is_kept_verbatim() -> None:
+    """Marker text is kept verbatim."""
     line = "bitsandbytes==0.50.2; sys_platform != 'darwin'"
     assert synced_line(line, INSTALLED) == "bitsandbytes==0.51.0; sys_platform != 'darwin'"
 
 
 def test_passthrough_lines() -> None:
+    """Passthrough lines."""
     for line in ("", "# comment", "--extra-index-url https://example.invalid/simple",
                  "-e .", "pydantic==2.14.1", "unknown-pkg==1.0", "not a requirement ((("):
         assert synced_line(line, INSTALLED) == line
 
 
 def test_unchanged_pin_keeps_original_formatting() -> None:
+    """Unchanged pin keeps original formatting."""
     line = "rich == 15.1.0"
     assert synced_line(line, INSTALLED) == line
 
 
 def test_npm_dependency_sections_flow_back_but_version_stays() -> None:
+    """Npm dependency sections flow back but version stays."""
     central = {"name": "gui", "version": "1.0.0", "dependencies": {"react": "^18.0.0"},
                "scripts": {"build": "vite build"}}
     project = {"name": "gui", "version": "9.9.9", "dependencies": {"react": "^18.3.1"},
@@ -66,6 +73,7 @@ def test_npm_dependency_sections_flow_back_but_version_stays() -> None:
 
 
 def test_npm_sync_writes_central_manifest(tmp_path: Path) -> None:
+    """Npm sync writes central manifest."""
     project_pkg = tmp_path / "package.json"
     central = tmp_path / "central.package.json"
     project_pkg.write_text(json.dumps({"dependencies": {"a": "^2.0.0"}}), encoding="utf-8")

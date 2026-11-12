@@ -2,8 +2,10 @@
 
 Pylint runs from the project's ``.venv`` when it has one, so imports
 resolve against the project's dependencies, else from the env-manager
-interpreter. Pylint must be installed there; when it is not, the gate
-fails closed with a ``tool_error``.
+interpreter. Pylint must be installed there (it is pinned in every Python
+manifest under ``requirements/``); when it is not, the gate fails closed
+with a ``tool_error``. A project without its own Pylint configuration is
+linted with the env-manager ``.pylintrc``.
 """
 
 import json
@@ -14,6 +16,7 @@ from env_manager.validation.files import SKIP_DIRS, iter_project_files
 from env_manager.validation.models import FileValidationViolation, tool_failure
 from env_manager.validation.tooling import get_env_manager_python, run_tool
 from env_manager.venv_manager import get_venv_python_path
+from env_manager.workspace import ENV_MANAGER_DIR
 
 PYLINT_TIMEOUT_S = 600
 """Upper bound for one Pylint run over a whole project."""
@@ -21,6 +24,38 @@ PYLINT_TIMEOUT_S = 600
 PYLINT_FATAL = 1
 PYLINT_USAGE_ERROR = 32
 """Pylint exit-status bits meaning Pylint itself failed (fatal message, bad usage)."""
+
+
+PYLINT_CONFIG_FILES = ("pylintrc", ".pylintrc")
+"""Dedicated Pylint config files Pylint discovers in the working directory."""
+
+PYLINT_SECTION_FILES = {
+    "pyproject.toml": "[tool.pylint",
+    "setup.cfg": "[pylint",
+    "tox.ini": "[pylint",
+}
+"""Shared config files that configure Pylint only when they hold its section."""
+
+DEFAULT_PYLINTRC = ENV_MANAGER_DIR / ".pylintrc"
+"""Fallback config for projects that ship none of their own."""
+
+
+def has_own_pylint_config(project_dir: Path) -> bool:
+    """True when Pylint would find a configuration in ``project_dir`` itself."""
+    if any((project_dir / name).is_file() for name in PYLINT_CONFIG_FILES):
+        return True
+    for name, section in PYLINT_SECTION_FILES.items():
+        path = project_dir / name
+        if path.is_file() and section in path.read_text(encoding="utf-8", errors="replace"):
+            return True
+    return False
+
+
+def rcfile_args(project_dir: Path) -> list[str]:
+    """``--rcfile`` pointing at the env-manager config when the project has none."""
+    if has_own_pylint_config(project_dir) or not DEFAULT_PYLINTRC.is_file():
+        return []
+    return [f"--rcfile={DEFAULT_PYLINTRC}"]
 
 
 def has_python_sources(project_dir: Path) -> bool:
@@ -63,6 +98,7 @@ def run_pylint(project_dir: Path) -> list[FileValidationViolation]:
         return [tool_failure("pylint", project_dir, "no Python interpreter found")]
     cmd = [
         python_path, "-m", "pylint", "--recursive=y", "--output-format=json",
+        *rcfile_args(project_dir),
         f"--ignore={','.join(sorted(SKIP_DIRS))}", ".",
     ]
     try:

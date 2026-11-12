@@ -27,12 +27,14 @@ def _drain(gen: Generator[PipelineEvent, None, list[str]]) -> list[str]:
 
 
 def test_only_projects_with_a_build_file_are_installable(tmp_path: Path) -> None:
+    """Only projects with a build file are installable."""
     assert not is_installable_project(tmp_path)
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
     assert is_installable_project(tmp_path)
 
 
 def test_editable_install_runs_pip_without_deps(tmp_path: Path) -> None:
+    """Editable install runs pip without deps."""
     done = subprocess.CompletedProcess([], 0, "", "")
     with patch.object(venv_manager, "is_venv_valid", return_value=True), \
             patch.object(venv_manager, "run_pip_with_recovery", return_value=done) as pip:
@@ -44,6 +46,7 @@ def test_editable_install_runs_pip_without_deps(tmp_path: Path) -> None:
 
 
 def test_editable_install_reports_pip_failure(tmp_path: Path) -> None:
+    """Editable install reports pip failure."""
     failed = subprocess.CompletedProcess([], 1, "", "backend missing")
     with patch.object(venv_manager, "is_venv_valid", return_value=True), \
             patch.object(venv_manager, "run_pip_with_recovery", return_value=failed):
@@ -73,6 +76,7 @@ def _install_with(project_dir: Path, editable_ok: bool) -> tuple[list[str], Magi
 
 
 def test_pipeline_installs_the_project_after_requirements(tmp_path: Path) -> None:
+    """Pipeline installs the project after requirements."""
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
     failures, editable = _install_with(tmp_path, editable_ok=True)
     assert failures == []
@@ -80,18 +84,21 @@ def test_pipeline_installs_the_project_after_requirements(tmp_path: Path) -> Non
 
 
 def test_failed_editable_install_is_an_install_failure(tmp_path: Path) -> None:
+    """Failed editable install is an install failure."""
     (tmp_path / "setup.py").write_text("", encoding="utf-8")
     failures, _editable = _install_with(tmp_path, editable_ok=False)
     assert failures == ["proj"]
 
 
 def test_projects_without_a_build_file_skip_the_editable_install(tmp_path: Path) -> None:
+    """Projects without a build file skip the editable install."""
     failures, editable = _install_with(tmp_path, editable_ok=False)
     assert failures == []
     editable.assert_not_called()
 
 
 def test_pip3_alone_counts_as_pip() -> None:
+    """Pip3 alone counts as pip."""
     def which(name: str) -> str | None:
         return "/x" if name == "pip3" else None
 
@@ -100,6 +107,7 @@ def test_pip3_alone_counts_as_pip() -> None:
 
 
 def test_pip_module_counts_as_pip() -> None:
+    """Pip module counts as pip."""
     ok = subprocess.CompletedProcess([], 0, "pip 26.0", "")
     with patch.object(bootstrap.shutil, "which", return_value=None), \
             patch.object(bootstrap, "run_command_simple", return_value=ok) as run:
@@ -108,12 +116,14 @@ def test_pip_module_counts_as_pip() -> None:
 
 
 def test_missing_pip_is_reported() -> None:
+    """Missing pip is reported."""
     with patch.object(bootstrap.shutil, "which", return_value=None), \
             patch.object(bootstrap, "run_command_simple", side_effect=OSError("no python")):
         assert not bootstrap.check_pip()
 
 
 def test_gui_verify_script_is_cross_platform() -> None:
+    """Gui verify script is cross platform."""
     manifest = ENV_MANAGER_DIR / "requirements" / "lemgendary-ai-studio-gui.package.json"
     verify = json.loads(manifest.read_text(encoding="utf-8"))["scripts"]["verify"]
     assert verify.startswith("node -e ")

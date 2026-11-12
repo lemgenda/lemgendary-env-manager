@@ -26,21 +26,23 @@ def _classify(candidates, reverse_deps, dry_run):
 
 
 def test_torch_family_is_dry_run_together_on_the_cuda_index() -> None:
+    """Torch family is dry run together on the cuda index."""
     candidates = [_cuda("torch", "2.14.0", "2.15.0"), _cuda("torchvision", "0.28.0", "0.29.0")]
     changed = {"torch": "2.15.0", "torchvision": "0.29.0"}
     safe, blocked, run = _classify(candidates, {}, lambda *a, **k: (True, changed, "ok"))
     assert [p.name for p in safe] == ["torch", "torchvision"]
-    assert blocked == []
+    assert not blocked
     run.assert_called_once()
     assert run.call_args.args[1] == ["torch", "torchvision"]
     assert run.call_args.kwargs["index_url"] == CUDA_INDEX
 
 
 def test_outside_reverse_dependency_blocks_a_cuda_wheel() -> None:
+    """Outside reverse dependency blocks a cuda wheel."""
     candidates = [_cuda("torch", "2.14.0", "2.15.0")]
     reverse = {"torch": [("xformers", "<2.15"), ("torchvision", "==2.14.0")]}
     safe, blocked, run = _classify(candidates, reverse, lambda *a, **k: (True, {}, "ok"))
-    assert safe == []
+    assert not safe
     assert blocked[0][1] == "xformers requires torch<2.15"
     run.assert_not_called()
 
@@ -55,6 +57,7 @@ def test_plan_routes_cuda_candidates_through_classification(tmp_path: Path) -> N
     blocked_torch = [(found[0], "xformers requires torch<2.15")]
 
     def classify(_p_dir, candidates, cuda_index_url=None):
+        assert cuda_index_url == CUDA_INDEX
         return ([], blocked_torch) if candidates == found else ([], [])
 
     with patch.object(plan_module, "find_outdated_packages", return_value=[]), \
@@ -63,6 +66,6 @@ def test_plan_routes_cuda_candidates_through_classification(tmp_path: Path) -> N
             patch.object(plan_module, "check_torch_cuda_upgrades", return_value=(found, "ok")), \
             patch.object(plan_module, "classify_safe_upgrades", side_effect=classify):
         result = plan_module.plan_python_project(project, CUDA_INDEX)
-    assert result.safe_packages == []
-    assert result.torch_cuda_packages == []
+    assert not result.safe_packages
+    assert not result.torch_cuda_packages
     assert result.blocked_packages == blocked_torch

@@ -45,6 +45,7 @@ def test_directml_single_object_payload() -> None:
 
 
 def test_is_virtual_adapter_is_case_insensitive() -> None:
+    """Is virtual adapter is case insensitive."""
     assert is_virtual_adapter("MICROSOFT BASIC RENDER DRIVER")
     assert not is_virtual_adapter("NVIDIA GeForce RTX 4090")
 
@@ -62,6 +63,7 @@ ROCM_CSV = (
 
 
 def test_rocm_csv_reports_name_and_vram() -> None:
+    """Rocm csv reports name and vram."""
     devices = accelerators.rocm_devices(ROCM_CSV)
     assert [(d.index, d.name) for d in devices] == [
         (0, "Navi 21 [Radeon RX 6800 XT]"), (1, "Radeon Pro W7900"),
@@ -71,12 +73,14 @@ def test_rocm_csv_reports_name_and_vram() -> None:
 
 
 def test_rocm_csv_without_vram_column_reports_zero() -> None:
+    """Rocm csv without vram column reports zero."""
     devices = accelerators.rocm_devices("device,Device Name\ncard0,MI300X\n")
     assert devices[0].name == "MI300X"
     assert devices[0].total_memory_mb == 0
 
 
 def test_probe_rocm_smi_requests_csv() -> None:
+    """Probe rocm smi requests csv."""
     completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=ROCM_CSV, stderr="")
     with patch.object(accelerators.shutil, "which", return_value="rocm-smi"), \
             patch.object(accelerators, "run_command_simple", return_value=completed) as run:
@@ -86,6 +90,7 @@ def test_probe_rocm_smi_requests_csv() -> None:
 
 
 def test_apple_silicon_is_detected_as_mps() -> None:
+    """Apple silicon is detected as mps."""
     with patch.object(apple.platform, "system", return_value="Darwin"), \
             patch.object(apple.platform, "machine", return_value="arm64"), \
             patch.object(apple, "_chip_name", return_value="Apple M3"):
@@ -95,10 +100,11 @@ def test_apple_silicon_is_detected_as_mps() -> None:
 
 
 def test_intel_mac_and_other_hosts_have_no_mps() -> None:
+    """Intel mac and other hosts have no mps."""
     for system, machine in (("Darwin", "x86_64"), ("Linux", "aarch64"), ("Windows", "AMD64")):
         with patch.object(apple.platform, "system", return_value=system), \
                 patch.object(apple.platform, "machine", return_value=machine):
-            assert apple.probe_apple_mps() == [], (system, machine)
+            assert not apple.probe_apple_mps(), (system, machine)
 
 
 def _no_gpu_probes():
@@ -109,6 +115,7 @@ def _no_gpu_probes():
 
 
 def test_detect_accelerators_mps_uses_standard_pypi() -> None:
+    """Detect accelerators mps uses standard pypi."""
     mps = apple.AcceleratorDevice(index=0, name="Apple M2", total_memory_mb=16384, backend="mps")
     nvidia, rocm = _no_gpu_probes()
     with nvidia, rocm, patch.object(accelerators, "probe_apple_mps", return_value=[mps]):
@@ -118,6 +125,7 @@ def test_detect_accelerators_mps_uses_standard_pypi() -> None:
 
 
 def test_detect_accelerators_priority_and_fallback() -> None:
+    """Detect accelerators priority and fallback."""
     nvidia, rocm = _no_gpu_probes()
     with nvidia, rocm, patch.object(accelerators, "probe_apple_mps", return_value=[]), \
             patch.object(accelerators, "probe_directml", return_value=[]):

@@ -125,9 +125,9 @@ def detect_accelerators(os_name: str) -> tuple[list[AcceleratorDevice], str, str
     cuda_devices = probe_nvidia_smi()
     if cuda_devices:
         return cuda_devices, "cuda", select_cuda_torch_index(cuda_devices[0].driver_version)
-    rocm_devices = probe_rocm_smi()
-    if rocm_devices:
-        return rocm_devices, "rocm", ROCM_INDEX
+    rocm_found = probe_rocm_smi()
+    if rocm_found:
+        return rocm_found, "rocm", ROCM_INDEX
     mps_devices = probe_apple_mps()
     if mps_devices:
         return mps_devices, "mps", PYPI_INDEX
