@@ -36,7 +36,8 @@ def test_stop_service_survives_access_denied_socket_listing() -> None:
     """``psutil.AccessDenied`` from ``net_connections`` (macOS) is handled."""
     with patch("env_manager.service_manager.is_port_in_use", return_value=True), \
             patch("env_manager.service_manager.psutil.net_connections",
-                  side_effect=psutil.AccessDenied()):
+                  side_effect=psutil.AccessDenied()), \
+            patch("env_manager.service_manager._find_port_pids_netstat", return_value=[]):
         result = service_manager.stop_service("dataset-compiler")
     assert result["status"] == "not_running"
 

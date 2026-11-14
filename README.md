@@ -380,6 +380,13 @@ duplicate. Run `lem-env validate` to check.
 
 ### v16.9.85 - Kaggle Accelerators, Collaborators and GitHub URL in Ecosystem
 
+- `env_manager/cli.py`, `requirements/runtime_env.yaml`, `tests/test_cli.py`,
+  `tests/test_hygiene.py`: added `--version`/`-V`, `--json` on
+  `probe`/`sync`/`clean`, `--yes`/`-y` confirmation on `install --clean`,
+  non-zero exit codes on `install`/`sync` failures, aligned `pyarrow==26.0.1`
+  in `runtime_env.yaml`, and mocked `_find_port_pids_netstat` in
+  `test_hygiene.py`.
+
 - `ecosystem/ecosystem.json`, `ecosystem/ecosystem.schema.json`: new
   `identity.github_url` and a new `kaggle` section with `collaborators`,
   `default_accelerator`, `accelerators[]` and `retired_machine_shapes`

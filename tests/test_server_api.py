@@ -10,6 +10,8 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
 import env_manager
 from env_manager.api.routes_ecosystem import get_gui_ecosystem, get_gui_state
 from env_manager.api.routes_manifests import get_manifests
@@ -122,6 +124,42 @@ class TestRunPipelineDestructiveOptIn(unittest.TestCase):
         """``clean=True`` reaches the worker unchanged."""
         args = self._started_thread_args(RunPipelineRequest(clean=True))
         self.assertEqual(args[:2], (None, True))
+
+
+class TestServerApiAdditionalRoutes(unittest.TestCase):
+    """Integration tests for ping, ecosystem, update, secrets, and service errors."""
+
+    def setUp(self) -> None:
+        self.client = TestClient(app)
+
+    def test_ping_and_ecosystem_endpoints(self) -> None:
+        """``/api/ping`` and ``/api/ecosystem`` return 200 with expected keys."""
+        ping = self.client.get("/api/ping")
+        self.assertEqual(ping.status_code, 200)
+        self.assertEqual(ping.json()["status"], "ok")
+
+        eco = self.client.get("/api/ecosystem")
+        self.assertEqual(eco.status_code, 200)
+        self.assertIn("services", eco.json())
+
+    def test_update_status_and_unknown_project_404(self) -> None:
+        """``/api/update/status`` returns 200; unknown ``POST /api/update`` returns 404."""
+        status_res = self.client.get("/api/update/status")
+        self.assertEqual(status_res.status_code, 200)
+
+        bad_res = self.client.post(
+            "/api/update", json={"project": "nonexistent-proj", "dry_run": True}
+        )
+        self.assertEqual(bad_res.status_code, 404)
+
+    def test_secrets_masked_and_unknown_service_400(self) -> None:
+        """``GET /api/secrets`` succeeds and unknown service start returns 400."""
+        sec = self.client.get("/api/secrets")
+        self.assertEqual(sec.status_code, 200)
+        self.assertIn("secrets", sec.json())
+
+        svc = self.client.post("/api/services/unknown-service/start")
+        self.assertEqual(svc.status_code, 400)
 
 
 if __name__ == "__main__":

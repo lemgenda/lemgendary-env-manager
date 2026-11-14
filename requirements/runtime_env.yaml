@@ -36,7 +36,7 @@ container_runtime_dependencies:
     format: "webdataset"
     comment: "Sharded tar archive streaming dataset container format."
   pyarrow:
-    specifier: "==26.0.0"
+    specifier: "==26.0.1"
     format: "parquet"
     comment: "High-performance columnar tabular storage format."
   zstandard:

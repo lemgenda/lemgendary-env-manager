@@ -1,11 +1,13 @@
 """Typer command-line interface for the LemGendary Environment Manager (``lem-env``)."""
 
+import json
 import sys
 
 import typer
 import uvicorn
 from rich.console import Console
 
+from env_manager import __version__
 from env_manager._logging import get_logger
 from env_manager.bootstrap import verify_prerequisites
 from env_manager.cli_views.audit import print_audit_report
@@ -69,12 +71,43 @@ app = typer.Typer(
 console = Console()
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"lem-env {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    _version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the lem-env version and exit.",
+    ),
+) -> None:
+    """LemGendary Environment Manager - Authoritative Ecosystem CLI."""
+
+
 @app.command()
-def probe():
+def probe(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+):
     """Probe system hardware, OS, accelerators, MetaTrader 5, and check for software updates."""
-    console.print("[bold cyan]Probing system hardware and accelerators...[/bold cyan]")
     hw = probe_hardware()
     boot = verify_prerequisites()
+    if json_output:
+        payload = {
+            "hardware": hw.model_dump(mode="json") if hasattr(hw, "model_dump") else vars(hw),
+            "prerequisites": (
+                boot.model_dump(mode="json") if hasattr(boot, "model_dump") else vars(boot)
+            ),
+        }
+        typer.echo(json.dumps(payload, indent=2, default=str))
+        return
+    console.print("[bold cyan]Probing system hardware and accelerators...[/bold cyan]")
     console.print(hardware_table(hw))
     if boot.software_updates:
         print_software_updates(console, boot.software_updates)
@@ -110,20 +143,36 @@ def install(
             "Without this flag valid environments are kept."
         ),
     ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip confirmation prompt when running with --clean.",
+    ),
 ):
     """Run the Smart Clean Install Pipeline (creates venvs, npm install, pip install).
 
     Non-destructive by default; pass --clean for a full wipe and reinstall.
     """
+    if clean and not yes:
+        typer.confirm(
+            "This will delete .venv and node_modules and stop running processes. Continue?",
+            abort=True,
+        )
     console.print("[bold green]Starting Smart Clean Install Pipeline...[/bold green]")
     orchestrator = PipelineOrchestrator()
 
+    had_error = False
     for event in orchestrator.run_clean_install_pipeline(target_project=project, clean=clean):
+        if event.status == "error":
+            had_error = True
         color = INSTALL_STATUS_COLORS.get(event.status, "cyan")
         console.print(
             f"[{color}][Step {event.step_number}/{event.total_steps}] "
             f"{event.step_name}: {event.message}[/{color}]"
         )
+    if had_error:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -192,10 +241,21 @@ def _print_sync_results(results: dict[str, tuple[bool, str]]) -> None:
 
 
 @app.command()
-def sync():
+def sync(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+):
     """Synchronize centralized manifests to all sibling projects (one-way copy)."""
-    console.print("[bold cyan]Synchronizing requirements manifests...[/bold cyan]")
-    _print_sync_results(sync_all_manifests())
+    results = sync_all_manifests()
+    if json_output:
+        payload = {
+            name: {"ok": ok, "message": msg} for name, (ok, msg) in results.items()
+        }
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print("[bold cyan]Synchronizing requirements manifests...[/bold cyan]")
+        _print_sync_results(results)
+    if not all(ok for ok, _ in results.values()):
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -234,15 +294,26 @@ def clean_command(
     project: str | None = typer.Option(
         None, "--project", "-p", help="Target specific project to clean"
     ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ):
     """Reclaim disk space by purging bytecode caches and temporary artifacts."""
-    console.print("[bold cyan]Reclaiming cache and temporary build artifacts...[/bold cyan]")
     base_dir = workspace_root()
     projects = discover_projects(base_dir)
-
     cleaned_count, total_reclaimed = purge_workspace_caches(projects, project)
-
     reclaimed_mb = total_reclaimed / (1024 * 1024)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "cleaned_count": cleaned_count,
+                    "reclaimed_bytes": total_reclaimed,
+                    "reclaimed_mb": round(reclaimed_mb, 2),
+                },
+                indent=2,
+            )
+        )
+        return
+    console.print("[bold cyan]Reclaiming cache and temporary build artifacts...[/bold cyan]")
     console.print(
         f"[bold green]Reclaimed {cleaned_count} cache artifacts "
         f"({reclaimed_mb:.2f} MB freed).[/bold green]"

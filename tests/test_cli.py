@@ -5,6 +5,7 @@ Phase 2 of Ecosystem Comprehensive Testing Battery.
 Tests CLI dispatching (probe, sync, validate, clean) using Typer's CliRunner.
 """
 
+import json
 import unittest
 from unittest.mock import patch
 
@@ -54,6 +55,34 @@ class TestCliCommands(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, f"validate command failed: {result.output}")
         self.assertIn("lemgendary-docs", result.output)
         self.assertIn("[PASS]", result.output)
+
+    def test_cli_version_flag(self) -> None:
+        """``--version`` prints ``lem-env <version>`` and exits 0."""
+        result = self.runner.invoke(app, ["--version"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("lem-env ", result.output)
+
+    def test_cli_probe_json(self) -> None:
+        """``probe --json`` emits valid JSON with hardware and prerequisites."""
+        with patch("env_manager.bootstrap.check_winget_updates", return_value=[]):
+            result = self.runner.invoke(app, ["probe", "--json"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        payload = json.loads(result.output)
+        self.assertIn("hardware", payload)
+        self.assertIn("prerequisites", payload)
+
+    def test_cli_clean_json(self) -> None:
+        """``clean --json`` emits valid JSON with cleaned_count and reclaimed_bytes."""
+        result = self.runner.invoke(app, ["clean", "--json"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        payload = json.loads(result.output)
+        self.assertIn("cleaned_count", payload)
+        self.assertIn("reclaimed_bytes", payload)
+
+    def test_cli_install_clean_requires_confirmation(self) -> None:
+        """``install --clean`` aborts when the user declines confirmation."""
+        result = self.runner.invoke(app, ["install", "--clean"], input="n\n")
+        self.assertNotEqual(result.exit_code, 0)
 
 
 if __name__ == "__main__":
