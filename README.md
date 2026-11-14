@@ -395,6 +395,8 @@ duplicate. Run `lem-env validate` to check.
   `github_repo_url`.
 - `tests/test_ecosystem.py`: readers, retired shapes, clone URLs and the
   rejected configurations.
+- `requirements.txt`: added `pylint==4.1.3` to enforce fail-closed Pylint
+  validation.
 
 ### v16.9.84 - Kaggle API Tokens Go to access_token, One Credential Loader
 
