@@ -397,6 +397,9 @@ duplicate. Run `lem-env validate` to check.
   rejected configurations.
 - `requirements.txt`: added `pylint==4.1.3` to enforce fail-closed Pylint
   validation.
+- `env_manager/resolver/classify.py`: added `boto3`/`botocore`/`s3transfer`
+  and `albumentations`/`albucore` lockstep families to `CO_DEPENDENT_PAIRS`
+  and included co-dependent twins in per-package dry-run fallbacks.
 
 ### v16.9.84 - Kaggle API Tokens Go to access_token, One Credential Loader
 

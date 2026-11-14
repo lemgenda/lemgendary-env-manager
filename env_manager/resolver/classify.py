@@ -20,6 +20,12 @@ CO_DEPENDENT_PAIRS: dict[str, set[str]] = {
     "pydantic": {"pydantic-core", "pydantic_core"},
     "pydantic-core": {"pydantic"},
     "pydantic_core": {"pydantic"},
+    "boto3": {"botocore", "s3transfer", "aiobotocore"},
+    "botocore": {"boto3", "s3transfer", "aiobotocore"},
+    "s3transfer": {"boto3", "botocore"},
+    "aiobotocore": {"boto3", "botocore"},
+    "albumentations": {"albucore"},
+    "albucore": {"albumentations"},
 }
 """Tightly coupled packages that must be upgraded in lockstep."""
 
@@ -97,9 +103,16 @@ def _vet_normal(ctx: _Context, candidates: list[OutdatedPackage], out: _Verdicts
 
     _log.info("Batch dry-run failed for %s: %s. Falling back per-package.",
               ctx.project_dir, msg)
+    survivor_names = {normalize(p.name): p.name for p in survivors}
     for pkg in survivors:
+        pkg_norm = normalize(pkg.name)
+        twins = [
+            survivor_names[normalize(t)]
+            for t in CO_DEPENDENT_PAIRS.get(pkg_norm, set())
+            if normalize(t) in survivor_names
+        ]
         per_ok, per_changed, _per_msg = constraint_preserving_dry_run(
-            ctx.project_dir, [pkg.name], current_state=ctx.current_state,
+            ctx.project_dir, [pkg.name, *twins], current_state=ctx.current_state,
             extra_index_url=ctx.cuda_index_url,
         )
         if per_ok and normalize(pkg.name) in per_changed:
