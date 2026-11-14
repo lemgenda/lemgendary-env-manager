@@ -1,11 +1,11 @@
 torch==2.15.0
 torchvision==0.29.2
-transformers==5.22.1
+transformers==5.23.0
 pillow==13.0.0
 numpy==2.5.4
 pydantic==2.14.1
 pydantic-core==2.50.1
-fastapi==0.162.0
+fastapi==0.162.7
 uvicorn==0.54.0
 websockets==17.4
 scikit-learn==1.9.1
@@ -15,19 +15,19 @@ pyyaml==6.0.3
 tqdm==4.70.1
 huggingface-hub>=1.0.0
 tokenizers==0.23.3
-typer==0.27.3
-click==8.5.0
-mediapipe==1.2.0
+typer==0.29.1
+click==8.5.1
+mediapipe==1.2.3
 opencv-contrib-python==5.0.0.93
-regex==2026.9.29
+regex==2026.11.9
 kaggle==2.2.5
 kagglehub==1.0.3
 gdown==6.5.1
-pandas==3.1.0
-pyarrow==26.0.0
+pandas==3.1.1
+pyarrow==26.0.1
 requests==2.34.2
 scipy==1.18.1
-ultralytics==8.4.198
+ultralytics==8.4.212
 MetaTrader5==5.0.6231; sys_platform == 'win32'
 pandas-ta-classic==0.9.0
 ruff>=0.9.0
@@ -40,12 +40,12 @@ httpx2==2.16.0
 # without complete inline type hints. These stub packages provide .pyi files
 # so the type checker can resolve imports without emitting missing-import
 # warnings. They are dev-time only and have no runtime footprint.
-types-PyYAML==6.0.12.20261030
+types-PyYAML==6.0.12.20261113
 types-requests==2.33.0.20261030
-types-psutil==7.2.2.20260906
+types-psutil==7.2.2.20261111
 types-beautifulsoup4==4.12.0.20250516
-types-tqdm==4.70.0.20261102
-types-setuptools==84.0.0.20261006
+types-tqdm==4.70.0.20261106
+types-setuptools==84.2.0.20261104
 scipy-stubs==1.18.1.1
 # ─── Container format runtime dependencies ──────────────────────────────────
 litdata==0.2.76

@@ -6,23 +6,23 @@ pillow==13.0.0
 numpy==2.5.4
 pyyaml==6.0.3
 psutil==7.2.2
-pandas==3.1.0
-pyarrow==26.0.0
+pandas==3.1.1
+pyarrow==26.0.1
 scipy==1.18.1
 tqdm==4.70.1
 opencv-python==5.0.0.93
 matplotlib==3.11.2
 einops==0.8.2
-timm==1.0.30
+timm==1.0.31
 requests==2.34.2
-diffusers==0.42.1
-transformers==5.22.1
+diffusers==0.43.0
+transformers==5.23.0
 accelerate==1.15.0
-peft==0.21.2
+peft==0.21.3
 bitsandbytes==0.50.2; sys_platform != 'darwin'
-sentencepiece==0.2.2
+sentencepiece==0.2.3
 huggingface-hub>=1.0.0
-ultralytics==8.4.198
+ultralytics==8.4.212
 pycocotools==2.0.11
 torch-fidelity>=0.3.0
 onnxruntime-gpu>=1.19.0; sys_platform == 'linux' or sys_platform == 'linux2'
@@ -36,12 +36,12 @@ kagglehub==1.0.3
 gdown==6.5.1
 albumentations==2.0.8
 websockets==17.4
-fastapi==0.162.0
+fastapi==0.162.7
 uvicorn==0.54.0
 pydantic==2.14.1
 pydantic-core==2.50.1
-typer==0.27.3
-click==8.5.0
+typer==0.29.1
+click==8.5.1
 httpx==0.28.1
 MetaTrader5==5.0.6231; sys_platform == 'win32'
 pandas-ta-classic==0.9.0
@@ -57,8 +57,8 @@ zstandard==0.25.0
 # ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
 # Dev-time only; no runtime footprint. Match the runtime libraries listed
 # above so the type checker can resolve their imports cleanly.
-types-PyYAML==6.0.12.20261030
-types-psutil==7.2.2.20260906
+types-PyYAML==6.0.12.20261113
+types-psutil==7.2.2.20261111
 types-requests==2.33.0.20261030
-types-tqdm==4.70.0.20261102
+types-tqdm==4.70.0.20261106
 scipy-stubs==1.18.1.1
