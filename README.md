@@ -383,9 +383,10 @@ duplicate. Run `lem-env validate` to check.
 
 - `env_manager/line_length.py`, `tools/line_length_guard.py`: added pure
   standard-library line length enforcement and reflow engine for Markdown
-  (<= 80 chars) and Python (<= 100 chars).
+  (<= 80 chars) and Python (<= 100 chars); extracted constants for magic values
+  conforming to Ruff PLR2004.
 - `env_manager/cli.py`: added `check-lines` and `fix-lines` CLI commands to
-  `lem-env`.
+  `lem-env` using `typing.Annotated` style to eliminate Ruff B008 warnings.
 - `env_manager/hooks.py`: updated `PRE_COMMIT_TEMPLATE` to run instant
   (< 50ms) pre-flight line length validation on Git staged files before
   launching the full validation suite.

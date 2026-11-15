@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 import uvicorn
@@ -388,11 +389,26 @@ def hooks_command(
 
 @app.command(name="check-lines")
 def check_lines(
-    paths: list[str] | None = typer.Argument(None, help="Files or directories to audit"),
-    staged: bool = typer.Option(False, "--staged", "-s", help="Audit only Git staged files"),
-    md_limit: int = typer.Option(DEFAULT_MD_LIMIT, "--md-limit", help="Markdown limit"),
-    py_limit: int = typer.Option(DEFAULT_PY_LIMIT, "--py-limit", help="Python limit"),
-    ignore_headings: bool = typer.Option(False, "--ignore-headings", help="Ignore headings"),
+    paths: Annotated[
+        list[str] | None,
+        typer.Argument(help="Files or directories to audit"),
+    ] = None,
+    staged: Annotated[
+        bool,
+        typer.Option("--staged", "-s", help="Audit only Git staged files"),
+    ] = False,
+    md_limit: Annotated[
+        int,
+        typer.Option("--md-limit", help="Markdown limit"),
+    ] = DEFAULT_MD_LIMIT,
+    py_limit: Annotated[
+        int,
+        typer.Option("--py-limit", help="Python limit"),
+    ] = DEFAULT_PY_LIMIT,
+    ignore_headings: Annotated[
+        bool,
+        typer.Option("--ignore-headings", help="Ignore headings"),
+    ] = False,
 ):
     """Verify line length compliance for Markdown (<=80) and Python (<=100)."""
     repo_root = workspace_root()
@@ -406,11 +422,26 @@ def check_lines(
 
 @app.command(name="fix-lines")
 def fix_lines(
-    paths: list[str] | None = typer.Argument(None, help="Target files or directories to format"),
-    staged: bool = typer.Option(False, "--staged", "-s", help="Format only Git staged files"),
-    diff: bool = typer.Option(False, "--diff", "-d", help="Display unified diff"),
-    md_limit: int = typer.Option(DEFAULT_MD_LIMIT, "--md-limit", help="Markdown limit"),
-    py_limit: int = typer.Option(DEFAULT_PY_LIMIT, "--py-limit", help="Python limit"),
+    paths: Annotated[
+        list[str] | None,
+        typer.Argument(help="Target files or directories to format"),
+    ] = None,
+    staged: Annotated[
+        bool,
+        typer.Option("--staged", "-s", help="Format only Git staged files"),
+    ] = False,
+    diff: Annotated[
+        bool,
+        typer.Option("--diff", "-d", help="Display unified diff"),
+    ] = False,
+    md_limit: Annotated[
+        int,
+        typer.Option("--md-limit", help="Markdown limit"),
+    ] = DEFAULT_MD_LIMIT,
+    py_limit: Annotated[
+        int,
+        typer.Option("--py-limit", help="Python limit"),
+    ] = DEFAULT_PY_LIMIT,
 ):
     """Auto-fix and reflow line lengths for Markdown (<=80) and Python (<=100)."""
     repo_root = workspace_root()

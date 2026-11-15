@@ -21,6 +21,9 @@ logger = get_logger(__name__)
 
 DEFAULT_MD_LIMIT = 80
 DEFAULT_PY_LIMIT = 100
+MIN_ATOMIC_LINK_LEN = 30
+MATH_FENCE_DELIM_LEN = 2
+PREVIEW_TRUNCATION_LIMIT = 75
 
 SKIP_DIRS = {
     ".git",
@@ -142,7 +145,7 @@ def is_url_or_link_def(line: str) -> bool:
     if re.match(r"^https?://\S+$", s) or re.match(r"^\[[^\]]+\]:\s*\S+$", s):
         return True
     link_m = re.search(r"\]\(([^\s)]+)\)", line)
-    if link_m and len(link_m.group(1)) > 30:
+    if link_m and len(link_m.group(1)) > MIN_ATOMIC_LINK_LEN:
         remainder = line[: link_m.start() + 2] + line[link_m.end() :]
         if len(remainder) <= DEFAULT_MD_LIMIT:
             return True
@@ -195,7 +198,7 @@ def check_markdown_file(path: Path, opts: GuardOptions | None = None) -> list[Li
 
         if is_math_fence(line):
             in_math = not in_math
-            if in_math and stripped.endswith("$$") and len(stripped) > 2:
+            if in_math and stripped.endswith("$$") and len(stripped) > MATH_FENCE_DELIM_LEN:
                 in_math = False
             continue
         if in_math:
@@ -310,7 +313,7 @@ def reflow_markdown(content: str, width: int = DEFAULT_MD_LIMIT) -> str:
 
         if is_math_fence(line):
             in_math = not in_math
-            if in_math and stripped.endswith("$$") and len(stripped) > 2:
+            if in_math and stripped.endswith("$$") and len(stripped) > MATH_FENCE_DELIM_LEN:
                 in_math = False
             out_lines.append(line)
             continue
@@ -448,7 +451,11 @@ def run_check(files: list[Path], opts: GuardOptions, repo_root: Path) -> int:
             if v.file_path.is_relative_to(repo_root)
             else v.file_path
         )
-        preview = v.line_content[:75] + "..." if len(v.line_content) > 75 else v.line_content
+        preview = (
+            v.line_content[:PREVIEW_TRUNCATION_LIMIT] + "..."
+            if len(v.line_content) > PREVIEW_TRUNCATION_LIMIT
+            else v.line_content
+        )
         print(f"  {rel}:{v.line_number}: line length {v.length} > {v.limit} | {preview}")
 
     print("\n[REMEDIATION] Run 'python tools/line_length_guard.py fix' to auto-wrap lines.")
