@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.85-STABLE)
+# LemGendary Environment Manager (v16.9.86-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -222,7 +222,8 @@ documentation is available at `http://127.0.0.1:8000/docs`.
     lists `{"loc": ["body", field], "msg": str, "type": str}`.
   - Archive `bug_report_<UTC YYYYMMDDTHHMMSSZ>_<8-char id>.zip` contains
     `report.csv` (header row plus one row:
-    `timestamp,report_id,email,module,current_tab,app_version,description,screenshot_count,has_recording,has_telemetry`),
+    `timestamp,report_id,email,module,current_tab,app_version,`
+    `description,screenshot_count,has_recording,has_telemetry`),
     `telemetry.csv`, `screenshot_N.<ext>` and `recording.<ext>`. It is saved to
     `bug-reports/` at the workspace root (outside every repository).
   - Response: `report_id`, `archive_name`, `archive_path` (relative to the
@@ -377,6 +378,22 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.86 - Line Length Guard, Auto-Fixer & Pre-Flight Pre-Commit Hook
+
+- `env_manager/line_length.py`, `tools/line_length_guard.py`: added pure
+  standard-library line length enforcement and reflow engine for Markdown
+  (<= 80 chars) and Python (<= 100 chars).
+- `env_manager/cli.py`: added `check-lines` and `fix-lines` CLI commands to
+  `lem-env`.
+- `env_manager/hooks.py`: updated `PRE_COMMIT_TEMPLATE` to run instant
+  (< 50ms) pre-flight line length validation on Git staged files before
+  launching the full validation suite.
+- `tests/test_line_length.py`: added unit and regression test battery.
+- Mandatory changelog gate note: pre-commit hooks across the entire ecosystem
+  strictly enforce that any commit containing functional code modifications
+  must update the project's `README.md` changelog, or the commit will fail and
+  be blocked.
 
 ### v16.9.85 - Kaggle Accelerators, Collaborators and GitHub URL in Ecosystem
 
@@ -677,14 +694,15 @@ duplicate. Run `lem-env validate` to check.
 - `tests/test_active_venv.py`: covers the symlinked interpreter cases.
 - The README title now matches the latest changelog entry again.
 
-### v16.9.68 - Resilient Netstat Port Holder Discovery & Clean Subprocess Teardown
+### v16.9.68 - Resilient Netstat Port Discovery & Clean Subprocess Teardown
 
-- `env_manager/service_manager.py`: Hardened `_find_port_pids_netstat` to parse
-  both standard `0.0.0.0:0` listeners and Windows loopback endpoints (`127.0.0.1:0`
-  or `*:*`) so lingering port holder processes on ports 8000, 8100, and 8200
-  are discovered and terminated during service stop requests.
-- `env_manager/service_manager.py`: Preserved direct PID registration on detached
-  server spawns to avoid orphaned daemon trees across test runs and GUI stops.
+- `env_manager/service_manager.py`: Hardened `_find_port_pids_netstat` to
+  parse both standard `0.0.0.0:0` listeners and Windows loopback endpoints
+  (`127.0.0.1:0` or `*:*`) so lingering port holder processes on ports 8000,
+  8100, and 8200 are discovered and terminated during service stop requests.
+- `env_manager/service_manager.py`: Preserved direct PID registration on
+  detached server spawns to avoid orphaned daemon trees across test runs and
+  GUI stops.
 
 ### v16.9.67 - Resilient Sidecar Process Tree Termination & Autorun Guard
 
@@ -701,10 +719,10 @@ duplicate. Run `lem-env validate` to check.
 
 ### v16.9.66 - Robust Netstat Port Holder Discovery on Windows
 
-- `env_manager/service_manager.py`: Added `_find_port_pids_netstat` fallback in
-  `_stop_port_holder` when `psutil.net_connections` encounters Windows permission
-  checks (`RuntimeError: GetExtendedTcpTable failed`), ensuring reliable stop of
-  all sidecar services across the desktop application.
+- `env_manager/service_manager.py`: Added `_find_port_pids_netstat`
+  fallback in `_stop_port_holder` when `psutil.net_connections` encounters
+  Windows permission checks (`RuntimeError: GetExtendedTcpTable failed`),
+  ensuring reliable stop of all sidecar services across the desktop.
 - `env_manager/service_manager.py`: Named constant `_NETSTAT_TCP_COLUMNS = 5` to
   adhere to Ruff PLR2004 comparison rule.
 
@@ -719,11 +737,12 @@ duplicate. Run `lem-env validate` to check.
 
 ### v16.9.64 - Synchronize Central Tauri 2.12 SSOT Manifest
 
-- `requirements/lemgendary-ai-studio-gui.package.json`: Updated `@tauri-apps/api`
-  and `@tauri-apps/cli` to `~2.12.0` and `@tauri-apps/plugin-shell` to `~2.6.0`,
-  aligning with the Tauri 2.12 desktop ecosystem release.
+- `requirements/lemgendary-ai-studio-gui.package.json`: Updated
+  `@tauri-apps/api` and `@tauri-apps/cli` to `~2.12.0` and
+  `@tauri-apps/plugin-shell` to `~2.6.0`, aligning with the Tauri 2.12
+  desktop ecosystem release.
 
-### v16.9.63 - CUDA 13.4 Toolchain Support & Centralized PyTorch 2.15.0 Manifests
+### v16.9.63 - CUDA 13.4 Toolchain & Centralized PyTorch 2.15.0 Manifests
 
 - `env_manager/probe/models.py`: added driver version `610+` mapping to CUDA
   13.4 index (`https://download.pytorch.org/whl/cu134`) in hardware probe
@@ -1802,7 +1821,7 @@ duplicate. Run `lem-env validate` to check.
 
 ---
 
-### v16.9.7 — Centralized Desktop GUI Manifest Governance & Telemetry Progress Provisioning
+### v16.9.7 — Centralized GUI Manifest Governance & Telemetry Progress
 
 - **NPM Package Manifest Synchronization
   (`requirements/lemgendary-ai-studio-gui.package.json`)** — Added
@@ -1815,7 +1834,7 @@ duplicate. Run `lem-env validate` to check.
 
 ---
 
-### v16.9.6 — Git Hook Installation API & CLI Alias Alignment, Cache Purge Endpoint
+### v16.9.6 — Git Hook Installation API & CLI Alias Alignment, Cache Purge
 
 - **Git Hook Installation Endpoint (`POST /api/hooks/install`)** — Implemented
   dedicated REST endpoint executing `install_git_hooks()` asynchronously,
@@ -1899,7 +1918,7 @@ duplicate. Run `lem-env validate` to check.
   lint failures caused by third-party training run configurations while
   preserving rigorous compliance enforcement across all source manifests.
 
-### v16.9.2 — Windowless Cross-Platform Daemon Execution & Startup Polling Stabilization
+### v16.9.2 — Windowless Cross-Platform Daemon Execution & Startup Polling
 
 - **Headless Windowless Daemon Execution** — Updated `service_manager.py` to
   launch background sidecars without spawning console or terminal windows. On
@@ -1919,7 +1938,7 @@ duplicate. Run `lem-env validate` to check.
 - **Dual GET & HEAD Health Endpoint Support** — Added `@app.head("/api/health")`
   decorator to ensure universal HTTP probe compatibility with desktop frontends.
 
-### v16.9.1 — Ecosystem Sidecar Process Lifecycle Management & On-Demand Dispatch
+### v16.9.1 — Ecosystem Sidecar Process Lifecycle & On-Demand Dispatch
 
 - **On-Demand Sidecar Process Supervisor** — Added `env_manager.service_manager`
   to programmatically spawn, monitor, and gracefully terminate background

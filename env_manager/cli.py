@@ -2,6 +2,7 @@
 
 import json
 import sys
+from pathlib import Path
 
 import typer
 import uvicorn
@@ -26,6 +27,15 @@ from env_manager.cli_views.validate import (
 from env_manager.ecosystem import SELF_SERVICE_ID, ecosystem
 from env_manager.health_checker import run_full_health_audit
 from env_manager.hooks import install_git_hooks
+from env_manager.line_length import (
+    DEFAULT_MD_LIMIT,
+    DEFAULT_PY_LIMIT,
+    GuardOptions,
+    discover_files,
+    get_staged_files,
+    run_check,
+    run_fix,
+)
 from env_manager.orchestrator import PipelineOrchestrator
 from env_manager.requirements_manager import sync_all_manifests
 from env_manager.system_probe import probe_hardware
@@ -374,6 +384,42 @@ def hooks_command(
 ):
     """Install or repair pre-commit hooks in every ecosystem project (alias of ``setup-hooks``)."""
     setup_hooks(project=project)
+
+
+@app.command(name="check-lines")
+def check_lines(
+    paths: list[str] | None = typer.Argument(None, help="Files or directories to audit"),
+    staged: bool = typer.Option(False, "--staged", "-s", help="Audit only Git staged files"),
+    md_limit: int = typer.Option(DEFAULT_MD_LIMIT, "--md-limit", help="Markdown limit"),
+    py_limit: int = typer.Option(DEFAULT_PY_LIMIT, "--py-limit", help="Python limit"),
+    ignore_headings: bool = typer.Option(False, "--ignore-headings", help="Ignore headings"),
+):
+    """Verify line length compliance for Markdown (<=80) and Python (<=100)."""
+    repo_root = workspace_root()
+    opts = GuardOptions(md_limit=md_limit, py_limit=py_limit, ignore_headings=ignore_headings)
+    target_paths = [Path(p) for p in paths] if paths else [repo_root]
+    files = get_staged_files(repo_root) if staged else discover_files(target_paths)
+    code = run_check(files, opts, repo_root)
+    if code != 0:
+        raise typer.Exit(code=code)
+
+
+@app.command(name="fix-lines")
+def fix_lines(
+    paths: list[str] | None = typer.Argument(None, help="Target files or directories to format"),
+    staged: bool = typer.Option(False, "--staged", "-s", help="Format only Git staged files"),
+    diff: bool = typer.Option(False, "--diff", "-d", help="Display unified diff"),
+    md_limit: int = typer.Option(DEFAULT_MD_LIMIT, "--md-limit", help="Markdown limit"),
+    py_limit: int = typer.Option(DEFAULT_PY_LIMIT, "--py-limit", help="Python limit"),
+):
+    """Auto-fix and reflow line lengths for Markdown (<=80) and Python (<=100)."""
+    repo_root = workspace_root()
+    opts = GuardOptions(md_limit=md_limit, py_limit=py_limit, fix=True, show_diff=diff)
+    target_paths = [Path(p) for p in paths] if paths else [repo_root]
+    files = get_staged_files(repo_root) if staged else discover_files(target_paths)
+    code = run_fix(files, opts, repo_root)
+    if code != 0:
+        raise typer.Exit(code=code)
 
 
 if __name__ == "__main__":

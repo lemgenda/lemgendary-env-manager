@@ -173,6 +173,7 @@ def _hook_line_violations(
         )
         for py_script in _HOOK_PY_SCRIPT_RE.findall(line)
         if not (project_dir / py_script).resolve().exists()
+        and not (project_dir.parent / py_script).resolve().exists()
     ]
     return violations
 
