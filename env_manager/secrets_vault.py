@@ -57,7 +57,20 @@ _SINGLE_TOKEN_SOURCES: tuple[tuple[str, str, str, str, str], ...] = (
         "google_drive",
         "Google Drive Primary API Key",
     ),
-    (TRAINING_REPO, ".GITHUB_PAT", "github-primary", "github", "GitHub Personal Access Token"),
+    (
+        TRAINING_REPO,
+        ".SUITE_PAT",
+        "github-primary",
+        "github",
+        "GitHub Personal Access Token (SUITE_PAT)",
+    ),
+    (
+        TRAINING_REPO,
+        ".GITHUB_PAT",
+        "github-primary",
+        "github",
+        "GitHub Personal Access Token (SUITE_PAT)",
+    ),
     (
         DATASETS_REPO,
         ".huggingface_token",

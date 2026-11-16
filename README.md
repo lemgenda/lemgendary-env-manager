@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.86-STABLE)
+# LemGendary Environment Manager (v16.9.87-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -378,6 +378,14 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.87 - SUITE_PAT Ecosystem Secrets Seeding
+
+- `env_manager/secrets_vault.py`: Added `.SUITE_PAT` discovery in
+  `_SINGLE_TOKEN_SOURCES` mapping to `github-primary`, while keeping legacy
+  `.GITHUB_PAT` seed compatibility. Standardized token description to
+  `GitHub Personal Access Token (SUITE_PAT)`.
+- Verified secrets vault unit tests and API tests pass with 100% compliance.
 
 ### v16.9.86 - Line Length Guard, Auto-Fixer & Pre-Flight Pre-Commit Hook
 
