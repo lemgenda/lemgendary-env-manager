@@ -100,8 +100,8 @@ def _preflight_service(svc: Service) -> dict[str, Any] | None:
         }
     if is_port_in_use(port):
         return {
-            "status": "starting",
-            "message": f"{name} is currently binding/starting on port {port}.",
+            "status": "already_running",
+            "message": f"{name} is already running and listening on port {port}.",
             "port": port,
         }
     if not proj_dir.exists():

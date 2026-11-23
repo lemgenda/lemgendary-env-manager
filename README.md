@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.87-STABLE)
+# LemGendary Environment Manager (v16.9.88-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -378,6 +378,12 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.88 - Port-In-Use Startup Guard
+
+- **Idempotent Service Startup**: Hardened `_preflight_service` in
+  `env_manager/service_manager.py` to report `already_running` whenever the
+  service port is already bound, preventing redundant process spawning.
 
 ### v16.9.87 - SUITE_PAT Ecosystem Secrets Seeding
 
