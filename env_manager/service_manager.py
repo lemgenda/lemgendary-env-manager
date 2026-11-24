@@ -33,6 +33,7 @@ _log = get_logger(__name__)
 STARTUP_TIMEOUT_S = 20.0
 """Seconds a sidecar may take to report healthy; PyTorch/CUDA suites need most of it."""
 
+
 def _name(svc: Service) -> str:
     """Canonical display name of the project that hosts ``svc``."""
     return ecosystem().display_name(svc.project)
@@ -99,11 +100,19 @@ def _preflight_service(svc: Service) -> dict[str, Any] | None:
             "port": port,
         }
     if is_port_in_use(port):
-        return {
-            "status": "already_running",
-            "message": f"{name} is already running and listening on port {port}.",
-            "port": port,
-        }
+        # Port is bound but fails health check: terminate stale or unresponsive process holder
+        _log.warning(
+            "Port %d held by unresponsive process; terminating port holder before starting %s",
+            port,
+            name,
+        )
+        if not _stop_port_holder(port):
+            return {
+                "status": "already_running",
+                "message": f"{name} is already running and listening on port {port}.",
+                "port": port,
+            }
+        time.sleep(0.5)
     if not proj_dir.exists():
         return {
             "status": "error",
@@ -132,7 +141,10 @@ def _read_log_tail(path: Path, limit: int = 500) -> str:
 
 
 def _await_service_health(
-    svc: Service, proc: subprocess.Popen, stderr_path: Path,
+    svc: Service,
+    proc: subprocess.Popen,
+    stderr_path: Path,
+    log_dir: Path,
 ) -> dict[str, Any]:
     """Poll the health endpoint for ``STARTUP_TIMEOUT_S``; report started, exited or starting.
 
@@ -160,14 +172,27 @@ def _await_service_health(
                 ),
                 "port": port,
             }
+
+    # Startup timed out: kill the ghost process handle and remove the PID file
+    # so an unresponsive daemon never lingers or blocks subsequent port binds.
+    _log.warning(
+        "%s failed health check within %0.1fs; terminating ghost process (PID %d)",
+        name,
+        STARTUP_TIMEOUT_S,
+        proc.pid,
+    )
+    _kill_process_tree(proc.pid)
+    (log_dir / "server.pid").unlink(missing_ok=True)
+    err_text = _read_log_tail(stderr_path)
+
     return {
-        "status": "starting",
+        "status": "error",
         "message": (
-            f"{name} daemon launched (PID {proc.pid}), "
-            f"waiting for health check on port {port}..."
+            f"{name} daemon launched (PID {proc.pid}) but failed to report healthy "
+            f"within {int(STARTUP_TIMEOUT_S)}s; process terminated. "
+            f"Logs: {err_text.strip() or 'No error output'}"
         ),
         "port": port,
-        "pid": proc.pid,
     }
 
 
@@ -217,9 +242,10 @@ def _launch_service(svc: Service, python_exe: Path) -> dict[str, Any]:
     ]
 
     try:
-        with open(stdout_path, "a", encoding="utf-8") as out_f, open(
-            stderr_path, "a", encoding="utf-8"
-        ) as err_f:
+        with (
+            open(stdout_path, "a", encoding="utf-8") as out_f,
+            open(stderr_path, "a", encoding="utf-8") as err_f,
+        ):
             popen_kwargs: dict[str, Any] = {
                 "cwd": str(proj_dir),
                 "stdin": subprocess.DEVNULL,
@@ -230,9 +256,7 @@ def _launch_service(svc: Service, python_exe: Path) -> dict[str, Any]:
 
             if sys.platform == "win32":
                 # Windows: CREATE_NO_WINDOW ensures no console window opens
-                popen_kwargs["creationflags"] = getattr(
-                    subprocess, "CREATE_NO_WINDOW", 0x08000000
-                )
+                popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
             else:
                 # POSIX (Linux & macOS): detach process into its own session without any terminal
                 popen_kwargs["start_new_session"] = True
@@ -247,7 +271,7 @@ def _launch_service(svc: Service, python_exe: Path) -> dict[str, Any]:
             port,
         )
 
-        return _await_service_health(svc, proc, stderr_path)
+        return _await_service_health(svc, proc, stderr_path, log_dir)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         _log.exception("Failed to launch %s: %s", name, exc)
         return {
@@ -293,7 +317,9 @@ def _kill_process_tree(pid: int) -> bool:
             if res.returncode != 0:
                 _log.warning(
                     "taskkill for PID %d exited with %d: %s",
-                    pid, res.returncode, (res.stderr or res.stdout).strip(),
+                    pid,
+                    res.returncode,
+                    (res.stderr or res.stdout).strip(),
                 )
             return res.returncode == 0
 
@@ -347,9 +373,7 @@ def _parse_netstat_pids(output: str, port: int) -> list[int]:
             continue
         is_local = fields[1].endswith(suffix)
         is_listener = (
-            fields[3].upper() == "LISTENING"
-            or fields[2].endswith(":0")
-            or fields[2] == "*:*"
+            fields[3].upper() == "LISTENING" or fields[2].endswith(":0") or fields[2] == "*:*"
         )
         if not (is_local and is_listener):
             continue
@@ -408,6 +432,7 @@ def stop_service(service_id: str) -> dict[str, Any]:
     proj_dir: Path = _project_dir(svc)
 
     if svc.id == SELF_SERVICE_ID:
+
         def _terminate_self() -> None:
             time.sleep(0.5)
             _log.info("Terminating %s (port %d) on user request.", name, port)
@@ -443,4 +468,18 @@ def start_all_services() -> dict[str, Any]:
     for svc in ecosystem().services:
         if svc.id != SELF_SERVICE_ID:
             results[svc.id] = start_service(svc.id)
+    return results
+
+
+def stop_all_services(include_self: bool = False) -> dict[str, Any]:
+    """Stop all active ecosystem sidecars.
+
+    When ``include_self`` is True, terminates the Environment Manager last.
+    """
+    results: dict[str, Any] = {}
+    for svc in ecosystem().services:
+        if svc.id != SELF_SERVICE_ID:
+            results[svc.id] = stop_service(svc.id)
+    if include_self:
+        results[SELF_SERVICE_ID] = stop_service(SELF_SERVICE_ID)
     return results

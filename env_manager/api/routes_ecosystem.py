@@ -22,7 +22,12 @@ from env_manager import __version__
 from env_manager._logging import get_logger
 from env_manager.api.state import manager, orchestrator, recent_events_snapshot
 from env_manager.ecosystem import SELF_SERVICE_ID, Ecosystem, ecosystem
-from env_manager.service_manager import start_all_services, start_service, stop_service
+from env_manager.service_manager import (
+    start_all_services,
+    start_service,
+    stop_all_services,
+    stop_service,
+)
 from env_manager.system_probe import probe_hardware
 from env_manager.venv_manager import discover_projects
 
@@ -132,6 +137,14 @@ async def start_all_ecosystem_services():
     """Start all offline ecosystem sidecars."""
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, start_all_services)
+    return {"results": results}
+
+
+@router.post("/api/services/stop-all")
+async def stop_all_ecosystem_services():
+    """Stop all active ecosystem sidecars."""
+    loop = asyncio.get_running_loop()
+    results = await loop.run_in_executor(None, stop_all_services, False)
     return {"results": results}
 
 

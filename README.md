@@ -379,6 +379,23 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.91 - Ghost Process Prevention & Ecosystem Teardown API
+
+- **Ghost Process Prevention & Startup Timeout Teardown
+  (`env_manager/service_manager.py`)**: Added automated termination of stale
+  port holders during `_preflight_service` when a port is occupied by an
+  unresponsive process, preventing `WinError 10048` bind failures. Introduced
+  startup timeout safeguards in `_await_service_health`: if a spawned service
+  fails to become healthy within `STARTUP_TIMEOUT_S`, its entire process tree
+  is terminated and `server.pid` cleaned up to prevent orphaned ghost daemons.
+- **Stop All Services API (`env_manager/api/routes_ecosystem.py`,
+  `env_manager/service_manager.py`)**: Exposed `POST /api/services/stop-all` to
+  gracefully terminate all non-self or all running sidecar processes in the
+  ecosystem mesh.
+- **Unit Testing**: Added regression coverage in
+  `tests/test_service_manager.py` validating ecosystem sidecar teardown
+  behavior.
+
 ### v16.9.90 - Step 5 Auto-Manifest Sync & README Upgrade Logging
 
 - Upgraded package(s) for the lemgendary-training-suite.

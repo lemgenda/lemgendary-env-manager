@@ -7,6 +7,7 @@ from env_manager.ecosystem import ecosystem
 from env_manager.service_manager import (
     _parse_netstat_pids,
     _stop_via_pid_files,
+    stop_all_services,
     stop_service,
 )
 
@@ -15,6 +16,7 @@ _PID_PRIMARY_A = 12345
 _PID_PRIMARY_B = 67890
 _PID_ESTABLISHED = 99999
 _PID_ALT = 11111
+_EXPECTED_OTHER_SERVICES_COUNT = 2
 
 
 def test_parse_netstat_pids_matches_various_formats() -> None:
@@ -59,3 +61,16 @@ def test_stop_service_unknown_returns_error() -> None:
     result = stop_service("nonexistent-service")
     assert result["status"] == "error"
     assert "Unknown service" in result["message"]
+
+
+def test_stop_all_services_stops_non_self_services() -> None:
+    """stop_all_services iterates over non-self services."""
+    with patch(
+        "env_manager.service_manager.stop_service", return_value={"status": "stopped"}
+    ) as mock_stop:
+        results = stop_all_services(include_self=False)
+        assert len(results) == _EXPECTED_OTHER_SERVICES_COUNT
+        assert "dataset-compiler" in results
+        assert "training-suite" in results
+        assert "env-manager" not in results
+        assert mock_stop.call_count == _EXPECTED_OTHER_SERVICES_COUNT
