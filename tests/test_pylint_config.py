@@ -12,7 +12,6 @@ PYTHON_MANIFESTS = (
     "requirements-env-manager.txt",
     "requirements-datasets.txt",
     "requirements-training.txt",
-    "requirements-documentation.txt",
 )
 
 

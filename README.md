@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.89-STABLE)
+# LemGendary Environment Manager (v16.9.90-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -378,6 +378,17 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.90 - Step 5 Auto-Manifest Sync & README Upgrade Logging
+
+- **Step 5 Pipeline Auto-Sync (`env_manager/pipeline/steps.py`)**: Automated
+  synchronization of centralized manifests (`sync_manifests_from_venvs` and
+  `sync_all_manifests`) and changelog entry generation upon safe upgrades in
+  Step 5 (`dependency_upgrades`).
+- Upgraded 11 package(s) for the lemgendary-env-manager.
+- Upgraded 14 package(s) for the lemgendary-datasets.
+- Upgraded 15 package(s) for the lemgendary-training-suite.
+- Upgraded 1 package(s) for the lemgendary-ai-studio-gui.
 
 ### v16.9.89 - Validator Skip-Dir & Bundled Ecosystem Snapshot Alignment
 

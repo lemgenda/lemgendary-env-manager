@@ -206,12 +206,58 @@ def requirements_install(run: PipelineRun) -> StepEvents:
     return StepOutcome(sync_results, _status(not result.failures and not result.warnings))
 
 
+def _insert_changelog_line(readme_path: Path, log_line: str) -> bool:
+    """Insert log_line under the latest version or date heading if missing."""
+    try:
+        content = readme_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if log_line in content:
+        return False
+    lines = content.splitlines()
+    target_idx = -1
+    for i, line in enumerate(lines):
+        if line.startswith("### v") or line.startswith("### 2026-"):
+            target_idx = i
+            break
+    if target_idx != -1:
+        entry = f"- {log_line}"
+        lines.insert(target_idx + 1, "")
+        lines.insert(target_idx + 2, entry)
+        readme_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return True
+    return False
+
+
+def _record_upgrade_readme_logs(base_dir: Path, target_project: str | None = None) -> None:
+    """Sync upgrade changelog lines to target project and env-manager READMEs."""
+    projects = discover_projects(base_dir)
+    for p in projects:
+        if target_project and p.name != target_project:
+            continue
+        p_readme = Path(p.project_dir) / "README.md"
+        log_line = f"Upgraded package(s) for the {p.name}."
+        if len(log_line) > 80:
+            log_line = f"Upgraded packages: {p.name}."
+        if p_readme.is_file():
+            _insert_changelog_line(p_readme, log_line)
+        env_readme = base_dir / "lemgendary-env-manager" / "README.md"
+        if env_readme.is_file():
+            _insert_changelog_line(env_readme, log_line)
+
+
 def dependency_upgrades(run: PipelineRun) -> StepEvents:
-    """Step 5: audit outdated packages and apply the safe upgrades."""
+    """Step 5: audit outdated packages, apply upgrades, and sync manifests."""
     emit = run.step(5)
     yield emit("info", "Auditing outdated packages and applying safe upgrades bottom-up...")
     hw = run.hardware()
     run.upgrades_applied = yield from execute_safe_upgrades(run.managed_projects(), hw, emit)
+    if run.upgrades_applied:
+        yield emit("info", "Upgrades applied. Synchronizing manifests and changelogs...")
+        sync_manifests_from_venvs(run.base_dir, project=run.options.target_project)
+        sync_all_manifests(run.base_dir)
+        _record_upgrade_readme_logs(run.base_dir, run.options.target_project)
+        yield emit("success", "Central and project manifests synchronized from venvs.")
     return StepOutcome(None, "success")
 
 

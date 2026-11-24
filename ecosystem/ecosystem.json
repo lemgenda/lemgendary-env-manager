@@ -10,7 +10,11 @@
   "services": [
     {
       "id": "env-manager",
-      "aliases": ["env-manager", "lemgendary-env-manager", "env"],
+      "aliases": [
+        "env-manager",
+        "lemgendary-env-manager",
+        "env"
+      ],
       "project": "lemgendary-env-manager",
       "port": 8000,
       "health_path": "/api/health",
@@ -21,7 +25,11 @@
     },
     {
       "id": "dataset-compiler",
-      "aliases": ["dataset-compiler", "lemgendary-datasets", "datasets"],
+      "aliases": [
+        "dataset-compiler",
+        "lemgendary-datasets",
+        "datasets"
+      ],
       "project": "lemgendary-datasets",
       "port": 8100,
       "health_path": "/api/health",
@@ -32,7 +40,11 @@
     },
     {
       "id": "training-suite",
-      "aliases": ["training-suite", "lemgendary-training-suite", "training"],
+      "aliases": [
+        "training-suite",
+        "lemgendary-training-suite",
+        "training"
+      ],
       "project": "lemgendary-training-suite",
       "port": 8200,
       "health_path": "/api/health",
@@ -92,18 +104,6 @@
       "legacy_folders": []
     },
     {
-      "folder": "lemgendary-docs",
-      "display_name": "LemGendary AI Documentation Hub",
-      "kind": "python",
-      "managed": true,
-      "validated": true,
-      "upgrade_order": 4,
-      "git_hooked": true,
-      "requirements_manifest": "requirements-documentation.txt",
-      "npm_manifest": null,
-      "legacy_folders": []
-    },
-    {
       "folder": "LemGendaryDatasets",
       "display_name": "LemGendary Compiled Manifolds Repo",
       "kind": "asset",
@@ -113,7 +113,9 @@
       "git_hooked": true,
       "requirements_manifest": null,
       "npm_manifest": null,
-      "legacy_folders": ["lemgendary-datasets-store"]
+      "legacy_folders": [
+        "lemgendary-datasets-store"
+      ]
     },
     {
       "folder": "LemGendaryModels",
@@ -125,7 +127,9 @@
       "git_hooked": true,
       "requirements_manifest": null,
       "npm_manifest": null,
-      "legacy_folders": ["lemgendary-models"]
+      "legacy_folders": [
+        "lemgendary-models"
+      ]
     }
   ],
   "pipeline_steps": [
@@ -180,13 +184,38 @@
     }
   ],
   "kaggle": {
-    "collaborators": ["lemgenda", "shyning123", "kuznetsovr"],
+    "collaborators": [
+      "lemgenda",
+      "shyning123",
+      "kuznetsovr"
+    ],
     "default_accelerator": "gpu-t4x2",
     "accelerators": [
-      {"id": "cpu", "label": "CPU", "kind": "cpu", "machine_shape": null},
-      {"id": "gpu-t4x2", "label": "GPU T4 x2", "kind": "gpu", "machine_shape": "NvidiaTeslaT4"},
-      {"id": "tpu-v5e8", "label": "TPU v5e-8", "kind": "tpu", "machine_shape": "TpuV5E8"}
+      {
+        "id": "cpu",
+        "label": "CPU",
+        "kind": "cpu",
+        "machine_shape": null
+      },
+      {
+        "id": "gpu-t4x2",
+        "label": "GPU T4 x2",
+        "kind": "gpu",
+        "machine_shape": "NvidiaTeslaT4"
+      },
+      {
+        "id": "tpu-v5e8",
+        "label": "TPU v5e-8",
+        "kind": "tpu",
+        "machine_shape": "TpuV5E8"
+      }
     ],
-    "retired_machine_shapes": ["NvidiaTeslaP100", "TpuV38", "Tpu1VmV38", "TpuV232", "TpuV2256"]
+    "retired_machine_shapes": [
+      "NvidiaTeslaP100",
+      "TpuV38",
+      "Tpu1VmV38",
+      "TpuV232",
+      "TpuV2256"
+    ]
   }
 }
