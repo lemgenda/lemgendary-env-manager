@@ -33,6 +33,10 @@ from env_manager.venv_manager import (
 )
 
 
+MAX_MARKDOWN_LINE_LENGTH = 80
+"""Maximum allowed line length for Markdown files in the workspace."""
+
+
 @dataclass(frozen=True)
 class RunOptions:
     """What the caller asked for."""
@@ -237,7 +241,7 @@ def _record_upgrade_readme_logs(base_dir: Path, target_project: str | None = Non
             continue
         p_readme = Path(p.project_dir) / "README.md"
         log_line = f"Upgraded package(s) for the {p.name}."
-        if len(log_line) > 80:
+        if len(log_line) > MAX_MARKDOWN_LINE_LENGTH:
             log_line = f"Upgraded packages: {p.name}."
         if p_readme.is_file():
             _insert_changelog_line(p_readme, log_line)

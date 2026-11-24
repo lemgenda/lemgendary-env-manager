@@ -561,8 +561,7 @@ reading the code. Items marked "inferred" were not reproduced at runtime.
   is driver-dependent.
 - Section 5 claims manifests are "bidirectionally mirrored"
   (PAPER_ENV_MANAGER.md:100). The code is one-way plus venv write-back, and the
-  list omits `requirements-documentation.txt` and
-  `lemgendary-env-manager.package.json`.
+  list omits `lemgendary-env-manager.package.json`.
 - Section 6 lists "Linux, Windows, macOS: Universal". This is contradicted by
   the Windows-only hooks and launcher (D-18, D-19). "Multi-Cloud Notebook Sync"
   is not implemented in this repository. The benchmark figures cannot be

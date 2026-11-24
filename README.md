@@ -385,6 +385,9 @@ duplicate. Run `lem-env validate` to check.
   synchronization of centralized manifests (`sync_manifests_from_venvs` and
   `sync_all_manifests`) and changelog entry generation upon safe upgrades in
   Step 5 (`dependency_upgrades`).
+- **Ruff Compliance & NPM Manifests**: Defined `MAX_MARKDOWN_LINE_LENGTH`
+  constant eliminating magic values, and synchronized Node package versions
+  across `package.json` manifests.
 - Upgraded 11 package(s) for the lemgendary-env-manager.
 - Upgraded 14 package(s) for the lemgendary-datasets.
 - Upgraded 15 package(s) for the lemgendary-training-suite.

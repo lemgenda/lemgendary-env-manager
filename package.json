@@ -1,6 +1,6 @@
 {
   "name": "lemgendary-env-manager",
-  "version": "16.9.85",
+  "version": "16.9.90",
   "description": "LemGendary Environment Manager - Authoritative Toolchain and Validation Hub",
   "private": true,
   "scripts": {
@@ -11,10 +11,10 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "eslint": "^9.22.0",
-    "html-validate": "^9.5.0",
+    "eslint": "^9.39.5",
+    "html-validate": "^9.7.1",
     "markdownlint-cli": "^0.44.0",
-    "pa11y": "^9.0.1",
-    "typescript": "^5.8.2"
+    "pa11y": "^9.1.1",
+    "typescript": "^5.9.3"
   }
 }
