@@ -79,3 +79,31 @@ def test_no_peer_dependency_downgrade_violations() -> None:
     assert react_spec.startswith("^19."), (
         f"react in GUI must remain on v19.x, got: {react_spec}"
     )
+
+
+def test_tauri_cargo_manifest_parity_and_lock() -> None:
+    """Verify that Tauri JS/TS API dependencies align with Cargo.toml crates."""
+    root = _workspace_root()
+    gui_dir = root / "lemgendary-ai-studio-gui"
+    cargo_toml = gui_dir / "src-tauri" / "Cargo.toml"
+    assert cargo_toml.is_file(), "Missing src-tauri/Cargo.toml"
+
+    gui_pkg = json.loads((gui_dir / "package.json").read_text(encoding="utf-8"))
+    tauri_api = gui_pkg["dependencies"].get("@tauri-apps/api", "")
+    tauri_shell = gui_pkg["dependencies"].get("@tauri-apps/plugin-shell", "")
+
+    # Both frontend packages must match the Tauri v2 family
+    assert "2." in tauri_api, f"Expected @tauri-apps/api v2.x, got {tauri_api}"
+    assert "2." in tauri_shell, f"Expected @tauri-apps/plugin-shell v2.x, got {tauri_shell}"
+
+    cargo_text = cargo_toml.read_text(encoding="utf-8")
+    assert 'tauri = { version = "2.' in cargo_text, "Cargo.toml must declare tauri = 2.x"
+    assert (
+        'tauri-plugin-shell = "2.' in cargo_text
+    ), "Cargo.toml must declare tauri-plugin-shell = 2.x"
+
+    # Enforce exact pinning for ABI-sensitive native screen recording crates
+    for pinned_crate in ("openh264", "mp4", "bytes", "windows-capture"):
+        assert f'{pinned_crate} = "=' in cargo_text, (
+            f"Native recording crate {pinned_crate} must be strictly pinned with '=x.y.z'"
+        )
