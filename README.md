@@ -385,6 +385,13 @@ duplicate. Run `lem-env validate` to check.
   synchronization of centralized manifests (`sync_manifests_from_venvs` and
   `sync_all_manifests`) and changelog entry generation upon safe upgrades in
   Step 5 (`dependency_upgrades`).
+- **NPM Package Upgrade Tracking (`env_manager/upgrade/npm.py`)**: Guarded
+  registry error responses in `find_npm_outdated()`, tracked package updates in
+  `apply_npm_update()`, and updated `package.json` specifications directly from
+  resolved lockfile versions.
+- **Selective Upgrade Changelog Tracking (`env_manager/pipeline/upgrades.py`)**:
+  Tracked upgraded project sets across Python and npm pipelines, restricting
+  changelog entries strictly to projects that had packages upgraded.
 - **Ruff Compliance & NPM Manifests**: Defined `MAX_MARKDOWN_LINE_LENGTH`
   constant eliminating magic values, and synchronized Node package versions
   across `package.json` manifests.

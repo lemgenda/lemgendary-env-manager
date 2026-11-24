@@ -81,7 +81,8 @@ class TestStep5Routing(unittest.TestCase):
             "env_manager.pipeline.upgrades.find_npm_outdated", return_value=[self.npm_pkg]
         ).start()
         self.npm_update = patch(
-            "env_manager.pipeline.upgrades.apply_npm_update", return_value=(True, "ok")
+            "env_manager.pipeline.upgrades.apply_npm_update",
+            return_value=(True, "ok", [("eslint", "^9.0.0", "^9.1.0")]),
         ).start()
         self.pkg_count = patch(
             "env_manager.pipeline.upgrades.venv_package_count", return_value=5

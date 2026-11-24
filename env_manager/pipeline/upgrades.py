@@ -44,30 +44,34 @@ def execute_safe_upgrades(
     projects: list[ProjectVenvInfo],
     hw: HardwareProfile,
     emit: Emit,
-) -> Generator[PipelineEvent, None, bool]:
+) -> Generator[PipelineEvent, None, set[str]]:
     """Apply safe dependency upgrades bottom-up across managed projects.
 
     Each project is classified from its discovery metadata: every
     project that is not a pure Node project gets the Python safe-upgrade
     path, and every project with a ``package.json`` gets the npm path.
     A dual-stack project (for example a Python repo with npm lint
-    tooling) therefore receives both. Returns True when anything was
-    upgraded, so step 6 knows to write the manifests back.
+    tooling) therefore receives both. Returns a set of project names
+    that had any packages upgraded (evaluates to True if non-empty).
     """
-    applied = False
+    upgraded_projects: set[str] = set()
     for p in projects:
         if p.has_npm_manifest:
-            applied = (yield from _upgrade_npm_dependencies(p, emit)) or applied
+            npm_upgraded = yield from _upgrade_npm_dependencies(p, emit)
+            if npm_upgraded:
+                upgraded_projects.add(p.name)
         if not p.is_node_project:
-            applied = (yield from _upgrade_python_dependencies(p, hw, emit)) or applied
-    return applied
+            py_upgraded = yield from _upgrade_python_dependencies(p, hw, emit)
+            if py_upgraded:
+                upgraded_projects.add(p.name)
+    return upgraded_projects
 
 
 def _upgrade_npm_dependencies(
     p: Any,
     emit: Emit,
 ) -> Generator[PipelineEvent, None, bool]:
-    """Run ``npm update`` for a project with outdated npm packages; True if it ran."""
+    """Run ``npm update`` for a project with outdated npm packages; True if packages upgraded."""
     p_dir = Path(p.project_dir)
     outdated = find_npm_outdated(p_dir)
     if not outdated:
@@ -81,18 +85,29 @@ def _upgrade_npm_dependencies(
         "info",
         f"UPGRADING: {p.name} (npm) - updating {len(outdated)} package(s)...",
     )
-    npm_ok, npm_msg = apply_npm_update(p_dir)
+    npm_ok, npm_msg, updated_pkgs = apply_npm_update(p_dir)
     if npm_ok:
+        if updated_pkgs:
+            listed = ", ".join(
+                f"{name} ({new})" for name, _, new in updated_pkgs[:UPGRADE_SUMMARY_SIZE]
+            )
+            if len(updated_pkgs) > UPGRADE_SUMMARY_SIZE:
+                listed += f", +{len(updated_pkgs) - UPGRADE_SUMMARY_SIZE} more"
+            yield emit(
+                "success",
+                f"{p.name}: Upgraded {len(updated_pkgs)} npm package(s) safely [{listed}].",
+            )
+            return True
         yield emit(
             "success",
-            f"{p.name}: Successfully updated npm packages.",
+            f"{p.name}: npm packages up to date within declared ranges.",
         )
-    else:
-        yield emit(
-            "warning",
-            f"{p.name}: npm update encountered issue: {npm_msg[:200]}",
-        )
-    return npm_ok
+        return False
+    yield emit(
+        "warning",
+        f"{p.name}: npm update encountered issue: {npm_msg[:200]}",
+    )
+    return False
 
 
 def _summary(name: str, upgraded: list[UpgradeEvent]) -> str:

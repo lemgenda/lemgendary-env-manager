@@ -199,7 +199,7 @@ def _apply_node_project(proj_plan: ProjectUpgradePlan) -> Generator[UpgradeEvent
             message="All npm packages are up to date.",
         )
         return
-    ok, msg = apply_npm_update(Path(proj_plan.project_dir))
+    ok, msg, _ = apply_npm_update(Path(proj_plan.project_dir))
     yield _event(proj_plan.name, "(npm packages)", ok, (msg or "")[:300], "upgraded")
 
 

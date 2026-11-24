@@ -59,6 +59,7 @@ class PipelineRun:
     install_failures: list[str] = field(default_factory=list)
     install_warnings: list[InstallWarning] = field(default_factory=list)
     upgrades_applied: bool = False
+    upgraded_projects: set[str] = field(default_factory=set)
 
     def step(self, number: int, name: str | None = None) -> StepEmitter:
         """Emitter for events of step ``number``, named as in ``ecosystem.json`` by default."""
@@ -233,10 +234,18 @@ def _insert_changelog_line(readme_path: Path, log_line: str) -> bool:
     return False
 
 
-def _record_upgrade_readme_logs(base_dir: Path, target_project: str | None = None) -> None:
+def _record_upgrade_readme_logs(
+    base_dir: Path,
+    upgraded_projects: set[str],
+    target_project: str | None = None,
+) -> None:
     """Sync upgrade changelog lines to target project and env-manager READMEs."""
+    if not upgraded_projects:
+        return
     projects = discover_projects(base_dir)
     for p in projects:
+        if p.name not in upgraded_projects:
+            continue
         if target_project and p.name != target_project:
             continue
         p_readme = Path(p.project_dir) / "README.md"
@@ -255,13 +264,22 @@ def dependency_upgrades(run: PipelineRun) -> StepEvents:
     emit = run.step(5)
     yield emit("info", "Auditing outdated packages and applying safe upgrades bottom-up...")
     hw = run.hardware()
-    run.upgrades_applied = yield from execute_safe_upgrades(run.managed_projects(), hw, emit)
+    upgraded_set = yield from execute_safe_upgrades(run.managed_projects(), hw, emit)
+    run.upgraded_projects = upgraded_set
+    run.upgrades_applied = bool(upgraded_set)
     if run.upgrades_applied:
         yield emit("info", "Upgrades applied. Synchronizing manifests and changelogs...")
         sync_manifests_from_venvs(run.base_dir, project=run.options.target_project)
         sync_all_manifests(run.base_dir)
-        _record_upgrade_readme_logs(run.base_dir, run.options.target_project)
-        yield emit("success", "Central and project manifests synchronized from venvs.")
+        _record_upgrade_readme_logs(
+            run.base_dir,
+            run.upgraded_projects,
+            run.options.target_project,
+        )
+        yield emit(
+            "success",
+            "Central and project manifests synchronized from venvs and node_modules.",
+        )
     return StepOutcome(None, "success")
 
 
