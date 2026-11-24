@@ -379,8 +379,12 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
-### v16.9.91 - Ghost Process Prevention & Ecosystem Teardown API
+### v16.9.91 - Ghost Process Prevention, Ecosystem Teardown API & Co-Dependent Pairs
 
+- **Co-Dependent HTTP Upgrade Pairs (`env_manager/resolver/classify.py`)**:
+  Registered `httpx`/`httpcore` and `httpx2`/`httpcore2` in
+  `CO_DEPENDENT_PAIRS` so upgrade resolution evaluates tightly coupled HTTP
+  transports in lockstep, preventing asymmetric version pinning blocks.
 - **Ghost Process Prevention & Startup Timeout Teardown
   (`env_manager/service_manager.py`)**: Added automated termination of stale
   port holders during `_preflight_service` when a port is occupied by an

@@ -26,6 +26,10 @@ CO_DEPENDENT_PAIRS: dict[str, set[str]] = {
     "aiobotocore": {"boto3", "botocore"},
     "albumentations": {"albucore"},
     "albucore": {"albumentations"},
+    "httpx": {"httpcore"},
+    "httpcore": {"httpx"},
+    "httpx2": {"httpcore2"},
+    "httpcore2": {"httpx2"},
 }
 """Tightly coupled packages that must be upgraded in lockstep."""
 
