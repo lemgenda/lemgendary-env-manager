@@ -27,7 +27,9 @@ def find_npm_outdated(project_dir: Path) -> list[OutdatedPackage]:
         if not proc.stdout.strip() and proc.returncode != 0:
             _log.warning(
                 "npm outdated for %s exited with %d: %s",
-                project_dir, proc.returncode, proc.stderr.strip(),
+                project_dir,
+                proc.returncode,
+                proc.stderr.strip(),
             )
         if proc.stdout.strip():
             data = json.loads(proc.stdout.strip())
