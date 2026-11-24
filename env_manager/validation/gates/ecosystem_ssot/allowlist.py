@@ -20,6 +20,8 @@ from pathlib import PurePosixPath
 ALLOWED_FILES = frozenset({
     "ecosystem/ecosystem.json",
     "ecosystem/ecosystem.schema.json",
+    "training/ecosystem.json",
+    "training/ecosystem.schema.json",
     "src/generated/ecosystem.json",
     "src-tauri/tauri.conf.json",
 })

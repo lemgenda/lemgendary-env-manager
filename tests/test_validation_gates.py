@@ -2,11 +2,13 @@
 
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
+from env_manager.validation.files import SKIP_DIRS
 from env_manager.validation.gate import Bucket, Gate, ProjectContext
 from env_manager.validation.gates.absolute_paths import ABSOLUTE_PATH, run_absolute_path_scan
+from env_manager.validation.gates.ecosystem_ssot.allowlist import is_allowlisted
 from env_manager.validation.gates.pylint_gate import parse_pylint_json, run_pylint
 from env_manager.validation.gates.suppressions import SUPPRESSION, run_suppression_scan
 from env_manager.validation.models import TOOL_ERROR, FileValidationViolation
@@ -106,3 +108,11 @@ def test_registered_gate_runs_without_runner_changes(tmp_path: Path) -> None:
     skipped = Gate("never", Bucket.LINT, lambda _p: [marker], applies=lambda _c: False)
     found = run_gates(ProjectContext(tmp_path), [gate, skipped])
     assert (found[Bucket.DOMAIN], found[Bucket.LINT]) == ([marker], [])
+
+
+def test_skip_dirs_and_bundled_ecosystem_allowlist() -> None:
+    """Generated stub/job trees are skipped and bundled training ecosystem snapshots pass."""
+    for folder in ("typings", "tmp", "cloud_jobs"):
+        assert folder in SKIP_DIRS
+    assert is_allowlisted(PurePosixPath("training/ecosystem.json"))
+    assert is_allowlisted(PurePosixPath("training/ecosystem.schema.json"))

@@ -15,6 +15,7 @@ SKIP_DIRS = frozenset({
     ".pytest_cache", "raw-sets", "checkpoints", "weights", "data",
     "scratch", ".cache", "images", "targets", "labels", "train", "val", "test",
     "lr", "hr", "export", "runs", ".lemtrain_server", ".lgd_server", ".env_server",
+    "typings", "tmp", "cloud_jobs",
 })
 """Directory names never scanned: build output, caches, venvs and dataset trees."""
 

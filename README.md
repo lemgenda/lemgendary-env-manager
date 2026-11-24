@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.88-STABLE)
+# LemGendary Environment Manager (v16.9.89-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -378,6 +378,16 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.89 - Validator Skip-Dir & Bundled Ecosystem Snapshot Alignment
+
+- **Skip-Dir Expansion**: Added `"typings"`, `"tmp"`, and `"cloud_jobs"` to
+  `SKIP_DIRS` (`validation/files.py`) and `yamllint`/`jsonlint` `skip_dirs`
+  (`validation/gates/data_formats.py`) so git-ignored stub and job trees are
+  excluded from project validation.
+- **Bundled Ecosystem Allowlist**: Added `"training/ecosystem.json"` and
+  `"training/ecosystem.schema.json"` to `ALLOWED_FILES`
+  (`validation/gates/ecosystem_ssot/allowlist.py`).
 
 ### v16.9.88 - Port-In-Use Startup Guard
 
