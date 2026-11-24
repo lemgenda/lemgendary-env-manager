@@ -381,10 +381,21 @@ duplicate. Run `lem-env validate` to check.
 
 ### v16.9.90 - Step 5 Auto-Manifest Sync & README Upgrade Logging
 
+- Upgraded package(s) for the lemgendary-training-suite.
+
+- Upgraded package(s) for the lemgendary-datasets.
+
+- Upgraded package(s) for the lemgendary-ai-studio-gui.
+
+- Upgraded package(s) for the lemgendary-env-manager.
+
 - **Step 5 Pipeline Auto-Sync (`env_manager/pipeline/steps.py`)**: Automated
   synchronization of centralized manifests (`sync_manifests_from_venvs` and
   `sync_all_manifests`) and changelog entry generation upon safe upgrades in
   Step 5 (`dependency_upgrades`).
+- **Selective Upgrade Changelog Tracking (`env_manager/pipeline/upgrades.py`)**:
+  Tracked upgraded project sets across Python and npm pipelines, restricting
+  changelog entries strictly to projects that had packages upgraded.
 - **Ruff Compliance & NPM Manifests**: Defined `MAX_MARKDOWN_LINE_LENGTH`
   constant eliminating magic values, and synchronized Node package versions
   across `package.json` manifests.

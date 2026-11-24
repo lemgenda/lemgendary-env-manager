@@ -44,23 +44,27 @@ def execute_safe_upgrades(
     projects: list[ProjectVenvInfo],
     hw: HardwareProfile,
     emit: Emit,
-) -> Generator[PipelineEvent, None, bool]:
+) -> Generator[PipelineEvent, None, set[str]]:
     """Apply safe dependency upgrades bottom-up across managed projects.
 
     Each project is classified from its discovery metadata: every
     project that is not a pure Node project gets the Python safe-upgrade
     path, and every project with a ``package.json`` gets the npm path.
     A dual-stack project (for example a Python repo with npm lint
-    tooling) therefore receives both. Returns True when anything was
-    upgraded, so step 6 knows to write the manifests back.
+    tooling) therefore receives both. Returns a set of project names
+    that had any packages upgraded (evaluates to True if non-empty).
     """
-    applied = False
+    upgraded_projects: set[str] = set()
     for p in projects:
         if p.has_npm_manifest:
-            applied = (yield from _upgrade_npm_dependencies(p, emit)) or applied
+            npm_upgraded = yield from _upgrade_npm_dependencies(p, emit)
+            if npm_upgraded:
+                upgraded_projects.add(p.name)
         if not p.is_node_project:
-            applied = (yield from _upgrade_python_dependencies(p, hw, emit)) or applied
-    return applied
+            py_upgraded = yield from _upgrade_python_dependencies(p, hw, emit)
+            if py_upgraded:
+                upgraded_projects.add(p.name)
+    return upgraded_projects
 
 
 def _upgrade_npm_dependencies(

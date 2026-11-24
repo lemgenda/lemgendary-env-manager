@@ -43,8 +43,9 @@ def build_fake_workspace(root: Path) -> Path:
         (manifests / manifest).write_text("rich>=13.0.0\n", encoding="utf-8")
 
     docs = root / "lemgendary-docs"
+    docs.mkdir(parents=True, exist_ok=True)
     baseline = {"document_baseline": "fixture"}
-    (docs / "manifest").mkdir()
+    (docs / "manifest").mkdir(parents=True, exist_ok=True)
     (docs / "manifest" / "documents.json").write_text(
         json.dumps({**baseline, "total_publications": 0, "documents": []}, indent=2) + "\n",
         encoding="utf-8",
