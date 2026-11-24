@@ -2,27 +2,20 @@ typer==0.29.2
 rich==15.0.0
 pyyaml==6.0.4
 psutil==7.2.2
-pip-tools==7.7.0
 fastapi==0.165.0
 uvicorn==0.54.0
 websockets==17.4
 packaging==26.4
-ruff>=0.9.0
-pyright==1.1.414
-pylint==4.1.4
-pytest==9.2.0
 jsonschema==4.26.0
 httpx2==2.16.2
 yamllint==1.38.0
 pydantic==2.14.4
-pydantic-core==2.50.5
 python-multipart==0.0.34
 beautifulsoup4==4.15.0
-# ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
-# Dev-time only; no runtime footprint. Match the runtime libraries listed
-# above so the type checker can resolve their imports cleanly.
+ruff==0.17.6
+pyright==1.1.414
+pylint==4.1.4
+pytest==9.2.0
 types-PyYAML==6.0.12.20261122
 types-psutil==7.2.2.20261122
-types-requests==2.33.0.20261030
-types-beautifulsoup4==4.12.0.20250516
 types-jsonschema==4.26.0.20261006

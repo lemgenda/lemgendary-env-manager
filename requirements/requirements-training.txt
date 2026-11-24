@@ -2,6 +2,7 @@ torch==2.15.0
 torchvision==0.29.2
 torchaudio==2.11.1
 torchmetrics==1.9.0
+kornia==0.8.2
 pillow==13.0.0
 numpy==2.5.5
 pyyaml==6.0.4
@@ -21,11 +22,11 @@ accelerate==1.16.0
 peft==0.22.0
 bitsandbytes==0.50.2; sys_platform != 'darwin'
 sentencepiece==0.2.3
-huggingface-hub>=1.0.0
+huggingface-hub==2.4.0
 ultralytics==8.4.218
 pycocotools==2.0.11
-torch-fidelity>=0.3.0
-onnxruntime-gpu>=1.19.0; sys_platform == 'linux' or sys_platform == 'linux2'
+torch-fidelity==0.4.0
+onnxruntime-gpu==1.32.0; sys_platform == 'linux' or sys_platform == 'linux2'
 onnxruntime-directml==1.24.4; sys_platform == 'win32'
 onnx==1.23.2
 onnxsim==0.8.1
@@ -34,33 +35,25 @@ onnxscript==0.7.2
 kaggle==2.2.5
 kagglehub==1.0.3
 gdown==6.5.2
-albumentations==2.0.8
 websockets==17.4
 fastapi==0.165.0
 uvicorn==0.54.0
 pydantic==2.14.4
-pydantic-core==2.50.5
 typer==0.29.2
 click==8.5.1
-httpx==0.28.1
 MetaTrader5==5.0.6231; sys_platform == 'win32'
 pandas-ta-classic==0.9.0
-ruff>=0.9.0
-pyright==1.1.414
-pylint==4.1.4
-pytest==9.2.0
 httpx2==2.16.2
-# ─── Container format runtime dependencies ──────────────────────────────────
 webdataset==1.0.2
 litdata==0.2.76
 zstandard==0.25.0
 jsonschema==4.26.0
-# ─── Type stubs for Pyrefly / mypy / pyright ────────────────────────────────
-# Dev-time only; no runtime footprint. Match the runtime libraries listed
-# above so the type checker can resolve their imports cleanly.
+ruff==0.17.6
+pyright==1.1.414
+pylint==4.1.4
+pytest==9.2.0
 types-PyYAML==6.0.12.20261122
 types-psutil==7.2.2.20261122
-types-requests==2.33.0.20261030
 types-tqdm==4.70.0.20261122
 types-jsonschema==4.26.0.20261006
 scipy-stubs==1.18.1.1

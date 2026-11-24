@@ -144,7 +144,7 @@
       "number": 2,
       "id": "toolchain_audit",
       "name": "Toolchain Audit",
-      "short_description": "Verifies Python 3.12, Git, Node.js LTS, and toolchain prerequisites.",
+      "short_description": "Verifies Python 3.14, Git, Node.js LTS, and toolchain prerequisites.",
       "long_description": "Checks foundational toolchains including active Python interpreter version, Git availability, and required build tools before running workspace transformations."
     },
     {

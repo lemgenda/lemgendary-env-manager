@@ -379,6 +379,18 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.92 - Python 3.14.10 Migration & `uv` Tooling Engine
+
+- **Python 3.14.10 LTS Target**: Standardized requirements and project
+  configuration to Python `3.14.10`, updating `.python-version`, Ruff, and
+  Pyright definitions.
+- **Modernized Dependency Engine (`uv`)**: Replaced legacy `pip-tools`
+  dependency with `uv>=0.11.2` for deterministic fast dependency resolution
+  (`uv pip compile --generate-hashes`) and sync (`uv pip sync`).
+- **Regression Verification Suite**: Added
+  `tests/regression/test_env_and_abi_compatibility.py` and
+  `tests/regression/test_env_manager_regression.py`.
+
 ### v16.9.91 - Ghost Process Prevention, Ecosystem Teardown API & Co-Dependent Pairs
 
 - **Node Tooling Major Upgrades (`package.json`)**: Upgraded core dev tooling
