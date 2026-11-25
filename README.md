@@ -379,6 +379,13 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.93 - Centralized Training Manifest Package Synchronization
+
+- **Training Requirements Manifest Update
+  (`requirements/requirements-training.txt`)**:
+  Synchronized centralized training requirements manifest with updated
+  `kornia==0.9.2` and `transformers==5.24.1` packages across the ecosystem.
+
 ### v16.9.92 - Python 3.14.10 Migration & `uv` Tooling Engine
 
 - **Safe Tooling Dependency Upgrades (`package.json`)**: Upgraded
