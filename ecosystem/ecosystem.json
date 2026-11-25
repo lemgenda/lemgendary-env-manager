@@ -31,7 +31,7 @@
         "datasets"
       ],
       "project": "lemgendary-datasets",
-      "port": 8100,
+      "port": 8150,
       "health_path": "/api/health",
       "liveness_path": "/api/health",
       "websocket_path": "/api/ws/events",

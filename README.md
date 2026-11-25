@@ -123,7 +123,7 @@ and the **LemGendary AI Studio Desktop GUI** (`lemgendary-ai-studio-gui`).
   metrics, hardware profile, discovered projects, and active pipelines in a
   single non-blocking payload.
 - Ecosystem status endpoint (`/api/gui/ecosystem`) monitoring both
-  `lemgendary-env-manager` (port 8000) and `lemgendary-datasets` (port 8100) for
+  `lemgendary-env-manager` (port 8000) and `lemgendary-datasets` (port 8150) for
   GUI header status indicators.
 - Contract freezing via exported `openapi.json` for TypeScript type generation.
 
@@ -378,6 +378,15 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.95 - Dataset Compiler Port Migration & Manifest Alignment
+
+- **Ecosystem Port Migration (`ecosystem/ecosystem.json`)**: Migrated Dataset
+  Compiler service port from `8100` to `8150` to resolve local port conflict.
+- **SSOT Manifest Synchronization (`requirements/`)**: Updated
+  `requirements/requirements-datasets.txt` with `transformers==5.24.1` and
+  `regex==2026.11.24`, and synchronized GUI node package manifest
+  `requirements/lemgendary-ai-studio-gui.package.json`.
 
 ### v16.9.94 - uv 0.13.10 Engine, S3 Manifest Sync & Slim Venv Regression
 
