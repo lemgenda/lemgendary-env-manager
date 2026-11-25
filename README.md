@@ -381,6 +381,8 @@ duplicate. Run `lem-env validate` to check.
 
 ### v16.9.92 - Python 3.14.10 Migration & `uv` Tooling Engine
 
+- **Safe Tooling Dependency Upgrades (`package.json`)**: Upgraded
+  `html-validate` to `^11.22.1` and synchronized ecosystem package manifests.
 - **Python 3.14.10 LTS Target**: Standardized requirements and project
   configuration to Python `3.14.10`, updating `.python-version`, Ruff, and
   Pyright definitions.
@@ -391,7 +393,7 @@ duplicate. Run `lem-env validate` to check.
   `tests/regression/test_env_and_abi_compatibility.py` and
   `tests/regression/test_env_manager_regression.py`.
 
-### v16.9.91 - Ghost Process Prevention, Ecosystem Teardown API & Co-Dependent Pairs
+### v16.9.91 - Ghost Process Prevention & Teardown API
 
 - **Node Tooling Major Upgrades (`package.json`)**: Upgraded core dev
   tooling dependencies to latest major versions (`eslint` 10.15,
