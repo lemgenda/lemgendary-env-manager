@@ -393,9 +393,10 @@ duplicate. Run `lem-env validate` to check.
 
 ### v16.9.91 - Ghost Process Prevention, Ecosystem Teardown API & Co-Dependent Pairs
 
-- **Node Tooling Major Upgrades (`package.json`)**: Upgraded core dev tooling
-  dependencies to latest major versions (`eslint` 10.15, `html-validate` 11.21,
-  `markdownlint-cli` 0.50, `pa11y` 10.0, and `typescript` 7.0), and synchronized
+- **Node Tooling Major Upgrades (`package.json`)**: Upgraded core dev
+  tooling dependencies to latest major versions (`eslint` 10.15,
+  `html-validate` 11.21, `markdownlint-cli` 0.50, `pa11y` 10.0, and
+  `typescript` 7.0), and synchronized
   `requirements/lemgendary-env-manager.package.json`.
 - **Co-Dependent HTTP Upgrade Pairs (`env_manager/resolver/classify.py`)**:
   Registered `httpx`/`httpcore` and `httpx2`/`httpcore2` in
