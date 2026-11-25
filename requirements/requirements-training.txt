@@ -57,3 +57,7 @@ types-psutil==7.2.2.20261122
 types-tqdm==4.70.0.20261122
 types-jsonschema==4.26.0.20261006
 scipy-stubs==1.18.1.1
+boto3==1.44.11
+botocore==1.44.11
+jmespath==1.1.0
+six==1.17.0

@@ -379,6 +379,19 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.94 - uv 0.13.10 Engine, S3 Manifest Sync & Slim Venv Regression
+
+- **Tooling Engine Constraint Alignment (`pyproject.toml`)**: Upgraded `uv`
+  dependency constraint from `>=0.11.2` to `>=0.13.10` with security patch
+  GHSA-vjvj-3m3f-fgmm.
+- **Centralized Manifest Synchronization (`requirements/`)**: Propagated
+  `boto3==1.44.11`, `botocore==1.44.11`, `jmespath==1.1.0`, `six==1.17.0`, and
+  `opencv-python==5.1.0.95` across SSOT manifest files.
+- **Regression Suite Expansion
+  (`tests/regression/test_env_manager_regression.py`)**: Added tests verifying
+  native `uv pip` operations in unseeded slim virtual environments and
+  validation of upstream upper-bound constraints (`mpmath<1.4` under `sympy`).
+
 ### v16.9.93 - Centralized Training Manifest Package Synchronization
 
 - **Training Requirements Manifest Update
