@@ -379,6 +379,15 @@ duplicate. Run `lem-env validate` to check.
 
 ## Changelog
 
+### v16.9.96 - Package Version Synchronization
+
+- Upgraded package(s) for the lemgendary-env-manager.
+
+- **Manifest Updates (`requirements.txt`, `requirements/`)**: Synchronized
+  `typer==0.29.3`, `boto3==1.44.12`, `botocore==1.44.12`,
+  `ultralytics==8.4.219`, `regex==2026.11.25`, `@types/node==26.6.11`,
+  `@types/react==19.3.3`, and `vite==8.4.0` across centralized manifests.
+
 ### v16.9.95 - Dataset Compiler Port Migration & Manifest Alignment
 
 - **Ecosystem Port Migration (`ecosystem/ecosystem.json`)**: Migrated Dataset

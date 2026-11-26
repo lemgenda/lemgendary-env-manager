@@ -23,7 +23,7 @@ peft==0.22.0
 bitsandbytes==0.50.2; sys_platform != 'darwin'
 sentencepiece==0.2.3
 huggingface-hub==2.4.0
-ultralytics==8.4.218
+ultralytics==8.4.219
 pycocotools==2.0.11
 torch-fidelity==0.4.0
 onnxruntime-gpu==1.32.0; sys_platform == 'linux' or sys_platform == 'linux2'
@@ -39,7 +39,7 @@ websockets==17.4
 fastapi==0.165.0
 uvicorn==0.54.0
 pydantic==2.14.4
-typer==0.29.2
+typer==0.29.3
 click==8.5.1
 MetaTrader5==5.0.6231; sys_platform == 'win32'
 pandas-ta-classic==0.9.0
@@ -57,7 +57,7 @@ types-psutil==7.2.2.20261122
 types-tqdm==4.70.0.20261122
 types-jsonschema==4.26.0.20261006
 scipy-stubs==1.18.1.1
-boto3==1.44.11
-botocore==1.44.11
+boto3==1.44.12
+botocore==1.44.12
 jmespath==1.1.0
 six==1.17.0
