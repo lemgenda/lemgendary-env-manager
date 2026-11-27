@@ -1,0 +1,1987 @@
+[
+  {
+    "filename": "gui_shell_header_sidebar.png",
+    "title": "AI Studio GUI Global Shell: Sidebar, Header, and Mesh Status Bar",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".brand-title",
+        "label": "Brand Title",
+        "description": "LemGendary AI Brand Title & Icon"
+      },
+      {
+        "number": 2,
+        "selector": "#sidebar-btn-config",
+        "label": "Config & Secrets",
+        "description": "Open Config Vault"
+      },
+      {
+        "number": 3,
+        "selector": "#header-btn-report-issue",
+        "label": "Report Issue",
+        "description": "Open Bug Report Modal"
+      },
+      {
+        "number": 4,
+        "selector": "#header-btn-test-modal",
+        "label": "Tests & Diagnostics",
+        "description": "Open Diagnostic Orchestrator"
+      },
+      {
+        "number": 5,
+        "selector": "#tab-dashboard",
+        "label": "Dashboard Tab",
+        "description": "Ecosystem Control Dashboard"
+      },
+      {
+        "number": 6,
+        "selector": "#tab-datasets",
+        "label": "Datasets Tab",
+        "description": "Dataset Compiler Suite"
+      },
+      {
+        "number": 7,
+        "selector": "#tab-training",
+        "label": "Training Tab",
+        "description": "Model Training Suite"
+      },
+      {
+        "number": 8,
+        "selector": "#tab-docs",
+        "label": "Docs Hub Tab",
+        "description": "Documentation Hub"
+      },
+      {
+        "number": 9,
+        "selector": "#tab-pipeline",
+        "label": "Pipeline Tab",
+        "description": "Clean Install Pipeline"
+      },
+      {
+        "number": 10,
+        "selector": "#tab-health",
+        "label": "Health Tab",
+        "description": "Health and Version Drift"
+      },
+      {
+        "number": 11,
+        "selector": ".sidebar-brand-logo",
+        "label": "Brand Signature Logo",
+        "description": "LemGenda Portal Link"
+      },
+      {
+        "number": 12,
+        "selector": ".status-bar",
+        "label": "System Status Bar",
+        "description": "Tripartite Sidecar Mesh Status"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": null,
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_service_tiles.png",
+    "title": "Tripartite Sidecar Service Tiles",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#service-card-title-env-manager",
+        "label": "Env Manager",
+        "description": "Environment Manager Sidecar"
+      },
+      {
+        "number": 2,
+        "selector": "#service-card-title-dataset-compiler",
+        "label": "Dataset Compiler",
+        "description": "Dataset Compiler Suite Sidecar"
+      },
+      {
+        "number": 3,
+        "selector": "#service-card-title-training-suite",
+        "label": "Training Suite",
+        "description": "Model Training Suite Sidecar"
+      },
+      {
+        "number": 4,
+        "selector": ".service-grid-3 article:nth-of-type(1) .service-actions .btn-secondary",
+        "label": "Run Full System Audit",
+        "description": "Non-destructive 7-step audit"
+      },
+      {
+        "number": 5,
+        "selector": ".service-grid-3 article:nth-of-type(1) .service-actions .btn-danger, .service-grid-3 article:nth-of-type(1) .service-actions .btn-primary",
+        "label": "Start / Stop Service",
+        "description": "Bidirectional Sidecar Lifecycle Control"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": ".service-section",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_zustand_state_architecture.png",
+    "title": "Centralized State (Zustand) & Modular Micro-Components",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".status-bar",
+        "label": "Ecosystem Mesh Health",
+        "description": "Tripartite sidecar connection status"
+      },
+      {
+        "number": 2,
+        "selector": "#hw-card-title",
+        "label": "Hardware Accelerators",
+        "description": "GPU VRAM and accelerator profile"
+      },
+      {
+        "number": 3,
+        "selector": "#pipeline-panel-title",
+        "label": "Active Job Management",
+        "description": "Pipeline and job state"
+      },
+      {
+        "number": 4,
+        "selector": "#sidebar-btn-config",
+        "label": "Open Modal",
+        "description": "activeModal dialog state"
+      },
+      {
+        "number": 5,
+        "selector": "#tab-datasets",
+        "label": "Offline Catalogs",
+        "description": "Sidecar-backed catalog state"
+      },
+      {
+        "number": 6,
+        "selector": "#header-btn-report-issue",
+        "label": "Control ID Registry",
+        "description": "Stable DOM IDs"
+      },
+      {
+        "number": 7,
+        "selector": "#header-btn-test-modal",
+        "label": "Shared Micro-Components",
+        "description": "Modal, ValidationBanner, HoverPinPopover"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": null,
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_config_secrets_modal.png",
+    "title": "Universal Config & Registry Editor Modal",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#config-editor-modal .modal-title",
+        "label": "Modal Title",
+        "description": "Universal Dynamic Config & Secrets Vault"
+      },
+      {
+        "number": 2,
+        "selector": "#config-tabs-tab-manifests",
+        "label": "Manifests Tab",
+        "description": "Registry Manifests Editor"
+      },
+      {
+        "number": 3,
+        "selector": "#config-tabs-tab-secrets",
+        "label": "Secrets Tab",
+        "description": "Secrets & Tokens Vault"
+      },
+      {
+        "number": 4,
+        "selector": "#manifest-select",
+        "label": "Target Manifest",
+        "description": "Select manifest file"
+      },
+      {
+        "number": 5,
+        "selector": ".editor-actions button:nth-of-type(1)",
+        "label": "Validate Syntax",
+        "description": "Validate YAML/JSON syntax"
+      },
+      {
+        "number": 6,
+        "selector": ".editor-actions button:nth-of-type(2)",
+        "label": "Preview Diff",
+        "description": "Compare edits with disk"
+      },
+      {
+        "number": 7,
+        "selector": ".editor-actions button:nth-of-type(3)",
+        "label": "Revert",
+        "description": "Discard unsaved edits"
+      },
+      {
+        "number": 8,
+        "selector": ".editor-actions button:nth-of-type(4)",
+        "label": "Save Manifest",
+        "description": "Atomic save with .bak snapshot"
+      },
+      {
+        "number": 9,
+        "selector": ".editor-textarea",
+        "label": "Monospace Editor",
+        "description": "Raw manifest text editor"
+      },
+      {
+        "number": 10,
+        "selector": ".modal-header-close-group button",
+        "label": "Close Modal",
+        "description": "Dismiss configuration modal"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": "#sidebar-btn-config"
+      }
+    ],
+    "clip_selector": "#config-editor-modal",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_secrets_vault_modal.png",
+    "title": "Write-Only Secrets & Cloud Tokens Vault",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#config-editor-modal .modal-title",
+        "label": "Modal Title",
+        "description": "Secrets Management Workspace"
+      },
+      {
+        "number": 2,
+        "selector": ".secrets-services-list .service-card:nth-of-type(1) .service-name",
+        "label": "Service Profile",
+        "description": "Cloud Service Provider"
+      },
+      {
+        "number": 3,
+        "selector": ".secrets-services-list .service-card:nth-of-type(1) .service-badge",
+        "label": "Requirement Level",
+        "description": "Mandatory vs Optional"
+      },
+      {
+        "number": 4,
+        "selector": ".secrets-header-bar .btn-secondary",
+        "label": "+ Add New Secret",
+        "description": "Toggle new credential form"
+      },
+      {
+        "number": 5,
+        "selector": ".secrets-header-bar .btn-primary",
+        "label": "Save Secrets",
+        "description": "Save Secrets to Ecosystem"
+      },
+      {
+        "number": 6,
+        "selector": "#new-service-select",
+        "label": "Service Type",
+        "description": "Target Cloud Platform"
+      },
+      {
+        "number": 7,
+        "selector": "#new-label-input",
+        "label": "Secret Label",
+        "description": "Human-readable label"
+      },
+      {
+        "number": 8,
+        "selector": "#new-username-input",
+        "label": "Account Username",
+        "description": "Cloud account identifier"
+      },
+      {
+        "number": 9,
+        "selector": "#new-secret-input",
+        "label": "Secret Token",
+        "description": "Write-only password input"
+      },
+      {
+        "number": 10,
+        "selector": ".secret-form-card button[type='submit']",
+        "label": "Add to Vault",
+        "description": "Stage new credential"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": "#sidebar-btn-config"
+      },
+      {
+        "action": "click",
+        "selector": "#config-tabs-tab-secrets"
+      },
+      {
+        "action": "click",
+        "selector": ".secrets-header-bar .btn-secondary"
+      }
+    ],
+    "clip_selector": "#config-editor-modal",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_test_modal.png",
+    "title": "Test & Diagnostic Orchestrator Modal",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#test-modal-tab-fleet",
+        "label": "Fleet Smoke Test Tab",
+        "description": "1-Epoch Fleet Smoke Test"
+      },
+      {
+        "number": 2,
+        "selector": "#test-modal-tab-training",
+        "label": "Training Unit Tests Tab",
+        "description": "In-Process Training Suite Tests"
+      },
+      {
+        "number": 3,
+        "selector": "#test-modal-tab-dataset",
+        "label": "Dataset Compiler Tests Tab",
+        "description": "In-Process Dataset Compiler Tests"
+      },
+      {
+        "number": 4,
+        "selector": "#test-modal-btn-run-fleet",
+        "label": "Run Diagnostic",
+        "description": "Execute selected test suite"
+      },
+      {
+        "number": 5,
+        "selector": "#test-modal-btn-close",
+        "label": "Close Modal",
+        "description": "Dismiss Test & Diagnostic Orchestrator"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": "#header-btn-test-modal"
+      }
+    ],
+    "clip_selector": "#test-modal",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_pipeline_card.png",
+    "title": "Pipeline Orchestrator Control Card",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#pipeline-panel-title",
+        "label": "Pipeline Title",
+        "description": "Orchestrator Header"
+      },
+      {
+        "number": 2,
+        "selector": "#dash-btn-run-pipeline",
+        "label": "Run Pipeline",
+        "description": "Execute Full Pipeline"
+      },
+      {
+        "number": 3,
+        "selector": "#pipeline-btn-clean-install",
+        "label": "Clean Install",
+        "description": "Recreate .venv"
+      },
+      {
+        "number": 4,
+        "selector": ".pipeline-steps-bar",
+        "label": "Active Stage Progress Bar",
+        "description": "Steps 1 through 7 progress"
+      },
+      {
+        "number": 5,
+        "selector": "section[aria-labelledby='pipeline-panel-title'] .card-title .badge",
+        "label": "Pipeline State Badge",
+        "description": "READY / PIPELINE ACTIVE"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": "section[aria-labelledby='pipeline-panel-title']",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_pipeline_step_cards.png",
+    "title": "7-Stage Clean Install Pipeline Step Cards",
+    "tab_id": "tab-pipeline",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(1) .pipeline-step-card-title",
+        "label": "Stage 1 Title",
+        "description": "Hardware Discovery"
+      },
+      {
+        "number": 2,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(1) .pipeline-step-footer button",
+        "label": "Stage 1 Run",
+        "description": "Run Step 1 Only"
+      },
+      {
+        "number": 3,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(2) .pipeline-step-card-title",
+        "label": "Stage 2 Title",
+        "description": "Toolchain Audit"
+      },
+      {
+        "number": 4,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(2) .pipeline-step-footer button",
+        "label": "Stage 2 Run",
+        "description": "Run Step 2 Only"
+      },
+      {
+        "number": 5,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(3) .pipeline-step-card-title",
+        "label": "Stage 3 Title",
+        "description": "Virtual Environments"
+      },
+      {
+        "number": 6,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(3) .pipeline-step-footer button",
+        "label": "Stage 3 Run",
+        "description": "Run Step 3 Only"
+      },
+      {
+        "number": 7,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(4) .pipeline-step-card-title",
+        "label": "Stage 4 Title",
+        "description": "Requirements Sync & Install"
+      },
+      {
+        "number": 8,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(4) .pipeline-step-footer button",
+        "label": "Stage 4 Run",
+        "description": "Run Step 4 Only"
+      },
+      {
+        "number": 9,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(5) .pipeline-step-card-title",
+        "label": "Stage 5 Title",
+        "description": "Dependency Audit & Upgrades"
+      },
+      {
+        "number": 10,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(5) .pipeline-step-footer button",
+        "label": "Stage 5 Run",
+        "description": "Run Step 5 Only"
+      },
+      {
+        "number": 11,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(6) .pipeline-step-card-title",
+        "label": "Stage 6 Title",
+        "description": "Codebase Verification"
+      },
+      {
+        "number": 12,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(6) .pipeline-step-footer button",
+        "label": "Stage 6 Run",
+        "description": "Run Step 6 Only"
+      },
+      {
+        "number": 13,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(7) .pipeline-step-card-title",
+        "label": "Stage 7 Title",
+        "description": "Health Matrix"
+      },
+      {
+        "number": 14,
+        "selector": ".pipeline-steps-grid .pipeline-step-card:nth-of-type(7) .pipeline-step-footer button",
+        "label": "Stage 7 Run",
+        "description": "Run Step 7 Only"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": ".pipeline-steps-section",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_hardware_card.png",
+    "title": "Hardware Acceleration Sentinel Card",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#hw-card-title",
+        "label": "Hardware Title",
+        "description": "Accelerator Backend & Header"
+      },
+      {
+        "number": 2,
+        "selector": "section[aria-labelledby='hw-card-title'] .metric-row:nth-of-type(2)",
+        "label": "Operating System",
+        "description": "Host OS and architecture"
+      },
+      {
+        "number": 3,
+        "selector": "section[aria-labelledby='hw-card-title'] .metric-row:nth-of-type(3)",
+        "label": "Python Runtime",
+        "description": "Active Python interpreter"
+      },
+      {
+        "number": 4,
+        "selector": "section[aria-labelledby='hw-card-title'] .metric-row:nth-of-type(4)",
+        "label": "CPU Cores",
+        "description": "Logical / Physical cores"
+      },
+      {
+        "number": 5,
+        "selector": "section[aria-labelledby='hw-card-title'] .metric-row:nth-of-type(5)",
+        "label": "System RAM",
+        "description": "Host RAM capacity"
+      },
+      {
+        "number": 6,
+        "selector": "section[aria-labelledby='hw-card-title'] .metric-row:nth-of-type(6)",
+        "label": "Recommended Torch Index",
+        "description": "PyTorch wheel repository"
+      },
+      {
+        "number": 7,
+        "selector": "section[aria-labelledby='hw-card-title'] .hardware-accel-section",
+        "label": "Detected Accelerators",
+        "description": "GPU model, driver, and VRAM"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": "section[aria-labelledby='hw-card-title']",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_managed_projects.png",
+    "title": "Managed Workspace Projects Health Cards",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#proj-title-lemgendary-env-manager",
+        "label": "Project Title",
+        "description": "Canonical project title"
+      },
+      {
+        "number": 2,
+        "selector": "div:has(> .section-header-bar > #dash-btn-refresh-projects) .card-grid article:nth-of-type(1) .badge",
+        "label": "Project Health Badge",
+        "description": "HEALTHY / ATTENTION"
+      },
+      {
+        "number": 3,
+        "selector": "div:has(> .section-header-bar > #dash-btn-refresh-projects) .card-grid article:nth-of-type(1) .metric-row:nth-of-type(3)",
+        "label": "Installed Packages",
+        "description": "Installed / Required count"
+      },
+      {
+        "number": 4,
+        "selector": "div:has(> .section-header-bar > #dash-btn-refresh-projects) .card-grid article:nth-of-type(1) .project-card-footer button",
+        "label": "Reconcile Button",
+        "description": "Reconcile virtual environment"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": "div:has(> .section-header-bar > #dash-btn-refresh-projects)",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_dataset_compiler.png",
+    "title": "Dataset Compiler Suite Workspace",
+    "tab_id": "tab-datasets",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".ingestion-bar .ingestion-title",
+        "label": "Direct Kaggle Ingestion",
+        "description": "Direct Kaggle Cloud Ingestion Bar"
+      },
+      {
+        "number": 2,
+        "selector": ".compile-engine-card .card-section-title",
+        "label": "Dataset Compilation Engine",
+        "description": "Standard Preset & Custom Multi-Source compilation card"
+      },
+      {
+        "number": 3,
+        "selector": ".panel-section-card .card-heading-bold",
+        "label": "Dataset Compiler & Manifold Hub",
+        "description": "Manifolds Catalog, Modernization Queue & Scale Reduction"
+      },
+      {
+        "number": 4,
+        "selector": "#telemetry-stream-heading",
+        "label": "Real-time Telemetry & Pipeline Stream",
+        "description": "Live WebSocket log console"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": null,
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_production_manifolds.png",
+    "title": "Production Manifolds Catalog Grid",
+    "tab_id": "tab-datasets",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".panel-section-card .card-heading-bold",
+        "label": "Hub Header & Count",
+        "description": "Dataset Compiler & Manifold Hub"
+      },
+      {
+        "number": 2,
+        "selector": "#compiler-subtabs-tab-catalog",
+        "label": "Sub-Tabs Switcher",
+        "description": "Catalog / Queue / Scale Reduction"
+      },
+      {
+        "number": 3,
+        "selector": "#comp-btn-update-all-kaggle",
+        "label": "Global Header Actions",
+        "description": "Update All / Regen / Validate / Refresh"
+      },
+      {
+        "number": 4,
+        "selector": ".filter-search-box input",
+        "label": "Search & Filter",
+        "description": "Live search & status/format/task filters"
+      },
+      {
+        "number": 5,
+        "selector": ".manifolds-masonry-container",
+        "label": "Masonry Reflow Grid",
+        "description": "Shortest-column MasonryFlipGrid"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": ".panel-section-card",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_manifold_card_expanded.png",
+    "title": "Expanded Production Manifold Card",
+    "tab_id": "tab-datasets",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".manifolds-masonry-container .card-compact.expanded .card-compact-title",
+        "label": "Manifold Title & Help",
+        "description": "Canonical manifold display name and metadata tooltip"
+      },
+      {
+        "number": 2,
+        "selector": ".manifolds-masonry-container .card-compact.expanded .card-status-strip .badge",
+        "label": "Manifold Status Badge",
+        "description": "COMPILED / UNCOMPILED status indicator"
+      },
+      {
+        "number": 3,
+        "selector": ".manifolds-masonry-container .card-compact.expanded .card-specs-list",
+        "label": "Storage Metrics & Format Breakdown",
+        "description": "Storage format, sample count, disk footprint, shards, and image counts"
+      },
+      {
+        "number": 4,
+        "selector": ".manifolds-masonry-container .card-compact.expanded button[aria-label*='Upstream sources']",
+        "label": "Upstream Sources",
+        "description": "Upstream sources & provenance popover trigger"
+      },
+      {
+        "number": 5,
+        "selector": ".manifolds-masonry-container .card-compact.expanded .manifold-card-actions",
+        "label": "Card Action Buttons",
+        "description": "Update Metadata, Audit Notebooks, Download, and Upload"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": ".manifolds-masonry-container .card-compact:not(.expanded) .card-compact-toggle"
+      }
+    ],
+    "clip_selector": ".manifolds-masonry-container .card-compact.expanded",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_modernization_queue.png",
+    "title": "Modernization Queue & Transcode Sub-Tab",
+    "tab_id": "tab-datasets",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".modernize-header .card-section-title",
+        "label": "Queue Title",
+        "description": "Container Modernization & Publication Queue"
+      },
+      {
+        "number": 2,
+        "selector": ".modernize-workers-label input",
+        "label": "Workers",
+        "description": "Parallel worker thread pool (1-16)"
+      },
+      {
+        "number": 3,
+        "selector": ".modernize-header .btn-primary",
+        "label": "Batch Modernize",
+        "description": "Batch Modernize All"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": "#compiler-subtabs-tab-queue"
+      }
+    ],
+    "clip_selector": ".panel-section-card",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_scale_reduction.png",
+    "title": "Scale Reduction (Downsample) Sub-Tab",
+    "tab_id": "tab-datasets",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#reduce-manifold-select",
+        "label": "Source Manifold",
+        "description": "Target manifold to downsample"
+      },
+      {
+        "number": 2,
+        "selector": "#reduce-scale-select",
+        "label": "Sampling Scale",
+        "description": "10% / 25% / 50% / 75% sampling"
+      },
+      {
+        "number": 3,
+        "selector": ".compiler-subpanel .btn-primary",
+        "label": "Launch Reduction",
+        "description": "Launch Scale Reduction"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": "#compiler-subtabs-tab-reduce"
+      }
+    ],
+    "clip_selector": ".panel-section-card",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_dataset_compilation_engine.png",
+    "title": "Dataset Compilation Engine Controls",
+    "tab_id": "tab-datasets",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".compile-engine-card .card-section-title",
+        "label": "Title & Help Glyph",
+        "description": "Dataset Compilation Engine Header"
+      },
+      {
+        "number": 2,
+        "selector": "#comp-mode-standard",
+        "label": "Standard Mode",
+        "description": "Standard Preset Mode Toggle"
+      },
+      {
+        "number": 3,
+        "selector": "#comp-mode-custom",
+        "label": "Custom Mode",
+        "description": "Custom Multi-Source Mode Toggle"
+      },
+      {
+        "number": 4,
+        "selector": "#comp-select-manifold",
+        "label": "Target Manifold",
+        "description": "Target Manifold Dropdown Selector"
+      },
+      {
+        "number": 5,
+        "selector": "#preset-select",
+        "label": "Compilation Preset",
+        "description": "Compilation Preset Dropdown Selector"
+      },
+      {
+        "number": 6,
+        "selector": "#comp-btn-compile",
+        "label": "Compile Manifold",
+        "description": "Execute Manifold Compilation"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": ".compile-engine-card",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_custom_compilation.png",
+    "title": "Custom Dataset Compilation Form",
+    "tab_id": "tab-datasets",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#comp-mode-custom",
+        "label": "Custom Mode",
+        "description": "Switch to Custom Builder"
+      },
+      {
+        "number": 2,
+        "selector": "#custom-name-input",
+        "label": "Dataset Name",
+        "description": "Output Manifold Identifier"
+      },
+      {
+        "number": 3,
+        "selector": "#custom-task-select",
+        "label": "Task Type",
+        "description": "Vision / Detection / NLP"
+      },
+      {
+        "number": 4,
+        "selector": "#custom-sources-area",
+        "label": "Sources",
+        "description": "Source Paths & Weights"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": "#comp-mode-custom"
+      }
+    ],
+    "clip_selector": ".compile-engine-card",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_health_drift_matrix.png",
+    "title": "Health & Cross-Project Version Drift Matrix",
+    "tab_id": "tab-health",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#toolchain-prereq-title",
+        "label": "Prerequisites",
+        "description": "Python, Git, Node.js"
+      },
+      {
+        "number": 2,
+        "selector": "#drift-matrix-title",
+        "label": "Python Drift",
+        "description": "Cross-Project Package Matrix"
+      },
+      {
+        "number": 3,
+        "selector": "#gui-dependencies-title",
+        "label": "NPM Packages",
+        "description": "Desktop GUI Dependencies"
+      },
+      {
+        "number": 4,
+        "selector": "#maintenance-actions-title",
+        "label": "Maintenance Controls",
+        "description": "Deep Clean, Git Hooks & Validation"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": null,
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_ecosystem_maintenance.png",
+    "title": "Ecosystem Maintenance & Governance Actions",
+    "tab_id": "tab-health",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#health-btn-deep-clean",
+        "label": "Deep Clean",
+        "description": "Purge Build Caches"
+      },
+      {
+        "number": 2,
+        "selector": "#health-btn-install-hooks",
+        "label": "Git Hooks",
+        "description": "Install Pre-Commit Hooks"
+      },
+      {
+        "number": 3,
+        "selector": "#health-btn-validate-ecosystem",
+        "label": "Validate",
+        "description": "Run Ecosystem Gates"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": "section[aria-labelledby='maintenance-actions-title']",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_contextual_help_popover.png",
+    "title": "Contextual UX Help Tooltip Popover",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#dash-btn-run-pipeline + .help-tooltip-container .help-icon-btn",
+        "label": "Help Trigger",
+        "description": "Interactive Help Button"
+      },
+      {
+        "number": 2,
+        "selector": ".help-tooltip-bubble",
+        "label": "Help Popover",
+        "description": "Contextual Guidance"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "focus",
+        "selector": "#dash-btn-run-pipeline + .help-tooltip-container .help-icon-btn"
+      }
+    ],
+    "clip_selector": "section[aria-labelledby='pipeline-panel-title']",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_docs_hub_offline.png",
+    "title": "Embedded Offline Documentation Hub",
+    "tab_id": "tab-docs",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#tab-docs",
+        "label": "Docs Tab",
+        "description": "Active Documentation Hub Tab"
+      },
+      {
+        "number": 2,
+        "selector": ".docs-panel-header .card-heading",
+        "label": "Hub Header",
+        "description": "Embedded Documentation Hub header and help tooltip"
+      },
+      {
+        "number": 3,
+        "selector": ".docs-panel-header .btn-secondary",
+        "label": "Open in Browser",
+        "description": "Open Documentation Hub in external browser"
+      },
+      {
+        "number": 4,
+        "selector": "iframe[title*='Documentation']",
+        "label": "Docs Frame",
+        "description": "Embedded offline HTML Documentation Hub"
+      },
+      {
+        "number": 5,
+        "selector": ".status-bar",
+        "label": "Local Server Status",
+        "description": "Env Manager offline docs server status"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": null,
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_report_issue_modal.png",
+    "title": "Report Issue & Diagnostic Bundle Modal",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#bug-modal-email",
+        "label": "Your Email",
+        "description": "Reply address"
+      },
+      {
+        "number": 2,
+        "selector": "#bug-modal-module",
+        "label": "Module",
+        "description": "Target workspace tab"
+      },
+      {
+        "number": 3,
+        "selector": "#bug-modal-description",
+        "label": "What happened?",
+        "description": "Problem description"
+      },
+      {
+        "number": 4,
+        "selector": "#bug-modal-telemetry",
+        "label": "Attach Telemetry",
+        "description": "Recent log events as CSV"
+      },
+      {
+        "number": 5,
+        "selector": "#bug-modal-btn-add-screenshot",
+        "label": "Capture Screenshot",
+        "description": "Up to 5 annotated screenshots"
+      },
+      {
+        "number": 6,
+        "selector": "#bug-modal-dialog fieldset:nth-of-type(2)",
+        "label": "Recording",
+        "description": "Optional app window recording"
+      },
+      {
+        "number": 7,
+        "selector": "#bug-modal-btn-cancel",
+        "label": "Cancel",
+        "description": "Dismiss form without sending"
+      },
+      {
+        "number": 8,
+        "selector": "#bug-modal-btn-submit",
+        "label": "Send Report",
+        "description": "Save ZIP and open mail client"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": "#header-btn-report-issue"
+      }
+    ],
+    "clip_selector": "#bug-modal-dialog",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_log_panel.png",
+    "title": "Live Telemetry Stream Log Panel",
+    "tab_id": "tab-dashboard",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#telemetry-stream-heading",
+        "label": "Telemetry Stream Header",
+        "description": "Real-time Telemetry & Pipeline Stream title"
+      },
+      {
+        "number": 2,
+        "selector": "section[aria-labelledby='telemetry-stream-heading'] .badge",
+        "label": "WebSocket Status Pill",
+        "description": "WS CONNECTED / OFFLINE connection indicator"
+      },
+      {
+        "number": 3,
+        "selector": "section[aria-labelledby='telemetry-stream-heading'] button[aria-label*='Copy telemetry']",
+        "label": "Copy Stream",
+        "description": "Copy telemetry log buffer to clipboard"
+      },
+      {
+        "number": 4,
+        "selector": "section[aria-labelledby='telemetry-stream-heading'] button[aria-label='Clear telemetry stream log']",
+        "label": "Clear Stream",
+        "description": "Flush local terminal event buffer"
+      },
+      {
+        "number": 5,
+        "selector": "section[aria-labelledby='telemetry-stream-heading'] .log-container-selectable",
+        "label": "Telemetry Log Output",
+        "description": "Monospace scrollable WebSocket log stream"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": "section[aria-labelledby='telemetry-stream-heading']",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_training_panel_overview.png",
+    "title": "Model Training Suite Overview",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".toolbar-wrapper .toolbar-header",
+        "label": "Orchestrator Toolbar",
+        "description": "Global header and batch automation triggers"
+      },
+      {
+        "number": 2,
+        "selector": ".toolbar-wrapper .filter-bar",
+        "label": "Filter & Search",
+        "description": "Live model search and domain/status filters"
+      },
+      {
+        "number": 3,
+        "selector": ".card-compact.expanded .card-compact-title",
+        "label": "Model Cards Grid",
+        "description": "Registered neural architecture cards grid"
+      },
+      {
+        "number": 4,
+        "selector": ".card-compact.expanded .hover-pin-trigger, .card-compact.expanded button[aria-label*='Target']",
+        "label": "Pinned SOTA Popover",
+        "description": "Interactive SOTA target comparison popover"
+      },
+      {
+        "number": 5,
+        "selector": ".card-compact.expanded [id^='train-btn-start-']",
+        "label": "Execution Triggers",
+        "description": "Dual Local Training and Cloud Training triggers"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "FFANet"
+      },
+      {
+        "action": "click",
+        "selector": ".card-compact.expanded .hover-pin-trigger, .card-compact.expanded button[aria-label*='Target']"
+      }
+    ],
+    "clip_selector": null,
+    "viewport": [
+      1440,
+      1500
+    ]
+  },
+  {
+    "filename": "gui_training_orchestrator.png",
+    "title": "Model Training Orchestrator Toolbar",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".toolbar-wrapper .filter-search-box input",
+        "label": "Model Search",
+        "description": "Live model name/architecture/category search"
+      },
+      {
+        "number": 2,
+        "selector": ".toolbar-wrapper select[aria-label='Status filter']",
+        "label": "Status Filter",
+        "description": "Filter by training lifecycle status"
+      },
+      {
+        "number": 3,
+        "selector": ".toolbar-wrapper select[aria-label='Category filter']",
+        "label": "Category Filter",
+        "description": "Filter by ML task domain"
+      },
+      {
+        "number": 4,
+        "selector": ".toolbar-wrapper select[aria-label='Architecture filter']",
+        "label": "Architecture Filter",
+        "description": "Filter by neural backbone"
+      },
+      {
+        "number": 5,
+        "selector": "#train-btn-generate-all-notebooks",
+        "label": "Generate All",
+        "description": "Create Kaggle Notebooks"
+      },
+      {
+        "number": 6,
+        "selector": "#training-toolbar-push-all-models-btn",
+        "label": "Push All",
+        "description": "Sync Models to Hub"
+      },
+      {
+        "number": 7,
+        "selector": "#train-btn-refresh-models",
+        "label": "Refresh",
+        "description": "Refresh Registry"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": ".toolbar-wrapper",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_architecture_telemetry.png",
+    "title": "Registered Neural Architectures Telemetry Card",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".card-compact.expanded .card-compact-title",
+        "label": "Model Identity",
+        "description": "Model title, help tooltip & training progress"
+      },
+      {
+        "number": 2,
+        "selector": ".card-compact.expanded .card-status-strip + div",
+        "label": "Format Variations",
+        "description": "PyTorch, ONNX FP32, ONNX FP16 readiness"
+      },
+      {
+        "number": 3,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(1)",
+        "label": "Neural Architecture",
+        "description": "Network backbone architecture"
+      },
+      {
+        "number": 4,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(2)",
+        "label": "Parameters",
+        "description": "Trainable parameter count"
+      },
+      {
+        "number": 5,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(3)",
+        "label": "Task Category",
+        "description": "Registered ML domain"
+      },
+      {
+        "number": 6,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(4)",
+        "label": "Completed Epochs",
+        "description": "Cumulative trained epochs"
+      },
+      {
+        "number": 7,
+        "selector": ".card-compact.expanded .hover-pin-trigger, .card-compact.expanded button[aria-label*='Target']",
+        "label": "Target Metrics (SOTA)",
+        "description": "SOTA convergence popover trigger"
+      },
+      {
+        "number": 8,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(6)",
+        "label": "Confluence / Spatial Ladder",
+        "description": "Active ladder progression rung"
+      },
+      {
+        "number": 9,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(7)",
+        "label": "Walk-Forward Fold / Data Fraction",
+        "description": "Active fold or dataset fraction"
+      },
+      {
+        "number": 10,
+        "selector": ".card-compact.expanded [id^='train-select-batch-']",
+        "label": "Batch Size",
+        "description": "Mini-batch size selector"
+      },
+      {
+        "number": 11,
+        "selector": ".card-compact.expanded [id^='train-btn-start-']",
+        "label": "Local Training",
+        "description": "Launch local GPU training"
+      },
+      {
+        "number": 12,
+        "selector": ".card-compact.expanded [id^='train-btn-cloud-']",
+        "label": "Cloud Training",
+        "description": "Open Cloud Dispatch dialog"
+      },
+      {
+        "number": 13,
+        "selector": ".card-compact.expanded [id^='train-btn-pub-model-']",
+        "label": "Push Model",
+        "description": "Publish variations to Kaggle Hub"
+      },
+      {
+        "number": 14,
+        "selector": ".card-compact.expanded [id^='train-btn-pull-model-']",
+        "label": "Pull Model",
+        "description": "Pull variations from Kaggle Hub"
+      },
+      {
+        "number": 15,
+        "selector": ".card-compact.expanded [id^='train-btn-gen-nb-']",
+        "label": "Training Notebook",
+        "description": "Generate training notebooks"
+      },
+      {
+        "number": 16,
+        "selector": ".card-compact.expanded [id^='train-btn-usage-nb-']",
+        "label": "Usage Notebook",
+        "description": "Generate usage guide notebooks"
+      },
+      {
+        "number": 17,
+        "selector": ".card-compact.expanded [id^='train-btn-eval-']",
+        "label": "Evaluate Model",
+        "description": "Run validation benchmark"
+      },
+      {
+        "number": 18,
+        "selector": ".card-compact.expanded [id^='train-btn-export-']",
+        "label": "Export Binaries",
+        "description": "Compile ONNX / TorchScript"
+      },
+      {
+        "number": 19,
+        "selector": ".card-compact.expanded [id^='train-btn-docs-']",
+        "label": "Docs & Meta",
+        "description": "Regenerate README & metadata"
+      },
+      {
+        "number": 20,
+        "selector": ".card-compact.expanded [id^='train-btn-stage-']",
+        "label": "Stage Variations",
+        "description": "Stage isolated Kaggle variations"
+      },
+      {
+        "number": 21,
+        "selector": ".card-compact.expanded [id^='train-btn-soup-']",
+        "label": "Blend Soup",
+        "description": "Open Pareto Model Soup blending dialog"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "Forex"
+      }
+    ],
+    "clip_selector": ".card-compact.expanded",
+    "viewport": [
+      1440,
+      1450
+    ]
+  },
+  {
+    "filename": "gui_card_vision.png",
+    "title": "Vision Restoration Model Card",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".card-compact.expanded .hover-pin-trigger, .card-compact.expanded button[aria-label*='Target']",
+        "label": "Vision SOTA Targets",
+        "description": "PSNR / SSIM / LPIPS / FID convergence baselines"
+      },
+      {
+        "number": 2,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(6)",
+        "label": "Resolution Ladder",
+        "description": "Spatial resolution stepping (256px / 384px / 512px)"
+      },
+      {
+        "number": 3,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(7)",
+        "label": "Data Fraction",
+        "description": "Progressive dataset scale ramp-up"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "CodeFormer"
+      }
+    ],
+    "clip_selector": ".card-compact.expanded",
+    "viewport": [
+      1440,
+      1400
+    ]
+  },
+  {
+    "filename": "gui_card_yolo.png",
+    "title": "YOLO Object Detection Model Card",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(3)",
+        "label": "Detection Task Category",
+        "description": "Multi-task spatial object detection domain"
+      },
+      {
+        "number": 2,
+        "selector": ".card-compact.expanded .hover-pin-trigger, .card-compact.expanded button[aria-label*='Target']",
+        "label": "Multi-Task SOTA Targets",
+        "description": "Box mAP50-95, classification, and mask baselines"
+      },
+      {
+        "number": 3,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(6)",
+        "label": "Input Resolution Ladder",
+        "description": "640px multi-scale anchor grid resolution"
+      },
+      {
+        "number": 4,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(7)",
+        "label": "Data Fraction",
+        "description": "Full dataset scale certification"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "YOLO"
+      }
+    ],
+    "clip_selector": ".card-compact.expanded",
+    "viewport": [
+      1440,
+      1400
+    ]
+  },
+  {
+    "filename": "gui_card_llm.png",
+    "title": "Causal LLM Model Card",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".card-compact.expanded .llm-matrix-card",
+        "label": "QLoRA Matrix",
+        "description": "Context tokens, LoRA rank/alpha, loss, and base weights"
+      },
+      {
+        "number": 2,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(7)",
+        "label": "Context Window",
+        "description": "Active 2048-token attention window"
+      },
+      {
+        "number": 3,
+        "selector": ".card-compact.expanded .card-specs-list > .metric-row:nth-of-type(8)",
+        "label": "Training Dataset",
+        "description": "Domain instruction corpus (LemGendizedAIHelperLemGend)"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "Causal LLM"
+      }
+    ],
+    "clip_selector": ".card-compact.expanded",
+    "viewport": [
+      1440,
+      1400
+    ]
+  },
+  {
+    "filename": "gui_sota_popover.png",
+    "title": "Interactive SOTA Target Pinning & Metric Inspection",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": ".card-compact.expanded .hover-pin-trigger, .card-compact.expanded button[aria-label*='Target']",
+        "label": "Target Metrics Trigger",
+        "description": "Click to pin SOTA metrics popover"
+      },
+      {
+        "number": 2,
+        "selector": ".card-compact.expanded [id^='train-btn-soup-']",
+        "label": "Blend Soup",
+        "description": "Pareto Checkpoint Blend"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "FFANet"
+      },
+      {
+        "action": "click",
+        "selector": ".card-compact.expanded .hover-pin-trigger, .card-compact.expanded button[aria-label*='Target']"
+      }
+    ],
+    "clip_selector": ".card-compact.expanded",
+    "viewport": [
+      1440,
+      1500
+    ]
+  },
+  {
+    "filename": "gui_telemetry_console.png",
+    "title": "Three-Tab Real-Time Training Telemetry Console",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#training-telemetry-tabs-tab-local",
+        "label": "Local Tab",
+        "description": "Local Logs"
+      },
+      {
+        "number": 2,
+        "selector": "#training-telemetry-tabs-tab-remote",
+        "label": "Remote Tab",
+        "description": "Cloud Kernel Logs"
+      },
+      {
+        "number": 3,
+        "selector": "#training-telemetry-tabs-tab-system",
+        "label": "System Tab",
+        "description": "Ecosystem Mesh Stream"
+      },
+      {
+        "number": 4,
+        "selector": ".telemetry-local-status",
+        "label": "Worker Status & Progress",
+        "description": "Active worker status & Radix UI progress"
+      },
+      {
+        "number": 5,
+        "selector": ".log-container-local",
+        "label": "Terminal Output",
+        "description": "Monospace terminal stream"
+      },
+      {
+        "number": 6,
+        "selector": ".telemetry-card-header .row-gap-sm",
+        "label": "Stream Controls",
+        "description": "Copy Stream, Clear Stream, Halt Job"
+      }
+    ],
+    "setup_steps": [],
+    "clip_selector": "#telemetry-panel-anchor",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_model_export_publish.png",
+    "title": "Model Export & Cloud Hub Publishing Controls",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#cloud-modal .modal-title",
+        "label": "Modal Header",
+        "description": "Cloud & Registry Dispatch header and model identity"
+      },
+      {
+        "number": 2,
+        "selector": "#cloud-modal .modal-tablist",
+        "label": "Platform Switcher",
+        "description": "Kaggle Cloud / Google Colab / Kaggle Models Hub"
+      },
+      {
+        "number": 3,
+        "selector": "#cloud-modal .modal-checklist .modal-checklist-item:nth-of-type(1)",
+        "label": "Notebook Template",
+        "description": "Pre-Flight Canonical Notebook Template row"
+      },
+      {
+        "number": 4,
+        "selector": "#cloud-modal .modal-checklist .modal-checklist-item:nth-of-type(2)",
+        "label": "Dataset Manifold",
+        "description": "Pre-Flight Required Dataset Manifold row"
+      },
+      {
+        "number": 5,
+        "selector": "#cloud-modal .modal-checklist .modal-checklist-item:nth-of-type(3)",
+        "label": "Checkpoint Vault",
+        "description": "Pre-Flight Checkpoint Vault row"
+      },
+      {
+        "number": 6,
+        "selector": "#cloud-modal .modal-checklist .modal-checklist-item:nth-of-type(4)",
+        "label": "API Authentication",
+        "description": "Pre-Flight API Authentication row"
+      },
+      {
+        "number": 7,
+        "selector": "#cloud-modal .isolation-wrapper .row-between button:nth-of-type(1)",
+        "label": "Regen Docs & Meta",
+        "description": "Regenerate README.md and model-metadata.json"
+      },
+      {
+        "number": 8,
+        "selector": "#cloud-modal .isolation-wrapper .row-between button:nth-of-type(2)",
+        "label": "Stage Variations",
+        "description": "Stage isolated binary variations"
+      },
+      {
+        "number": 9,
+        "selector": "#cloud-modal .variation-card[data-variation='pytorch/default']",
+        "label": "PyTorch Variation",
+        "description": "PyTorch (.pt) binary isolation card"
+      },
+      {
+        "number": 10,
+        "selector": "#cloud-modal .variation-card[data-variation='onnx/fp32']",
+        "label": "ONNX FP32 Variation",
+        "description": "ONNX FP32 binary isolation card"
+      },
+      {
+        "number": 11,
+        "selector": "#cloud-modal .variation-card[data-variation='onnx/fp16']",
+        "label": "ONNX FP16 Variation",
+        "description": "ONNX FP16 binary isolation card"
+      },
+      {
+        "number": 12,
+        "selector": "#variation-select",
+        "label": "Variation Select",
+        "description": "Framework variation payload selector"
+      },
+      {
+        "number": 13,
+        "selector": "#cloud-modal .isolation-controls-grid input[type='checkbox']",
+        "label": "Dry-Run Toggle",
+        "description": "Dry-Run Validation Only checkbox"
+      },
+      {
+        "number": 14,
+        "selector": "#cloud-modal .modal-action-footer .btn-modal-link:nth-of-type(1)",
+        "label": "Kaggle Notebook Link",
+        "description": "Open remote Kaggle training notebook"
+      },
+      {
+        "number": 15,
+        "selector": "#cloud-modal .modal-action-footer .btn-modal-link:nth-of-type(2)",
+        "label": "Kaggle Model Hub Link",
+        "description": "Open Kaggle Models Hub repository"
+      },
+      {
+        "number": 16,
+        "selector": "#cloud-modal .btn-modal-cancel",
+        "label": "Cancel",
+        "description": "Dismiss publishing dialog"
+      },
+      {
+        "number": 17,
+        "selector": "#cloud-modal .btn-modal-confirm",
+        "label": "Push to Kaggle Models",
+        "description": "Publish isolated variations to Kaggle Models Hub"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "Forex"
+      },
+      {
+        "action": "click",
+        "selector": ".card-compact.expanded [id^='train-btn-cloud-']"
+      },
+      {
+        "action": "click",
+        "selector": "#train-modal-tab-upload"
+      }
+    ],
+    "clip_selector": "#cloud-modal",
+    "viewport": [
+      1440,
+      1450
+    ]
+  },
+  {
+    "filename": "gui_cloud_train_modal.png",
+    "title": "Cloud Training & Dispatch Modal",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#cloud-modal",
+        "label": "Cloud Modal",
+        "description": "Dispatch & Monitoring Dialog"
+      },
+      {
+        "number": 2,
+        "selector": "#cloud-modal-tab-kaggle",
+        "label": "Kaggle Tab",
+        "description": "Kaggle GPU / TPU"
+      },
+      {
+        "number": 3,
+        "selector": "#cloud-modal-tab-colab",
+        "label": "Colab Tab",
+        "description": "Google Colab"
+      },
+      {
+        "number": 4,
+        "selector": "#train-modal-tab-upload",
+        "label": "Upload Tab",
+        "description": "Hub Upload"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle"
+      },
+      {
+        "action": "click",
+        "selector": "[id^='train-btn-cloud-']"
+      }
+    ],
+    "clip_selector": "#cloud-modal",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "filename": "gui_cloud_modal_kaggle.png",
+    "title": "Cloud Modal: Kaggle Launch & Auto-Resume Options",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#kaggle-accelerator-select",
+        "label": "Accelerator",
+        "description": "GPU T4 x2 / TPU v5e-8 / CPU selector"
+      },
+      {
+        "number": 2,
+        "selector": "#kaggle-poll-interval-input",
+        "label": "Poll Interval",
+        "description": "Remote kernel status polling cadence (s)"
+      },
+      {
+        "number": 3,
+        "selector": "#kaggle-auto-pull-checkbox",
+        "label": "Auto-Pull",
+        "description": "Automatically sync checkpoints to LemGendaryModels"
+      },
+      {
+        "number": 4,
+        "selector": "#kaggle-auto-resume-checkbox",
+        "label": "Auto-Resume",
+        "description": "Chain consecutive sessions after deadline"
+      },
+      {
+        "number": 5,
+        "selector": "#kaggle-max-resumes-input",
+        "label": "Max Resumes",
+        "description": "Maximum chained resume sessions"
+      },
+      {
+        "number": 6,
+        "selector": "#kaggle-override-frozen-checkbox",
+        "label": "Override Frozen",
+        "description": "Bypass frozen settings resume guard"
+      },
+      {
+        "number": 7,
+        "selector": "#kaggle-fieldset-advanced",
+        "label": "Advanced Overrides",
+        "description": "Git refs, session limit, and stop margin"
+      },
+      {
+        "number": 8,
+        "selector": "#kaggle-monitor-kernel-select",
+        "label": "Recent Kernels",
+        "description": "Select an active Kaggle kernel to monitor"
+      },
+      {
+        "number": 9,
+        "selector": "#kaggle-monitor-slug",
+        "label": "Attach Monitor",
+        "description": "Enter owner/kernel-slug and attach monitor"
+      },
+      {
+        "number": 10,
+        "selector": "#cloud-modal .btn-modal-confirm",
+        "label": "Launch Cloud Training",
+        "description": "Dispatch remote Kaggle training kernel"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "Forex"
+      },
+      {
+        "action": "click",
+        "selector": ".card-compact.expanded [id^='train-btn-cloud-']"
+      },
+      {
+        "action": "click",
+        "selector": "#cloud-modal-tab-kaggle"
+      }
+    ],
+    "clip_selector": "#cloud-modal",
+    "viewport": [
+      1440,
+      1500
+    ]
+  },
+  {
+    "filename": "gui_cloud_modal_colab.png",
+    "title": "Cloud Modal: Google Colab FUSE Dispatch",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#cloud-modal-tab-colab",
+        "label": "Google Colab FUSE Tab",
+        "description": "Active Colab FUSE platform mode"
+      },
+      {
+        "number": 2,
+        "selector": "#cloud-modal .modal-checklist .modal-checklist-item:nth-of-type(1)",
+        "label": "Colab Notebook Template",
+        "description": "Canonical Colab training notebook template"
+      },
+      {
+        "number": 3,
+        "selector": "#cloud-modal .modal-checklist .modal-checklist-item:nth-of-type(2)",
+        "label": "Dataset Manifold",
+        "description": "Registered Kaggle dataset manifold link"
+      },
+      {
+        "number": 4,
+        "selector": "#cloud-modal .modal-checklist .modal-checklist-item:nth-of-type(3)",
+        "label": "Checkpoint Vault",
+        "description": "Google Drive FUSE checkpoint vault path"
+      },
+      {
+        "number": 5,
+        "selector": "#cloud-modal .modal-info-card",
+        "label": "FUSE Mount & Manual Launch",
+        "description": "Google Drive FUSE mount path and manual Colab launch note"
+      },
+      {
+        "number": 6,
+        "selector": "#cloud-modal .modal-action-footer",
+        "label": "Footer Links & Cancel",
+        "description": "External Kaggle links and modal dismiss button"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click_text",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle",
+        "text": "Forex"
+      },
+      {
+        "action": "click",
+        "selector": ".card-compact.expanded [id^='train-btn-cloud-']"
+      },
+      {
+        "action": "click",
+        "selector": "#cloud-modal-tab-colab"
+      }
+    ],
+    "clip_selector": "#cloud-modal",
+    "viewport": [
+      1440,
+      1100
+    ]
+  },
+  {
+    "filename": "gui_cloud_modal_hub.png",
+    "title": "Cloud Modal: Hub Upload & Transfer",
+    "tab_id": "tab-training",
+    "callouts": [
+      {
+        "number": 1,
+        "selector": "#train-modal-tab-upload",
+        "label": "Upload Tab",
+        "description": "Active Hub Upload View"
+      },
+      {
+        "number": 2,
+        "selector": "#cloud-modal-panel",
+        "label": "Upload Panel",
+        "description": "Model Weights Transfer"
+      }
+    ],
+    "setup_steps": [
+      {
+        "action": "click",
+        "selector": ".card-compact:not(.expanded) .card-compact-toggle"
+      },
+      {
+        "action": "click",
+        "selector": "[id^='train-btn-cloud-']"
+      },
+      {
+        "action": "click",
+        "selector": "#train-modal-tab-upload"
+      }
+    ],
+    "clip_selector": "#cloud-modal",
+    "viewport": [
+      1440,
+      900
+    ]
+  }
+]

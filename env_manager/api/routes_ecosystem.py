@@ -35,7 +35,7 @@ router = APIRouter()
 _log = get_logger(__name__)
 
 
-def _probe_sidecar(url: str, timeout: float = 1.5) -> dict[str, Any]:
+def _probe_sidecar(url: str, timeout: float = 5.0) -> dict[str, Any]:
     """Probe an external HTTP sidecar endpoint cleanly with a brief timeout."""
     req = urllib.request.Request(url, headers={"User-Agent": "LemGendary-Env-Manager"})
     try:
@@ -99,13 +99,23 @@ async def get_gui_ecosystem():
     """
     loop = asyncio.get_running_loop()
     eco = ecosystem()
+    other_services = [svc for svc in eco.services if svc.id != SELF_SERVICE_ID]
+    probes = await asyncio.gather(
+        *(
+            loop.run_in_executor(
+                None, _probe_sidecar, eco.service_url(svc, svc.liveness_path), 5.0
+            )
+            for svc in other_services
+        )
+    )
+    probe_by_id = {svc.id: probe for svc, probe in zip(other_services, probes, strict=True)}
     overview: dict[str, dict[str, Any]] = {}
     for svc in eco.services:
-        if svc.id == SELF_SERVICE_ID:
-            probe: dict[str, Any] = {"status": "online", "reachable": True}
-        else:
-            url = eco.service_url(svc, svc.liveness_path)
-            probe = await loop.run_in_executor(None, _probe_sidecar, url, 1.5)
+        probe = (
+            {"status": "online", "reachable": True}
+            if svc.id == SELF_SERVICE_ID
+            else probe_by_id[svc.id]
+        )
         overview[svc.id.replace("-", "_")] = {
             "service": svc.project, "port": svc.port, **probe,
         }

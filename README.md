@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.90-STABLE)
+# LemGendary Environment Manager (v16.9.91-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**
@@ -37,7 +37,7 @@ and the **LemGendary AI Studio Desktop GUI** (`lemgendary-ai-studio-gui`).
 |  |         /api/gui/state             /api/gui/ecosystem             |  |
 |  +-------------------------------------------------------------------+  |
 +------------------------------------+------------------------------------+
-                                     | Probe (Port 8100)
+                                     | Probe (Port 8150)
                                      v
 +------------------------------------+------------------------------------+
 |                  lemgendary-datasets Sidecar                           |
@@ -378,6 +378,30 @@ duplicate. Run `lem-env validate` to check.
 ---
 
 ## Changelog
+
+### v16.9.97 - Resilient Sidecar Probing & GUI Screenshot Spec Alignment
+
+- **Concurrent 5.0s Mesh Probing & Busy-Port Guard
+  (`env_manager/api/routes_ecosystem.py`, `env_manager/service_manager.py`)**:
+  - Increased sidecar health probe timeout from `1.0s`/`1.5s` to `5.0s`,
+    parallelized `/api/gui/ecosystem` probes via `asyncio.gather`, and added
+    `_is_service_responsive` retry checks in `_preflight_service` before
+    terminating a listening port holder.
+- **GUI Screenshot Runner & Catalog Specs
+  (`env_manager/gui_docs/capture_runner.mjs`, `specs_catalog.json`)**:
+  - Added full-tab scroll reset and dynamic viewport expansion, waited for
+    populated dataset manifolds, and added `gui_manifold_card_expanded.png`.
+
+### v16.9.91 - GUI Documentation Automation & Ecosystem Audit
+
+- Added modular `env_manager/gui_docs/` package (`specs.py`,
+  `capture_runner.mjs`, `screenshots.py`, `html_renderer.py`,
+  `registry_sync.py`, `manual_sync.py`).
+- Added `env_manager/validation/docs_audit_runner.py` and registered
+  `gui-screenshots`, `sync-gui-registry`, `sync-gui-manual`, and `docs-audit`
+  CLI commands.
+- Restored `lemgendary-docs` in `ecosystem.json` and set
+  `lemgendary-ai-studio-gui` `upgrade_order` to `4`.
 
 ### v16.9.96 - Package Version Synchronization
 

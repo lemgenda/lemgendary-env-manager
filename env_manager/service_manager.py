@@ -55,7 +55,7 @@ def is_port_in_use(port: int, host: str | None = None) -> bool:
         return sock.connect_ex((host or ecosystem().identity.bind_host, port)) == 0
 
 
-def is_service_healthy(health_url: str, timeout: float = 1.0) -> bool:
+def is_service_healthy(health_url: str, timeout: float = 5.0) -> bool:
     """Probe service HTTP health endpoint for 200 OK status."""
     try:
         req = urllib.request.Request(
@@ -69,6 +69,18 @@ def is_service_healthy(health_url: str, timeout: float = 1.0) -> bool:
         # service is an expected state, so this is debug-level.
         _log.debug("Health probe %s failed: %s", health_url, exc)
         return False
+
+
+def _is_service_responsive(
+    health_url: str, attempts: int = 3, retry_delay_s: float = 0.5
+) -> bool:
+    """Retry health probes before declaring a bound port unresponsive."""
+    for attempt in range(max(1, attempts)):
+        if is_service_healthy(health_url):
+            return True
+        if attempt + 1 < attempts:
+            time.sleep(retry_delay_s)
+    return False
 
 
 def get_background_python_path(project_dir: Path) -> Path:
@@ -100,7 +112,13 @@ def _preflight_service(svc: Service) -> dict[str, Any] | None:
             "port": port,
         }
     if is_port_in_use(port):
-        # Port is bound but fails health check: terminate stale or unresponsive process holder
+        if _is_service_responsive(_health_url(svc), attempts=2):
+            return {
+                "status": "already_running",
+                "message": f"{name} is already online and healthy on port {port}.",
+                "port": port,
+            }
+        # Port is bound and fails repeated health checks: terminate unresponsive holder
         _log.warning(
             "Port %d held by unresponsive process; terminating port holder before starting %s",
             port,

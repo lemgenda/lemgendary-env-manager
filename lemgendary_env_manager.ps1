@@ -1,12 +1,12 @@
 # ==============================================================================
-# LemGendary Environment Manager Hub (v16.9.85)
+# LemGendary Environment Manager Hub (v16.9.91)
 # Authoritative PowerShell orchestrator for cross-platform environments.
 # ==============================================================================
 
 [CmdletBinding()]
 param (
     [Parameter(Position = 0)]
-    [ValidateSet("probe", "audit", "install", "update", "sync", "validate", "clean", "setup-hooks", "hooks", "serve", "menu")]
+    [ValidateSet("probe", "audit", "install", "update", "sync", "validate", "clean", "setup-hooks", "hooks", "check-lines", "fix-lines", "serve", "gui-screenshots", "sync-gui-registry", "sync-gui-manual", "docs-audit", "menu")]
     [string]$Command = "menu",
 
     [Parameter(ValueFromRemainingArguments = $true)]

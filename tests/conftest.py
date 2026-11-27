@@ -44,6 +44,7 @@ def build_fake_workspace(root: Path) -> Path:
 
     docs = root / "lemgendary-docs"
     docs.mkdir(parents=True, exist_ok=True)
+    (docs / "README.md").write_text(_README.format(name="lemgendary-docs"), encoding="utf-8")
     baseline = {"document_baseline": "fixture"}
     (docs / "manifest").mkdir(parents=True, exist_ok=True)
     (docs / "manifest" / "documents.json").write_text(

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from env_manager.ecosystem import ecosystem
 from env_manager.service_manager import (
     _parse_netstat_pids,
+    _preflight_service,
     _stop_via_pid_files,
     stop_all_services,
     stop_service,
@@ -74,3 +75,17 @@ def test_stop_all_services_stops_non_self_services() -> None:
         assert "training-suite" in results
         assert "env-manager" not in results
         assert mock_stop.call_count == _EXPECTED_OTHER_SERVICES_COUNT
+
+
+def test_preflight_does_not_kill_busy_port_holder_that_recovers() -> None:
+    """A port holder that answers on retry must not be killed by _preflight_service."""
+    svc = ecosystem().require_service("dataset-compiler")
+    with (
+        patch("env_manager.service_manager.is_service_healthy", side_effect=[False, True]),
+        patch("env_manager.service_manager.is_port_in_use", return_value=True),
+        patch("env_manager.service_manager._stop_port_holder") as mock_kill,
+    ):
+        result = _preflight_service(svc)
+    assert result is not None
+    assert result["status"] == "already_running"
+    mock_kill.assert_not_called()

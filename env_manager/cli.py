@@ -26,6 +26,9 @@ from env_manager.cli_views.validate import (
     summary_table,
 )
 from env_manager.ecosystem import SELF_SERVICE_ID, ecosystem
+from env_manager.gui_docs.manual_sync import sync_gui_manual
+from env_manager.gui_docs.registry_sync import sync_gui_registry
+from env_manager.gui_docs.screenshots import capture_gui_screenshots
 from env_manager.health_checker import run_full_health_audit
 from env_manager.hooks import install_git_hooks
 from env_manager.line_length import (
@@ -44,6 +47,7 @@ from env_manager.updater import apply_upgrade_plan, build_upgrade_plan
 from env_manager.upgrade.finalize import finalize_upgrade
 from env_manager.upgrade.verify import UpgradeTally
 from env_manager.utils import purge_workspace_caches
+from env_manager.validation.docs_audit_runner import run_docs_audit
 from env_manager.validator import validate_workspace
 from env_manager.venv_manager import discover_projects
 from env_manager.workspace import workspace_root
@@ -451,6 +455,82 @@ def fix_lines(
     code = run_fix(files, opts, repo_root)
     if code != 0:
         raise typer.Exit(code=code)
+
+
+@app.command(name="gui-screenshots")
+def gui_screenshots(
+    url: Annotated[
+        str, typer.Option("--url", help="Live GUI dev server URL.")
+    ] = "http://localhost:1420",
+    out_dir: Annotated[
+        Path | None, typer.Option("--out-dir", help="Output directory for captured PNGs.")
+    ] = None,
+    audit_out: Annotated[
+        Path | None, typer.Option("--audit-out", help="Optional path to write live DOM audit JSON.")
+    ] = None,
+    no_prune: Annotated[
+        bool, typer.Option("--no-prune", help="Keep obsolete test_*.png files in output directory.")
+    ] = False,
+):
+    """Capture numbered callout screenshots from the live AI Studio GUI."""
+    summary = capture_gui_screenshots(
+        url=url,
+        out_dir=out_dir,
+        audit_out=audit_out,
+        prune_test_pngs=not no_prune,
+    )
+    typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command(name="sync-gui-registry")
+def sync_gui_registry_cmd(
+    root: Annotated[
+        Path | None, typer.Option("--root", help="Workspace root override.")
+    ] = None,
+    audit_json: Annotated[
+        Path | None, typer.Option("--audit-json", help="Optional live_gui_audit.json path.")
+    ] = None,
+):
+    """Synchronize GUI_CONTROL_REGISTRY.md, HTML, and documents.json."""
+    summary = sync_gui_registry(root=root, audit_json=audit_json)
+    typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command(name="sync-gui-manual")
+def sync_gui_manual_cmd(
+    root: Annotated[
+        Path | None, typer.Option("--root", help="Workspace root override.")
+    ] = None,
+):
+    """Synchronize MANUAL_AI_STUDIO_GUI.md, HTML, and documents.json."""
+    summary = sync_gui_manual(root=root)
+    typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command(name="docs-audit")
+def docs_audit_cmd(
+    root: Annotated[
+        Path | None, typer.Option("--root", help="Workspace root override.")
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable JSON.")
+    ] = False,
+):
+    """Run full-repository documentation audit across lemgendary-docs and root MD."""
+    summary = run_docs_audit(root=root)
+    if json_output:
+        typer.echo(json.dumps(summary.to_dict(), indent=2))
+    else:
+        if summary.docs_report is not None:
+            print_violations(console, summary.docs_report)
+            print_warnings(console, summary.docs_report)
+        for violation in summary.extra_violations:
+            typer.echo(
+                f"[{violation.violation_type}] {violation.file_path}:{violation.line_number}: "
+                f"{violation.message}"
+            )
+    if not summary.passed:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Environment Manager API",
     "description": "REST and WebSocket sidecar service for LemGendary AI Studio.",
-    "version": "16.9.85"
+    "version": "16.9.91"
   },
   "paths": {
     "/api/ping": {
@@ -914,6 +914,23 @@
         "summary": "Start All Ecosystem Services",
         "description": "Start all offline ecosystem sidecars.",
         "operationId": "start_all_ecosystem_services_api_services_start_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/services/stop-all": {
+      "post": {
+        "summary": "Stop All Ecosystem Services",
+        "description": "Stop all active ecosystem sidecars.",
+        "operationId": "stop_all_ecosystem_services_api_services_stop_all_post",
         "responses": {
           "200": {
             "description": "Successful Response",

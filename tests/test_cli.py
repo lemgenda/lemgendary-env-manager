@@ -39,7 +39,7 @@ class TestCliCommands(unittest.TestCase):
         result = self.runner.invoke(app, ["sync"])
         self.assertEqual(result.exit_code, 0, f"sync command failed: {result.output}")
         self.assertIn("Synchronizing requirements manifests", result.output)
-        synced = workspace_root() / "lemgendary-docs" / "requirements.txt"
+        synced = workspace_root() / "lemgendary-datasets" / "requirements.txt"
         self.assertEqual(synced.read_text(encoding="utf-8"), "rich>=13.0.0\n")
 
     def test_cli_clean_command(self) -> None:

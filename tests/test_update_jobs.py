@@ -234,10 +234,10 @@ class TestUpdateEndpoint(unittest.TestCase):
         with patch.object(routes_pipeline, "build_upgrade_plan", return_value=plan) as build, \
                 patch.object(state, "update_jobs", fake_jobs):
             data = asyncio.run(routes_pipeline.run_update(
-                routes_pipeline.UpdateRequest(project="lemgendary-docs", dry_run=True)
+                routes_pipeline.UpdateRequest(project="lemgendary-datasets", dry_run=True)
             ))
         self.assertEqual(data["status"], "dry_run")
-        self.assertEqual(build.call_args.kwargs["project"], "lemgendary-docs")
+        self.assertEqual(build.call_args.kwargs["project"], "lemgendary-datasets")
         fake_jobs.start.assert_not_called()
 
     def test_status_endpoint_reports_job(self) -> None:

@@ -97,10 +97,22 @@
       "kind": "node",
       "managed": true,
       "validated": true,
-      "upgrade_order": 5,
+      "upgrade_order": 4,
       "git_hooked": true,
       "requirements_manifest": null,
       "npm_manifest": "lemgendary-ai-studio-gui.package.json",
+      "legacy_folders": []
+    },
+    {
+      "folder": "lemgendary-docs",
+      "display_name": "LemGendary AI Documentation Hub",
+      "kind": "python",
+      "managed": false,
+      "validated": true,
+      "upgrade_order": null,
+      "git_hooked": true,
+      "requirements_manifest": null,
+      "npm_manifest": null,
       "legacy_folders": []
     },
     {
