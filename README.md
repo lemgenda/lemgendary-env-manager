@@ -381,6 +381,12 @@ duplicate. Run `lem-env validate` to check.
 
 ### v16.9.97 - Resilient Sidecar Probing & GUI Screenshot Spec Alignment
 
+- **Line-Length Guard SSOT Consolidation (`tools/`, `env_manager/hooks.py`,
+  `env_manager/line_length.py`)**:
+  - Relocated workspace `tools/check_line_lengths.py`, `fix_line_lengths.py`,
+    and `line_length_guard.py` into `lemgendary-env-manager/tools/`, replaced
+    duplicate guard code with a thin wrapper around `env_manager.line_length`,
+    and updated pre-commit hook paths across all repositories.
 - **Concurrent 5.0s Mesh Probing & Busy-Port Guard
   (`env_manager/api/routes_ecosystem.py`, `env_manager/service_manager.py`)**:
   - Increased sidecar health probe timeout from `1.0s`/`1.5s` to `5.0s`,

@@ -458,7 +458,10 @@ def run_check(files: list[Path], opts: GuardOptions, repo_root: Path) -> int:
         )
         print(f"  {rel}:{v.line_number}: line length {v.length} > {v.limit} | {preview}")
 
-    print("\n[REMEDIATION] Run 'python tools/line_length_guard.py fix' to auto-wrap lines.")
+    print(
+        "\n[REMEDIATION] Run 'python lemgendary-env-manager/tools/line_length_guard.py fix'"
+        " to auto-wrap lines."
+    )
     return 1
 
 

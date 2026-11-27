@@ -29,9 +29,9 @@ for BIN_DIR in "$ENV_MANAGER_DIR/.venv/Scripts" "$ENV_MANAGER_DIR/.venv/bin"; do
 done
 
 # Pre-flight check: instant line length validation on staged files (< 50ms)
-if [ -f "$WORKSPACE_ROOT/tools/check_line_lengths.py" ]; then
+if [ -f "$WORKSPACE_ROOT/lemgendary-env-manager/tools/check_line_lengths.py" ]; then
     HOOK_PY="${LEM_ENV_PY:-python}"
-    "$HOOK_PY" "$WORKSPACE_ROOT/tools/check_line_lengths.py" --staged
+    "$HOOK_PY" "$WORKSPACE_ROOT/lemgendary-env-manager/tools/check_line_lengths.py" --staged
     LL_EXIT=$?
     if [ $LL_EXIT -ne 0 ]; then
         echo "====================================================="
