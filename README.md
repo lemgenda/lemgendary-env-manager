@@ -1,4 +1,4 @@
-# LemGendary Environment Manager (v16.9.91-STABLE)
+# LemGendary Environment Manager (v16.9.97-STABLE)
 
 > **Autonomous Environment Governance and Sidecar Service for LemGendary AI
 > Suite.**

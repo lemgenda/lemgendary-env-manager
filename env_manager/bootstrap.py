@@ -21,7 +21,7 @@ from env_manager.utils import run_command_simple
 
 _log = get_logger(__name__)
 
-MIN_PYTHON = (3, 12)
+MIN_PYTHON: tuple[int, int] = (3, 14)
 """Oldest Python the ecosystem supports (``Path.walk``, ``rmtree(onexc=...)``, ``datetime.UTC``).
 
 Keep in sync with ``requires-python`` in ``pyproject.toml``.

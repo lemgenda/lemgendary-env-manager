@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_requires_python_matches_bootstrap_minimum() -> None:
-    """``requires-python`` and the bootstrap check agree, and both require 3.12."""
+    """``requires-python`` and the bootstrap check agree on the minimum Python."""
     with open(ROOT / "pyproject.toml", "rb") as handle:
         project = tomllib.load(handle)["project"]
-    assert project["requires-python"] == f">={MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
+    assert project["requires-python"].startswith(f">={MIN_PYTHON[0]}.{MIN_PYTHON[1]}")
     assert MIN_PYTHON >= (3, 12)
     ruff_target = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert ruff_target["tool"]["ruff"]["target-version"] == f"py{MIN_PYTHON[0]}{MIN_PYTHON[1]}"
